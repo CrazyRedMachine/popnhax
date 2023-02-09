@@ -29,6 +29,10 @@ uint8_t *add_string(uint8_t *input);
 struct popnhax_config config = {};
 
 PSMAP_BEGIN(config_psmap, static)
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, pfree,
+                 "/popnhax/pfree")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, hd_on_sd,
+                 "/popnhax/hd_on_sd")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlocks,
                  "/popnhax/force_unlocks")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, unset_volume,
@@ -166,6 +170,51 @@ void patch_string(const char *input_string, const char *new_string) {
         patch_memory(patch_addr, new_string_buff, strlen(new_string) + 1);
         free(new_string_buff);
     }
+}
+
+bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *replace, uint8_t replace_size) {
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
+    fuzzy_search_task task;
+
+    FUZZY_START(task, 1)
+    FUZZY_CODE(task, 0, find, find_size)
+
+    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    if (pattern_offset == -1) {
+        return false;
+    }
+
+#ifdef DEBUG
+	printf("BEFORE PATCH :\n");
+	uint8_t *offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
+	for (int i=0; i<32; i++)
+	{
+		printf("%02x ", *offset);
+		offset++;
+		if (i == 15)
+			printf("\n");
+	}
+#endif
+	
+    uint64_t patch_addr = (int64_t)data + pattern_offset + shift;
+    patch_memory(patch_addr, (char *)replace, replace_size);
+
+#ifdef DEBUG	
+	printf("AFTER PATCH :\n");
+	offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
+	for (int i=0; i<32; i++)
+	{
+		printf("%02x ", *offset);
+		offset++;
+		if (i == 15)
+			printf("\n");
+	}
+#endif
+
+	return true;
+
 }
 
 char *parse_patchdb(const char *input_filename, char *base_data) {
@@ -325,6 +374,168 @@ char *parse_patchdb(const char *input_filename, char *base_data) {
     }
 
     return target;
+}
+
+static bool patch_hd_on_sd(uint8_t mode) {
+	if (mode > 2)
+	{
+		printf("ponhax: HD on SD mode invalid value %d\n",mode);
+		return false;
+	}
+
+	/* set window to 640*480 */
+	if ( mode == 1 )
+	{
+		if (!patch_hex("\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x80\x02\x00\x00\xC3\xCC\xCC\xCC", 9)
+		&& !patch_hex("\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x80\x02\x00\x00\xC3\xCC\xCC\xCC", 9))
+		{
+			printf("popnhax: HD on SD: cannot find screen width function\n");
+			return false;
+		}
+
+		if (!patch_hex("\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\xE0\x01\x00\x00\xC3\xCC\xCC\xCC", 9))
+			printf("popnhax: HD on SD: cannot find screen height function\n");
+		
+		if (!patch_hex("\x84\xC0\x74\x0D\x8B\x4C", 6, 2, "\xEB", 1))
+			printf("popnhax: HD on SD: cannot find screen aspect ratio function\n");
+	}
+
+	if (!patch_hex("\x1B\xC9\x83\xE1\x95\x81\xC1\x86", 8, 5, "\x90\xB9", 2))
+		printf("popnhax: HD on SD: cannot patch gamecode position\n");	
+
+	if (!patch_hex("\x6a\x01\x6a\x00\x50\x8b\x06\x33\xff", 9, -7, "\x90\x90", 2))
+		printf("popnhax: HD on SD: cannot patch credit/network position\n");	
+
+    printf("popnhax: HD on SD mode %d",mode);
+
+    return true;
+}
+
+static bool patch_pfree() {
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
+    /* stop stage counter (2 matches, 1st one suffices) */
+    {
+		fuzzy_search_task task;
+	 
+		FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x83\xF8\x04\x77\x3E", 5)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+			printf("couldn't find stop stage counter\n");
+            return false;
+        }
+		
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
+        patch_memory(patch_addr, (char *)"\xC3\xCC\xCC\xCC\xCC", 5);
+    }
+
+    /* cleanup score and note stats */
+    char offset_from_base = 0x00;
+    char offset_from_stage1[2] = {0x00, 0x00};
+    int64_t child_fun_loc = 0;
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\x8D\x46\xFF\x83\xF8\x0A\x0F",
+                   7)
+
+        int64_t offset = find_block(data, dllSize, &task, 0);
+        if (offset == -1) {
+            printf("popnhax: pfree: failed to retrieve struct size and offset\n");
+            return false;
+        }
+        uint32_t child_fun_rel = *(uint32_t *) ((int64_t)data + offset - 0x04);
+        child_fun_loc = offset + child_fun_rel;
+    }
+
+    {        
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\xCB\x69",
+                   2)
+
+        int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
+        if (pattern_offset == -1) {
+            printf("popnhax: pfree: failed to retrieve offset from stage1 (child_fun_loc = %llx\n",child_fun_loc);
+            return false;
+        }
+
+        offset_from_stage1[0] = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
+        offset_from_stage1[1] = *(uint8_t *) ((int64_t)data + pattern_offset + 0x04);
+        //printf("popnhax: pfree: offset_from_stage1 is %02x %02x\n",offset_from_stage1[0],offset_from_stage1[1]);
+    }
+
+    {        
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\x8d\x74\x01",
+                   3)
+
+        int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
+        if (pattern_offset == -1) {
+            printf("popnhax: pfree: failed to retrieve offset from base\n");
+            return false;
+        }
+
+        offset_from_base = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
+        //printf("popnhax: pfree: offset_from_base is %02x\n",offset_from_base);
+    }
+
+    int64_t first_loc = 0;
+    /* cleanup score and stats part1 */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\xFE\x46\x0E\x80",
+                   4)
+
+        first_loc = find_block(data, dllSize, &task, 0);
+        if (first_loc == -1) {
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + first_loc;
+        patch_memory(patch_addr, (char *)"\x90\x90\x90", 3);
+    }
+
+    /* cleanup score and stats part2 */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\x83\xC4\x08\x8A",
+                   4)
+
+        int64_t pattern_offset = find_block(data, 0x40, &task, first_loc);
+        if (pattern_offset == -1) {
+			printf("EUARGH\n");
+            return false;
+        }
+
+        char patch_str[24] = "\x56\x57\x8D\x7E\x54\x8D\xB6\x58\x05\x00\x00\xB9\x98\x00\x00\x00\xF3\xA5\x5F\x5E\xC3\xCC\xCC";
+        patch_str[4] = offset_from_base;
+        patch_str[7] = offset_from_stage1[0] + offset_from_base;
+        patch_str[8] = offset_from_stage1[1];
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x03;
+        patch_memory(patch_addr, patch_str, 23);
+    }
+
+    printf("popnhax: premium free enabled\n");
+
+    return true;
 }
 
 static bool patch_database(bool force_unlocks) {
@@ -1030,6 +1241,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.unset_volume) {
             patch_unset_volume();
+        }
+
+	    if (config.pfree) {
+		    patch_pfree();
+	    }
+
+        if (config.hd_on_sd) {
+		    patch_hd_on_sd(config.hd_on_sd);
         }
 
         if (config.event_mode) {

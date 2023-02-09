@@ -4,6 +4,8 @@
 #include <stdbool.h>
 
 struct popnhax_config {
+    bool pfree;
+    uint8_t hd_on_sd;
     bool force_unlocks;
     bool unset_volume;
     bool event_mode;

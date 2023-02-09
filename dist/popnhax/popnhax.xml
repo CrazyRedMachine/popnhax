@@ -1,5 +1,9 @@
 <?xml version='1.0' encoding='shift-jis'?>
 <popnhax>
+  <!-- Premium free (unlimited stages per credit) -->
+  <pfree __type="bool">0</pfree>
+  <!-- HD on SD (0: no, 1: force 640x480 (for SD cab with CRT), 2: keep 768p but center text (for SD cab with LCD mod)) -->
+  <hd_on_sd __type="u8">0</hd_on_sd>
   <!-- Force unlock music, charts, characters, and deco parts -->
   <force_unlocks __type="bool">1</force_unlocks>
   <!-- Prevent Windows volume from being reset on boot -->
