@@ -25,10 +25,4 @@ $(BUILDDIR)/popnhax.zip: \
 	echo ... $@
 	zip -j $@ $^
 
-$(BUILDDIR)/bemanihax.zip: \
-		$(BUILDDIR)/popnhax.zip \
-		| $(zipdir)/
-	echo ... $@
-	zip -9 -q -j $@ $^
-
-all: $(BUILDDIR)/bemanihax.zip
+all: $(BUILDDIR)/popnhax.zip
