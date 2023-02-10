@@ -1,0 +1,26 @@
+<?xml version='1.0' encoding='shift-jis'?>
+<popnhax>
+  <!-- Force unlock music, charts, characters, and deco parts -->
+  <force_unlocks __type="bool">1</force_unlocks>
+  <!-- Prevent Windows volume from being reset on boot -->
+  <unset_volume __type="bool">0</unset_volume>
+  <!-- Force booting directly into event mode -->
+  <event_mode __type="bool">1</event_mode>
+  <!-- Remove the timer completely without event mode -->
+  <remove_timer __type="bool">0</remove_timer>
+  <!-- or Freeze the timer at 10 seconds after counting down -->
+  <freeze_timer __type="bool">0</freeze_timer>
+  <!-- Force skip menu and long note tutorials without a card -->
+  <skip_tutorials __type="bool">1</skip_tutorials>
+  <!-- Settings for database hooking patches follow: -->
+  <!-- Enable database modifications -->
+  <patch_db __type="bool">1</patch_db>
+  <!-- Force the newly created buffers to be the same size as the original buffers -->
+  <disable_expansions __type="bool">0</disable_expansions>
+  <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
+  <disable_redirection __type="bool">0</disable_redirection>
+  <!-- Autoload latest patch file (highest datecode) from data_mods folder -->
+  <patch_xml_auto __type="bool">1</patch_xml_auto>
+  <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
+  <patch_xml_filename __type="str"></patch_xml_filename>
+</popnhax>
