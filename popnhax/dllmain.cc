@@ -187,33 +187,33 @@ bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *r
     }
 
 #ifdef DEBUG
-	printf("BEFORE PATCH :\n");
-	uint8_t *offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
-	for (int i=0; i<32; i++)
-	{
-		printf("%02x ", *offset);
-		offset++;
-		if (i == 15)
-			printf("\n");
-	}
+    printf("BEFORE PATCH :\n");
+    uint8_t *offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
+    for (int i=0; i<32; i++)
+    {
+        printf("%02x ", *offset);
+        offset++;
+        if (i == 15)
+            printf("\n");
+    }
 #endif
-	
+    
     uint64_t patch_addr = (int64_t)data + pattern_offset + shift;
     patch_memory(patch_addr, (char *)replace, replace_size);
 
-#ifdef DEBUG	
-	printf("AFTER PATCH :\n");
-	offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
-	for (int i=0; i<32; i++)
-	{
-		printf("%02x ", *offset);
-		offset++;
-		if (i == 15)
-			printf("\n");
-	}
+#ifdef DEBUG    
+    printf("\nAFTER PATCH :\n");
+    offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
+    for (int i=0; i<32; i++)
+    {
+        printf("%02x ", *offset);
+        offset++;
+        if (i == 15)
+            printf("\n");
+    }
 #endif
 
-	return true;
+    return true;
 
 }
 
@@ -377,36 +377,36 @@ char *parse_patchdb(const char *input_filename, char *base_data) {
 }
 
 static bool patch_hd_on_sd(uint8_t mode) {
-	if (mode > 2)
-	{
-		printf("ponhax: HD on SD mode invalid value %d\n",mode);
-		return false;
-	}
+    if (mode > 2)
+    {
+        printf("ponhax: HD on SD mode invalid value %d\n",mode);
+        return false;
+    }
 
-	/* set window to 640*480 */
-	if ( mode == 1 )
-	{
-		if (!patch_hex("\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x80\x02\x00\x00\xC3\xCC\xCC\xCC", 9)
-		&& !patch_hex("\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x80\x02\x00\x00\xC3\xCC\xCC\xCC", 9))
-		{
-			printf("popnhax: HD on SD: cannot find screen width function\n");
-			return false;
-		}
+    /* set window to 640*480 */
+    if ( mode == 1 )
+    {
+        if (!patch_hex("\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x80\x02\x00\x00\xC3\xCC\xCC\xCC", 9)
+        && !patch_hex("\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x80\x02\x00\x00\xC3\xCC\xCC\xCC", 9))
+        {
+            printf("popnhax: HD on SD: cannot find screen width function\n");
+            return false;
+        }
 
-		if (!patch_hex("\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\xE0\x01\x00\x00\xC3\xCC\xCC\xCC", 9))
-			printf("popnhax: HD on SD: cannot find screen height function\n");
-		
-		if (!patch_hex("\x84\xC0\x74\x0D\x8B\x4C", 6, 2, "\xEB", 1))
-			printf("popnhax: HD on SD: cannot find screen aspect ratio function\n");
-	}
+        if (!patch_hex("\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\xE0\x01\x00\x00\xC3\xCC\xCC\xCC", 9))
+            printf("popnhax: HD on SD: cannot find screen height function\n");
 
-	if (!patch_hex("\x1B\xC9\x83\xE1\x95\x81\xC1\x86", 8, 5, "\x90\xB9", 2))
-		printf("popnhax: HD on SD: cannot patch gamecode position\n");	
+        if (!patch_hex("\x8B\x54\x24\x20\x53\x51\x52\xEB\x0C", 9, -6, "\xEB", 1))
+            printf("popnhax: HD on SD: cannot find screen aspect ratio function\n");
+    }
 
-	if (!patch_hex("\x6a\x01\x6a\x00\x50\x8b\x06\x33\xff", 9, -7, "\x90\x90", 2))
-		printf("popnhax: HD on SD: cannot patch credit/network position\n");	
+    if (!patch_hex("\x1B\xC9\x83\xE1\x95\x81\xC1\x86", 8, 5, "\x90\xB9", 2))
+        printf("popnhax: HD on SD: cannot patch gamecode position\n");    
 
-    printf("popnhax: HD on SD mode %d",mode);
+    if (!patch_hex("\x6a\x01\x6a\x00\x50\x8b\x06\x33\xff", 9, -7, "\x90\x90", 2))
+        printf("popnhax: HD on SD: cannot patch credit/network position\n");    
+
+    printf("popnhax: HD on SD mode %d\n",mode);
 
     return true;
 }
@@ -417,17 +417,16 @@ static bool patch_pfree() {
 
     /* stop stage counter (2 matches, 1st one suffices) */
     {
-		fuzzy_search_task task;
-	 
-		FUZZY_START(task, 1)
+        fuzzy_search_task task;
+        FUZZY_START(task, 1)
         FUZZY_CODE(task, 0, "\x83\xF8\x04\x77\x3E", 5)
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-			printf("couldn't find stop stage counter\n");
+            printf("couldn't find stop stage counter\n");
             return false;
         }
-		
+
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
         patch_memory(patch_addr, (char *)"\xC3\xCC\xCC\xCC\xCC", 5);
     }
@@ -447,13 +446,17 @@ static bool patch_pfree() {
         int64_t offset = find_block(data, dllSize, &task, 0);
         if (offset == -1) {
             printf("popnhax: pfree: failed to retrieve struct size and offset\n");
-            return false;
+            /* best effort for older games compatibility (works with eclale) */
+            offset_from_base = 0x54;
+            offset_from_stage1[0] = 0x04;
+            offset_from_stage1[1] = 0x05;
+            goto pfree_apply;
         }
         uint32_t child_fun_rel = *(uint32_t *) ((int64_t)data + offset - 0x04);
         child_fun_loc = offset + child_fun_rel;
     }
 
-    {        
+    {
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
@@ -472,7 +475,7 @@ static bool patch_pfree() {
         //printf("popnhax: pfree: offset_from_stage1 is %02x %02x\n",offset_from_stage1[0],offset_from_stage1[1]);
     }
 
-    {        
+    {
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
@@ -490,6 +493,7 @@ static bool patch_pfree() {
         //printf("popnhax: pfree: offset_from_base is %02x\n",offset_from_base);
     }
 
+pfree_apply:
     int64_t first_loc = 0;
     /* cleanup score and stats part1 */
     {
@@ -502,6 +506,7 @@ static bool patch_pfree() {
 
         first_loc = find_block(data, dllSize, &task, 0);
         if (first_loc == -1) {
+        printf("popnhax: pfree: cannot find stage update function\n");
             return false;
         }
 
@@ -520,7 +525,7 @@ static bool patch_pfree() {
 
         int64_t pattern_offset = find_block(data, 0x40, &task, first_loc);
         if (pattern_offset == -1) {
-			printf("EUARGH\n");
+        printf("popnhax: pfree: cannot find stage update function\n");
             return false;
         }
 
@@ -563,7 +568,7 @@ static bool patch_database(bool force_unlocks) {
     char *target;
 
     if (config.patch_xml_auto) {
-        const char *filename = NULL;	
+        const char *filename = NULL;    
         SearchFile s;
         uint8_t *datecode = NULL;
         bool found = false;
@@ -1243,12 +1248,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_unset_volume();
         }
 
-	    if (config.pfree) {
-		    patch_pfree();
-	    }
+        if (config.pfree) {
+            patch_pfree();
+        }
 
         if (config.hd_on_sd) {
-		    patch_hd_on_sd(config.hd_on_sd);
+            patch_hd_on_sd(config.hd_on_sd);
         }
 
         if (config.event_mode) {
