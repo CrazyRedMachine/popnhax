@@ -24,11 +24,60 @@
 
 #include "SearchFile.h"
 
+#define DEBUG 0
+
+#if DEBUG == 1
+double g_multiplier = 1.;
+DWORD (*real_timeGetTime)();
+DWORD patch_timeGetTime()
+{
+ static DWORD last_real = 0;
+ static DWORD cumul_offset = 0;
+ 
+ if (last_real == 0)
+ {
+     last_real = real_timeGetTime()*g_multiplier;
+     return last_real;
+ }
+ 
+ DWORD real = real_timeGetTime()*g_multiplier;
+ DWORD elapsed = real-last_real;
+ if (elapsed > 16) cumul_offset+= elapsed;
+
+ last_real = real; 
+ return real - cumul_offset;
+ 
+}
+
+bool patch_get_time()
+{
+    HMODULE hinstLib = GetModuleHandleA("winmm.dll");
+    MH_CreateHook((LPVOID)GetProcAddress(hinstLib, "timeGetTime"), (LPVOID)patch_timeGetTime,
+                      (void **)&real_timeGetTime);        
+    return true;
+}
+
+static void memdump(uint8_t* addr, uint8_t len)
+{
+    printf("MEMDUMP  :\n");
+    for (int i=0; i<len; i++)
+    {
+        printf("%02x ", *addr);
+        addr++;
+        if ((i+1)%16 == 0)
+            printf("\n");
+    }
+    
+}
+#endif
+
 uint8_t *add_string(uint8_t *input);
 
 struct popnhax_config config = {};
 
 PSMAP_BEGIN(config_psmap, static)
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hidden_is_offset,
+                 "/popnhax/hidden_is_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, pfree,
                  "/popnhax/pfree")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, hd_on_sd,
@@ -99,6 +148,109 @@ void omnimix_patch_jbx() {
     __asm("mov al, 'X'\n");
     __asm("mov byte [edi+4], al\n");
     real_omnimix_patch_jbx();
+}
+
+void (*real_game_loop)();
+void quickexit_game_loop()
+{
+    __asm("push ebx\n");
+    __asm("mov ebx, dword ptr [0x12345678]\n"); /* placeholder value, will be set to addr_icca afterwards */
+    __asm("add ebx, 0xAC\n");
+    __asm("mov ebx, [ebx]\n");
+    __asm("shr ebx, 16\n");
+    __asm("cmp bl, 8\n");
+    __asm("jne call_real\n");
+    __asm("mov eax, 1\n");
+    __asm("pop ebx\n");
+    __asm("ret\n");
+    __asm("call_real:\n");
+    __asm("pop ebx\n");
+    real_game_loop();
+}
+
+uint32_t g_transition_addr = 0;
+uint32_t g_stage_addr = 0;
+void (*real_result_loop)();
+void quickexit_result_loop()
+{
+    //__asm("push ebx\n"); //handled by :"b"
+    __asm("mov ebx, dword ptr [0x12345678]\n"); /* placeholder value, will be set to addr_icca afterwards */
+    __asm("add ebx, 0xAC\n");
+    __asm("mov ebx, [ebx]\n");
+    __asm("shr ebx, 16\n");
+    __asm("cmp bl, 8\n");
+    __asm("jne call_real_result\n");
+    
+    /* set value 5 in g_stage_addr and -4 in g_transition_addr */
+    __asm("mov ebx, %0\n": :"b"(g_stage_addr));
+    __asm("mov dword ptr[ebx], 5\n");
+    __asm("mov ebx, %0\n": :"b"(g_transition_addr));
+    __asm("mov dword ptr[ebx], 0xFFFFFFFC\n");
+
+    __asm("call_real_result:\n");
+    //__asm("pop ebx\n"); //handled by :"b"
+    real_result_loop();
+}
+
+bool g_timing_require_update = false;
+
+void (*real_set_timing_func)();
+void modded_set_timing_func()
+{
+    if (!g_timing_require_update)
+    {
+        real_set_timing_func();
+        return;
+    }
+    __asm("add [0x12345678], eax\n"); /* placeholder value, updated later */
+    g_timing_require_update = false;
+    return;
+}
+
+void (*real_commit_options)();
+void hidden_is_offset_commit_options()
+{
+    __asm("push eax\n");
+    /* check if hidden active */
+    __asm("xor eax, eax\n");
+    __asm("mov eax, [esi]\n");
+    __asm("shr eax, 0x18\n"); 
+    __asm("cmp eax, 1\n");
+    __asm("jne call_real_commit\n");
+
+    /* disable hidden ingame */
+    __asm("movzx ecx, cx\n"); // -kaimei
+    __asm("movzx edx, dx\n"); //  unilab
+    
+    /* flag timing for update */
+    g_timing_require_update = true;
+    
+    /* write into timing offset */
+    __asm("movsx eax, word ptr [esi+4]\n");
+    __asm("neg eax\n");
+    
+    /* leave room for rewriting (done in patch_hidden_is_offset()) */
+    __asm("nop\n");
+    __asm("nop\n");
+    __asm("nop\n");
+    __asm("nop\n");
+    __asm("nop\n");
+    
+    /* quit */
+    __asm("call_real_commit:\n");
+    __asm("pop eax\n");
+    real_commit_options();
+}
+
+void (*real_stage_update)();
+void hook_stage_update()
+{
+    //__asm("push ebx\n"); //handled by :"=b"
+    __asm("mov ebx, dword ptr [esi+0x14]\n");
+    __asm("lea ebx, [ebx+0xC]\n");
+    __asm("mov %0, ebx\n":"=b"(g_transition_addr): :);
+    //__asm("pop ebx\n");
+    //__asm("ret\n");    
 }
 
 void (*real_check_music_idx)();
@@ -186,7 +338,7 @@ bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *r
         return false;
     }
 
-#ifdef DEBUG
+#if DEBUG == 1
     printf("BEFORE PATCH :\n");
     uint8_t *offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
     for (int i=0; i<32; i++)
@@ -201,7 +353,7 @@ bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *r
     uint64_t patch_addr = (int64_t)data + pattern_offset + shift;
     patch_memory(patch_addr, (char *)replace, replace_size);
 
-#ifdef DEBUG    
+#if DEBUG == 1
     printf("\nAFTER PATCH :\n");
     offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
     for (int i=0; i<32; i++)
@@ -374,173 +526,6 @@ char *parse_patchdb(const char *input_filename, char *base_data) {
     }
 
     return target;
-}
-
-static bool patch_hd_on_sd(uint8_t mode) {
-    if (mode > 2)
-    {
-        printf("ponhax: HD on SD mode invalid value %d\n",mode);
-        return false;
-    }
-
-    /* set window to 640*480 */
-    if ( mode == 1 )
-    {
-        if (!patch_hex("\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x80\x02\x00\x00\xC3\xCC\xCC\xCC", 9)
-        && !patch_hex("\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x80\x02\x00\x00\xC3\xCC\xCC\xCC", 9))
-        {
-            printf("popnhax: HD on SD: cannot find screen width function\n");
-            return false;
-        }
-
-        if (!patch_hex("\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\xE0\x01\x00\x00\xC3\xCC\xCC\xCC", 9))
-            printf("popnhax: HD on SD: cannot find screen height function\n");
-
-        if (!patch_hex("\x8B\x54\x24\x20\x53\x51\x52\xEB\x0C", 9, -6, "\xEB", 1))
-            printf("popnhax: HD on SD: cannot find screen aspect ratio function\n");
-    }
-
-    if (!patch_hex("\x1B\xC9\x83\xE1\x95\x81\xC1\x86", 8, 5, "\x90\xB9", 2))
-        printf("popnhax: HD on SD: cannot patch gamecode position\n");    
-
-    if (!patch_hex("\x6a\x01\x6a\x00\x50\x8b\x06\x33\xff", 9, -7, "\x90\x90", 2))
-        printf("popnhax: HD on SD: cannot patch credit/network position\n");    
-
-    printf("popnhax: HD on SD mode %d\n",mode);
-
-    return true;
-}
-
-static bool patch_pfree() {
-    DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
-
-    /* stop stage counter (2 matches, 1st one suffices) */
-    {
-        fuzzy_search_task task;
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x83\xF8\x04\x77\x3E", 5)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-        if (pattern_offset == -1) {
-            printf("couldn't find stop stage counter\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
-        patch_memory(patch_addr, (char *)"\xC3\xCC\xCC\xCC\xCC", 5);
-    }
-
-    /* cleanup score and note stats */
-    char offset_from_base = 0x00;
-    char offset_from_stage1[2] = {0x00, 0x00};
-    int64_t child_fun_loc = 0;
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\x8D\x46\xFF\x83\xF8\x0A\x0F",
-                   7)
-
-        int64_t offset = find_block(data, dllSize, &task, 0);
-        if (offset == -1) {
-            printf("popnhax: pfree: failed to retrieve struct size and offset\n");
-            /* best effort for older games compatibility (works with eclale) */
-            offset_from_base = 0x54;
-            offset_from_stage1[0] = 0x04;
-            offset_from_stage1[1] = 0x05;
-            goto pfree_apply;
-        }
-        uint32_t child_fun_rel = *(uint32_t *) ((int64_t)data + offset - 0x04);
-        child_fun_loc = offset + child_fun_rel;
-    }
-
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\xCB\x69",
-                   2)
-
-        int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
-        if (pattern_offset == -1) {
-            printf("popnhax: pfree: failed to retrieve offset from stage1 (child_fun_loc = %llx\n",child_fun_loc);
-            return false;
-        }
-
-        offset_from_stage1[0] = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
-        offset_from_stage1[1] = *(uint8_t *) ((int64_t)data + pattern_offset + 0x04);
-        //printf("popnhax: pfree: offset_from_stage1 is %02x %02x\n",offset_from_stage1[0],offset_from_stage1[1]);
-    }
-
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\x8d\x74\x01",
-                   3)
-
-        int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
-        if (pattern_offset == -1) {
-            printf("popnhax: pfree: failed to retrieve offset from base\n");
-            return false;
-        }
-
-        offset_from_base = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
-        //printf("popnhax: pfree: offset_from_base is %02x\n",offset_from_base);
-    }
-
-pfree_apply:
-    int64_t first_loc = 0;
-    /* cleanup score and stats part1 */
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\xFE\x46\x0E\x80",
-                   4)
-
-        first_loc = find_block(data, dllSize, &task, 0);
-        if (first_loc == -1) {
-        printf("popnhax: pfree: cannot find stage update function\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + first_loc;
-        patch_memory(patch_addr, (char *)"\x90\x90\x90", 3);
-    }
-
-    /* cleanup score and stats part2 */
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\x83\xC4\x08\x8A",
-                   4)
-
-        int64_t pattern_offset = find_block(data, 0x40, &task, first_loc);
-        if (pattern_offset == -1) {
-        printf("popnhax: pfree: cannot find stage update function\n");
-            return false;
-        }
-
-        char patch_str[24] = "\x56\x57\x8D\x7E\x54\x8D\xB6\x58\x05\x00\x00\xB9\x98\x00\x00\x00\xF3\xA5\x5F\x5E\xC3\xCC\xCC";
-        patch_str[4] = offset_from_base;
-        patch_str[7] = offset_from_stage1[0] + offset_from_base;
-        patch_str[8] = offset_from_stage1[1];
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x03;
-        patch_memory(patch_addr, patch_str, 23);
-    }
-
-    printf("popnhax: premium free enabled\n");
-
-    return true;
 }
 
 static bool patch_database(bool force_unlocks) {
@@ -1233,6 +1218,421 @@ static bool patch_unlocks_offline() {
     return true;
 }
 
+/* helper function to retrieve numpad status address */
+static bool get_addr_icca(uint32_t *res)
+{
+    static uint32_t addr = 0;
+    
+    if (addr != 0)
+    {
+            *res = addr;
+            return true;
+    }
+    
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
+    fuzzy_search_task task;
+
+    FUZZY_START(task, 1)
+    FUZZY_CODE(task, 0, "\xE8\x4B\x14\x00\x00\x84\xC0\x74\x03\x33\xC0\xC3\x8B\x0D", 14)
+    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    if (pattern_offset == -1) {
+        return false;
+    }
+
+    addr = *(uint32_t *) ((int64_t)data + pattern_offset + 14);
+#if DEBUG == 1
+    printf("ICCA MEMORYZONE %x\n", addr);
+#endif
+    *res = addr;
+    return true;
+}
+
+/* helper function to retrieve timing offset global var address */
+static bool get_addr_timing_offset(uint32_t *res)
+{
+    static uint32_t addr = 0;
+    
+    if (addr != 0)
+    {
+            *res = addr;
+            return true;
+    }
+    
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
+    fuzzy_search_task task;
+
+    FUZZY_START(task, 1)
+    FUZZY_CODE(task, 0, "\xB8\xB4\xFF\xFF\xFF", 5)
+
+    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    if (pattern_offset == -1) {
+            return false;
+    }
+
+    uint32_t offset_delta = *(uint32_t *) ((int64_t)data + pattern_offset + 6);
+    addr = *(uint32_t *) (((int64_t)data + pattern_offset + 10) + offset_delta + 1);
+#if DEBUG == 1 
+    printf("OFFSET MEMORYZONE %x\n", addr);
+#endif
+    *res = addr;
+    return true;
+}
+
+static bool patch_hidden_is_offset()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+    uint32_t timing_addr = 0;
+    if (!get_addr_timing_offset(&timing_addr))
+    {
+        printf("popnhax: hidden is offset: cannot find timing offset address\n");
+        return false;
+    }
+    
+    /* patch option commit to store hidden value directly as offset */
+    {
+        /* add correct address to hook function */
+        char eax_to_offset[6] = "\xA3\x00\x00\x00\x00";
+        uint32_t *cast_code = (uint32_t*) &eax_to_offset[1];
+        *cast_code = timing_addr;
+        
+        int64_t hiddencommitoptionaddr = (int64_t)&hidden_is_offset_commit_options;
+        uint8_t *patch_str = (uint8_t*) hiddencommitoptionaddr;
+        
+        uint8_t placeholder_offset = 0;
+        while (patch_str[placeholder_offset] != 0x90 && patch_str[placeholder_offset+1] != 0x90)
+            placeholder_offset++;
+        
+        patch_memory(hiddencommitoptionaddr+placeholder_offset+1, eax_to_offset, 5);
+        
+        /* find option commit function (unilab) */
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8)
+        uint8_t shift = 6;
+        
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            /* wasn't found, look for older function */
+            fuzzy_search_task fallbacktask;
+
+            FUZZY_START(fallbacktask, 1)
+            FUZZY_CODE(fallbacktask, 0, "\x0F\xB6\xC3\x03\xCF\x8D", 6)
+            pattern_offset = find_block(data, dllSize, &fallbacktask, 0);
+            shift = 14;
+            
+            if (pattern_offset == -1) {
+                printf("popnhax: hidden is offset: cannot find address\n");
+                return false;
+            }
+        #if DEBUG == 1
+            printf("popnhax: hidden is offset: appears to be kaimei or less\n");
+        #endif
+        }
+        
+        uint64_t patch_addr = (int64_t)data + pattern_offset + shift;
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hidden_is_offset_commit_options,
+                      (void **)&real_commit_options);
+    }
+    
+    /* turn "set offset" into an elaborate "sometimes add to offset" to use our hidden+ value as adjust */        
+    {
+        char set_offset_fun[6] = "\xA3\x00\x00\x00\x00";
+        uint32_t *cast_code = (uint32_t*) &set_offset_fun[1];
+        *cast_code = timing_addr;
+        
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, set_offset_fun, 5)
+        
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: hidden is offset: cannot find offset update function\n");
+            return false;
+        }
+        
+        int64_t modded_set_timing_func_addr = (int64_t)&modded_set_timing_func;
+        patch_memory(modded_set_timing_func_addr+11, (char*)&timing_addr, 4);
+        
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)modded_set_timing_func,
+                      (void **)&real_set_timing_func);        
+                      
+    }
+    
+    printf("popnhax: hidden is offset: hidden is now an offset adjust\n");
+    return true;
+}
+
+static bool patch_pfree() {
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
+    /* stop stage counter (2 matches, 1st one is the good one) */
+    {
+        fuzzy_search_task task;
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x83\xF8\x04\x77\x3E", 5)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("couldn't find stop stage counter\n");
+            return false;
+        }
+    
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
+        g_stage_addr = *(uint32_t*)(patch_addr+1);
+
+        /* hook to retrieve address for exit to thank you for playing screen */
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update,
+                     (void **)&real_stage_update);
+                          
+    }
+
+    /* retrieve memory zone parameters to prepare for cleanup */
+    char offset_from_base = 0x00;
+    char offset_from_stage1[2] = {0x00, 0x00};
+    int64_t child_fun_loc = 0;
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\x8D\x46\xFF\x83\xF8\x0A\x0F",
+                   7)
+
+        int64_t offset = find_block(data, dllSize, &task, 0);
+        if (offset == -1) {
+        #if DEBUG == 1
+            printf("popnhax: pfree: failed to retrieve struct size and offset\n");
+        #endif
+            /* best effort for older games compatibility (works with eclale) */
+            offset_from_base = 0x54;
+            offset_from_stage1[0] = 0x04;
+            offset_from_stage1[1] = 0x05;
+            goto pfree_apply;
+        }
+        uint32_t child_fun_rel = *(uint32_t *) ((int64_t)data + offset - 0x04);
+        child_fun_loc = offset + child_fun_rel;
+    }
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\xCB\x69",
+                   2)
+
+        int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
+        if (pattern_offset == -1) {
+            printf("popnhax: pfree: failed to retrieve offset from stage1 (child_fun_loc = %llx\n",child_fun_loc);
+            return false;
+        }
+
+        offset_from_stage1[0] = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
+        offset_from_stage1[1] = *(uint8_t *) ((int64_t)data + pattern_offset + 0x04);
+        #if DEBUG == 1
+            printf("popnhax: pfree: offset_from_stage1 is %02x %02x\n",offset_from_stage1[0],offset_from_stage1[1]);
+        #endif
+    }
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\x8d\x74\x01",
+                   3)
+
+        int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
+        if (pattern_offset == -1) {
+            printf("popnhax: pfree: failed to retrieve offset from base\n");
+            return false;
+        }
+
+        offset_from_base = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
+        #if DEBUG == 1
+            printf("popnhax: pfree: offset_from_base is %02x\n",offset_from_base);
+        #endif
+    }
+
+pfree_apply:
+    int64_t first_loc = 0;
+    /* cleanup score and stats part1 */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\xFE\x46\x0E\x80",
+                   4)
+
+        first_loc = find_block(data, dllSize, &task, 0);
+        if (first_loc == -1) {
+        printf("popnhax: pfree: cannot find stage update function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + first_loc;
+        patch_memory(patch_addr, (char *)"\x90\x90\x90", 3);
+    }
+
+    /* cleanup score and stats part2 */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\x83\xC4\x08\x8A",
+                   4)
+
+        int64_t pattern_offset = find_block(data, 0x40, &task, first_loc);
+        if (pattern_offset == -1) {
+        printf("popnhax: pfree: cannot find stage update function\n");
+            return false;
+        }
+
+        char patch_str[24] = "\x56\x57\x8D\x7E\x54\x8D\xB6\x58\x05\x00\x00\xB9\x98\x00\x00\x00\xF3\xA5\x5F\x5E\xC3\xCC\xCC";
+        patch_str[4] = offset_from_base;
+        patch_str[7] = offset_from_stage1[0] + offset_from_base;
+        patch_str[8] = offset_from_stage1[1];
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x03;
+        patch_memory(patch_addr, patch_str, 23);
+    }
+
+    /* hook numpad for instant quit song */    
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x55\x8B\xEC\x83\xE4\xF8\x83\xEC\x08\x0F\xBF\x05", 12)
+        
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        
+        if (pattern_offset == -1) {
+            printf("popnhax: cannot retrieve song loop\n");
+            printf("popnhax: premium free enabled (no quick exit)\n");
+            return true;
+        }
+        
+        uint32_t addr_icca;
+        if (!get_addr_icca(&addr_icca))
+        {
+            printf("popnhax: cannot retrieve ICCA address for numpad hook\n");
+            printf("popnhax: premium free enabled (no quick exit)\n");
+            return true;
+        }
+
+        int64_t quickexitaddr = (int64_t)&quickexit_game_loop;
+        patch_memory(quickexitaddr+3, (char *)&addr_icca, 4);
+        
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_game_loop,
+                      (void **)&real_game_loop);
+    }
+    
+    /* hook numpad in result screen to quit pfree */    
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\xF8\x53\x55\x56\x57\x8B\xE9\x8B\x75\x00\x8B\x85", 12)
+        
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        
+        if (pattern_offset == -1) {
+            printf("popnhax: cannot retrieve result screen loop\n");
+            printf("popnhax: premium free enabled (no quick exit)\n");
+            return true;
+        }
+        
+        uint32_t addr_icca;
+        if (!get_addr_icca(&addr_icca))
+        {
+            printf("popnhax: cannot retrieve ICCA address for numpad hook\n");
+            printf("popnhax: premium free enabled (no quick exit)\n");
+            return true;
+        }
+
+        int64_t quickexitaddr = (int64_t)&quickexit_result_loop;
+        patch_memory(quickexitaddr+3, (char *)&addr_icca, 4);
+        
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_loop,
+                      (void **)&real_result_loop);
+    }
+    
+    printf("popnhax: premium free enabled (with quick exit)\n");
+
+    return true;
+}
+
+static bool patch_base_offset(int32_t value) {
+    char *as_hex = (char *) &value;
+    bool res = true;
+    
+    /* call get_addr_timing_offset() so that it can still work after timing value is overwritten */
+    uint32_t original_timing;
+    get_addr_timing_offset(&original_timing);
+
+    if (!patch_hex("\xB8\xC4\xFF\xFF\xFF", 5, 1, as_hex, 4))
+    {
+        printf("popnhax: base offset: cannot patch base SD timing\n");
+        res = false;
+    }
+    
+    if (!patch_hex("\xB8\xB4\xFF\xFF\xFF", 5, 1, as_hex, 4))
+    {
+        printf("popnhax: base offset: cannot patch base HD timing\n");
+        res = false;
+    }
+    
+    return res;
+}
+
+static bool patch_hd_on_sd(uint8_t mode) {
+    if (mode > 2)
+    {
+        printf("ponhax: HD on SD mode invalid value %d\n",mode);
+        return false;
+    }
+
+    if (!patch_base_offset(-76))
+    {
+        printf("popnhax: HD on SD: cannot set HD offset\n");
+        return false;
+    }
+        
+    /* set window to 1360*768 */
+    if ( mode == 2 )
+    {
+        if (!patch_hex("\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9)
+        && !patch_hex("\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9))
+        {
+            printf("popnhax: HD on SD: cannot find screen width function\n");
+            return false;
+        }
+
+        if (!patch_hex("\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\x00\x03\x00\x00\xC3\xCC\xCC\xCC", 9))
+            printf("popnhax: HD on SD: cannot find screen height function\n");
+
+        if (!patch_hex("\x8B\x54\x24\x20\x53\x51\x52\xEB\x0C", 9, -6, "\x90\x90", 2))
+            printf("popnhax: HD on SD: cannot find screen aspect ratio function\n");
+    }
+
+    printf("popnhax: HD on SD mode %d\n",mode);
+
+    return true;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -1255,7 +1655,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (config.hd_on_sd) {
             patch_hd_on_sd(config.hd_on_sd);
         }
-
+                
+        if (config.hidden_is_offset){
+            patch_hidden_is_offset();
+        }
+            
         if (config.event_mode) {
             patch_event_mode();
         }
@@ -1286,6 +1690,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_unlocks_offline();
             force_unlock_deco_parts();
         }
+
+        //patch_get_time();
 
         MH_EnableHook(MH_ALL_HOOKS);
 

@@ -1,8 +1,10 @@
 <?xml version='1.0' encoding='shift-jis'?>
 <popnhax>
-  <!-- Premium free (unlimited stages per credit) -->
+  <!-- Hidden+ setting (press 0 for advanced options) is now an offset adjust (positive means you have to hit earlier) -->
+  <hidden_is_offset __type="bool">0</hidden_is_offset>
+  <!-- Premium free (unlimited stages per credit), press numpad 9 to exit song, or on result screen to exit pfree -->
   <pfree __type="bool">0</pfree>
-  <!-- HD on SD (0: no, 1: force 640x480 (for SD cab with CRT), 2: keep 768p but center text (for SD cab with LCD mod)) -->
+  <!-- HD timing for pcb_type=0 (0: no, 1: force HD timing offset (for SD cab with CRT), 2: also set resolution to 768p but center text (for SD cab with LCD mod)) -->
   <hd_on_sd __type="u8">0</hd_on_sd>
   <!-- Force unlock music, charts, characters, and deco parts -->
   <force_unlocks __type="bool">1</force_unlocks>

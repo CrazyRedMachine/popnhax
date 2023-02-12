@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 struct popnhax_config {
+    bool hidden_is_offset;
     bool pfree;
     uint8_t hd_on_sd;
     bool force_unlocks;
