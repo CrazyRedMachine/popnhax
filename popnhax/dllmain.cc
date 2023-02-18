@@ -80,6 +80,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hidden_is_offs
                  "/popnhax/hidden_is_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, pfree,
                  "/popnhax/pfree")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, quick_retire,
+                 "/popnhax/quick_retire")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, hd_on_sd,
                  "/popnhax/hd_on_sd")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlocks,
@@ -219,8 +221,8 @@ void hidden_is_offset_commit_options()
     __asm("jne call_real_commit\n");
 
     /* disable hidden ingame */
-    __asm("movzx ecx, cx\n"); // -kaimei
-    __asm("movzx edx, dx\n"); //  unilab
+    __asm("and ecx, 0x00FFFFFF\n"); // -kaimei
+    __asm("and edx, 0x00FFFFFF\n"); //  unilab
     
     /* flag timing for update */
     g_timing_require_update = true;
@@ -1508,6 +1510,16 @@ pfree_apply:
         patch_memory(patch_addr, patch_str, 23);
     }
 
+    printf("popnhax: premium free enabled\n");
+
+    return true;
+}
+
+static bool patch_quick_retire()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
     /* hook numpad for instant quit song */    
     {
         fuzzy_search_task task;
@@ -1519,16 +1531,14 @@ pfree_apply:
         
         if (pattern_offset == -1) {
             printf("popnhax: cannot retrieve song loop\n");
-            printf("popnhax: premium free enabled (no quick exit)\n");
-            return true;
+            return false;
         }
         
         uint32_t addr_icca;
         if (!get_addr_icca(&addr_icca))
         {
             printf("popnhax: cannot retrieve ICCA address for numpad hook\n");
-            printf("popnhax: premium free enabled (no quick exit)\n");
-            return true;
+            return false;
         }
 
         int64_t quickexitaddr = (int64_t)&quickexit_game_loop;
@@ -1550,16 +1560,14 @@ pfree_apply:
         
         if (pattern_offset == -1) {
             printf("popnhax: cannot retrieve result screen loop\n");
-            printf("popnhax: premium free enabled (no quick exit)\n");
-            return true;
+            return false;
         }
         
         uint32_t addr_icca;
         if (!get_addr_icca(&addr_icca))
         {
             printf("popnhax: cannot retrieve ICCA address for numpad hook\n");
-            printf("popnhax: premium free enabled (no quick exit)\n");
-            return true;
+            return false;
         }
 
         int64_t quickexitaddr = (int64_t)&quickexit_result_loop;
@@ -1569,9 +1577,8 @@ pfree_apply:
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_loop,
                       (void **)&real_result_loop);
     }
-    
-    printf("popnhax: premium free enabled (with quick exit)\n");
-
+	
+    printf("popnhax: quick retire enabled\n");
     return true;
 }
 
@@ -1650,6 +1657,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.pfree) {
             patch_pfree();
+        }
+
+        if (config.quick_retire) {
+            patch_quick_retire();
         }
 
         if (config.hd_on_sd) {
