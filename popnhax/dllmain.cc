@@ -530,10 +530,48 @@ char *parse_patchdb(const char *input_filename, char *base_data) {
     return target;
 }
 
+static bool patch_purelong()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x80\x1A\x06\x00\x83\xFA\x08\x77\x08", 9)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: Couldn't find score increment function\n");
+            return false;
+        }
+        
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 24;
+        uint8_t *patch_str = (uint8_t *) patch_addr;
+        
+        DWORD old_prot;
+        VirtualProtect((LPVOID)patch_str, 20, PAGE_EXECUTE_READWRITE, &old_prot);
+        for (int i=12; i>=0; i--)
+        {
+            patch_str[i+1] = patch_str[i];
+        }
+        patch_str[0] = 0x33;
+        patch_str[1] = 0xD2;
+        patch_str[3] = 0x34;
+        VirtualProtect((LPVOID)patch_str, 20, old_prot, &old_prot);
+    }
+
+    return true;
+}
+
 static bool patch_database(bool force_unlocks) {
     DWORD dllSize = 0;
     char *data = getDllData("popn22.dll", &dllSize);
 
+    /* replace idiv by div in score increment computation to avoid score overflow with pure long */
+    patch_purelong();
+    
     {
         fuzzy_search_task task;
 
@@ -1577,7 +1615,7 @@ static bool patch_quick_retire()
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_loop,
                       (void **)&real_result_loop);
     }
-	
+    
     printf("popnhax: quick retire enabled\n");
     return true;
 }
@@ -1702,8 +1740,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             force_unlock_deco_parts();
         }
 
-        //patch_get_time();
-
+    #if DEBUG == 1
+        patch_get_time();
+    #endif
+    
         MH_EnableHook(MH_ALL_HOOKS);
 
         break;
