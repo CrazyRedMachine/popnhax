@@ -33,27 +33,27 @@ DWORD patch_timeGetTime()
 {
  static DWORD last_real = 0;
  static DWORD cumul_offset = 0;
- 
+
  if (last_real == 0)
  {
      last_real = real_timeGetTime()*g_multiplier;
      return last_real;
  }
- 
+
  DWORD real = real_timeGetTime()*g_multiplier;
  DWORD elapsed = real-last_real;
  if (elapsed > 16) cumul_offset+= elapsed;
 
- last_real = real; 
+ last_real = real;
  return real - cumul_offset;
- 
+
 }
 
 bool patch_get_time()
 {
     HMODULE hinstLib = GetModuleHandleA("winmm.dll");
     MH_CreateHook((LPVOID)GetProcAddress(hinstLib, "timeGetTime"), (LPVOID)patch_timeGetTime,
-                      (void **)&real_timeGetTime);        
+                      (void **)&real_timeGetTime);
     return true;
 }
 
@@ -67,7 +67,7 @@ static void memdump(uint8_t* addr, uint8_t len)
         if ((i+1)%16 == 0)
             printf("\n");
     }
-    
+
 }
 #endif
 
@@ -182,7 +182,7 @@ void quickexit_result_loop()
     __asm("shr ebx, 16\n");
     __asm("cmp bl, 8\n");
     __asm("jne call_real_result\n");
-    
+
     /* set value 5 in g_stage_addr and -4 in g_transition_addr */
     __asm("mov ebx, %0\n": :"b"(g_stage_addr));
     __asm("mov dword ptr[ebx], 5\n");
@@ -216,28 +216,28 @@ void hidden_is_offset_commit_options()
     /* check if hidden active */
     __asm("xor eax, eax\n");
     __asm("mov eax, [esi]\n");
-    __asm("shr eax, 0x18\n"); 
+    __asm("shr eax, 0x18\n");
     __asm("cmp eax, 1\n");
     __asm("jne call_real_commit\n");
 
     /* disable hidden ingame */
     __asm("and ecx, 0x00FFFFFF\n"); // -kaimei
     __asm("and edx, 0x00FFFFFF\n"); //  unilab
-    
+
     /* flag timing for update */
     g_timing_require_update = true;
-    
+
     /* write into timing offset */
     __asm("movsx eax, word ptr [esi+4]\n");
     __asm("neg eax\n");
-    
+
     /* leave room for rewriting (done in patch_hidden_is_offset()) */
     __asm("nop\n");
     __asm("nop\n");
     __asm("nop\n");
     __asm("nop\n");
     __asm("nop\n");
-    
+
     /* quit */
     __asm("call_real_commit:\n");
     __asm("pop eax\n");
@@ -245,6 +245,16 @@ void hidden_is_offset_commit_options()
 }
 
 void (*real_stage_update)();
+void hook_stage_update_pfree()
+{
+    //__asm("push ebx\n"); //handled by :"=b"
+    __asm("mov ebx, dword ptr [esi+0x14]\n");
+    __asm("lea ebx, [ebx+0xC]\n");
+    __asm("mov %0, ebx\n":"=b"(g_transition_addr): :);
+    //__asm("pop ebx\n");
+    //__asm("ret\n");
+}
+
 void hook_stage_update()
 {
     //__asm("push ebx\n"); //handled by :"=b"
@@ -252,7 +262,8 @@ void hook_stage_update()
     __asm("lea ebx, [ebx+0xC]\n");
     __asm("mov %0, ebx\n":"=b"(g_transition_addr): :);
     //__asm("pop ebx\n");
-    //__asm("ret\n");    
+    //__asm("ret\n");
+    real_stage_update();
 }
 
 void (*real_check_music_idx)();
@@ -351,7 +362,7 @@ bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *r
             printf("\n");
     }
 #endif
-    
+
     uint64_t patch_addr = (int64_t)data + pattern_offset + shift;
     patch_memory(patch_addr, (char *)replace, replace_size);
 
@@ -546,10 +557,10 @@ static bool patch_purelong()
             printf("popnhax: Couldn't find score increment function\n");
             return false;
         }
-        
+
         uint64_t patch_addr = (int64_t)data + pattern_offset + 24;
         uint8_t *patch_str = (uint8_t *) patch_addr;
-        
+
         DWORD old_prot;
         VirtualProtect((LPVOID)patch_str, 20, PAGE_EXECUTE_READWRITE, &old_prot);
         for (int i=12; i>=0; i--)
@@ -571,7 +582,7 @@ static bool patch_database(bool force_unlocks) {
 
     /* replace idiv by div in score increment computation to avoid score overflow with pure long */
     patch_purelong();
-    
+
     {
         fuzzy_search_task task;
 
@@ -593,7 +604,7 @@ static bool patch_database(bool force_unlocks) {
     char *target;
 
     if (config.patch_xml_auto) {
-        const char *filename = NULL;    
+        const char *filename = NULL;
         SearchFile s;
         uint8_t *datecode = NULL;
         bool found = false;
@@ -627,7 +638,7 @@ static bool patch_database(bool force_unlocks) {
         if (!found) {
             printf("popnhax: (patch_xml_auto) matching datecode not found, defaulting to latest patch file.\n");
         }
-        
+
         printf("popnhax: (patch_xml_auto) using %s\n",filename);
         target = parse_patchdb(filename, data);
 
@@ -636,7 +647,7 @@ static bool patch_database(bool force_unlocks) {
         target = parse_patchdb(config.patch_xml_filename, data);
 
     }
-    
+
     if (config.disable_redirection) {
         config.disable_expansions = true;
     }
@@ -1262,13 +1273,13 @@ static bool patch_unlocks_offline() {
 static bool get_addr_icca(uint32_t *res)
 {
     static uint32_t addr = 0;
-    
+
     if (addr != 0)
     {
             *res = addr;
             return true;
     }
-    
+
     DWORD dllSize = 0;
     char *data = getDllData("popn22.dll", &dllSize);
 
@@ -1293,13 +1304,13 @@ static bool get_addr_icca(uint32_t *res)
 static bool get_addr_timing_offset(uint32_t *res)
 {
     static uint32_t addr = 0;
-    
+
     if (addr != 0)
     {
             *res = addr;
             return true;
     }
-    
+
     DWORD dllSize = 0;
     char *data = getDllData("popn22.dll", &dllSize);
 
@@ -1315,7 +1326,7 @@ static bool get_addr_timing_offset(uint32_t *res)
 
     uint32_t offset_delta = *(uint32_t *) ((int64_t)data + pattern_offset + 6);
     addr = *(uint32_t *) (((int64_t)data + pattern_offset + 10) + offset_delta + 1);
-#if DEBUG == 1 
+#if DEBUG == 1
     printf("OFFSET MEMORYZONE %x\n", addr);
 #endif
     *res = addr;
@@ -1332,30 +1343,30 @@ static bool patch_hidden_is_offset()
         printf("popnhax: hidden is offset: cannot find timing offset address\n");
         return false;
     }
-    
+
     /* patch option commit to store hidden value directly as offset */
     {
         /* add correct address to hook function */
         char eax_to_offset[6] = "\xA3\x00\x00\x00\x00";
         uint32_t *cast_code = (uint32_t*) &eax_to_offset[1];
         *cast_code = timing_addr;
-        
+
         int64_t hiddencommitoptionaddr = (int64_t)&hidden_is_offset_commit_options;
         uint8_t *patch_str = (uint8_t*) hiddencommitoptionaddr;
-        
+
         uint8_t placeholder_offset = 0;
         while (patch_str[placeholder_offset] != 0x90 && patch_str[placeholder_offset+1] != 0x90)
             placeholder_offset++;
-        
+
         patch_memory(hiddencommitoptionaddr+placeholder_offset+1, eax_to_offset, 5);
-        
+
         /* find option commit function (unilab) */
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
         FUZZY_CODE(task, 0, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8)
         uint8_t shift = 6;
-        
+
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
             /* wasn't found, look for older function */
@@ -1365,7 +1376,7 @@ static bool patch_hidden_is_offset()
             FUZZY_CODE(fallbacktask, 0, "\x0F\xB6\xC3\x03\xCF\x8D", 6)
             pattern_offset = find_block(data, dllSize, &fallbacktask, 0);
             shift = 14;
-            
+
             if (pattern_offset == -1) {
                 printf("popnhax: hidden is offset: cannot find address\n");
                 return false;
@@ -1374,38 +1385,38 @@ static bool patch_hidden_is_offset()
             printf("popnhax: hidden is offset: appears to be kaimei or less\n");
         #endif
         }
-        
+
         uint64_t patch_addr = (int64_t)data + pattern_offset + shift;
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hidden_is_offset_commit_options,
                       (void **)&real_commit_options);
     }
-    
-    /* turn "set offset" into an elaborate "sometimes add to offset" to use our hidden+ value as adjust */        
+
+    /* turn "set offset" into an elaborate "sometimes add to offset" to use our hidden+ value as adjust */
     {
         char set_offset_fun[6] = "\xA3\x00\x00\x00\x00";
         uint32_t *cast_code = (uint32_t*) &set_offset_fun[1];
         *cast_code = timing_addr;
-        
+
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
         FUZZY_CODE(task, 0, set_offset_fun, 5)
-        
+
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
             printf("popnhax: hidden is offset: cannot find offset update function\n");
             return false;
         }
-        
+
         int64_t modded_set_timing_func_addr = (int64_t)&modded_set_timing_func;
         patch_memory(modded_set_timing_func_addr+11, (char*)&timing_addr, 4);
-        
+
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)modded_set_timing_func,
-                      (void **)&real_set_timing_func);        
-                      
+                      (void **)&real_set_timing_func);
+
     }
-    
+
     printf("popnhax: hidden is offset: hidden is now an offset adjust\n");
     return true;
 }
@@ -1425,14 +1436,14 @@ static bool patch_pfree() {
             printf("couldn't find stop stage counter\n");
             return false;
         }
-    
+
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
         g_stage_addr = *(uint32_t*)(patch_addr+1);
 
         /* hook to retrieve address for exit to thank you for playing screen */
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update,
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update_pfree,
                      (void **)&real_stage_update);
-                          
+
     }
 
     /* retrieve memory zone parameters to prepare for cleanup */
@@ -1553,25 +1564,51 @@ pfree_apply:
     return true;
 }
 
-static bool patch_quick_retire()
+static bool patch_quick_retire(bool pfree)
 {
     DWORD dllSize = 0;
     char *data = getDllData("popn22.dll", &dllSize);
 
-    /* hook numpad for instant quit song */    
+    if ( !pfree )
+    {
+        /* hook the stage counter function to retrieve stage and transition addr for quick exit session
+         * (when pfree is active it's taking care of hooking that function differently to prevent stage from incrementing)
+         */
+        {
+            fuzzy_search_task task;
+            FUZZY_START(task, 1)
+            FUZZY_CODE(task, 0, "\x83\xF8\x04\x77\x3E", 5)
+
+            int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+            if (pattern_offset == -1) {
+                printf("couldn't find stop stage counter\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
+            g_stage_addr = *(uint32_t*)(patch_addr+1);
+
+            /* hook to retrieve address for exit to thank you for playing screen */
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update,
+                         (void **)&real_stage_update);
+
+        }
+    }
+
+    /* hook numpad for instant quit song */
     {
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
         FUZZY_CODE(task, 0, "\x55\x8B\xEC\x83\xE4\xF8\x83\xEC\x08\x0F\xBF\x05", 12)
-        
+
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-        
+
         if (pattern_offset == -1) {
             printf("popnhax: cannot retrieve song loop\n");
             return false;
         }
-        
+
         uint32_t addr_icca;
         if (!get_addr_icca(&addr_icca))
         {
@@ -1581,26 +1618,26 @@ static bool patch_quick_retire()
 
         int64_t quickexitaddr = (int64_t)&quickexit_game_loop;
         patch_memory(quickexitaddr+3, (char *)&addr_icca, 4);
-        
+
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_game_loop,
                       (void **)&real_game_loop);
     }
-    
-    /* hook numpad in result screen to quit pfree */    
+
+    /* hook numpad in result screen to quit pfree */
     {
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
         FUZZY_CODE(task, 0, "\xF8\x53\x55\x56\x57\x8B\xE9\x8B\x75\x00\x8B\x85", 12)
-        
+
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-        
+
         if (pattern_offset == -1) {
             printf("popnhax: cannot retrieve result screen loop\n");
             return false;
         }
-        
+
         uint32_t addr_icca;
         if (!get_addr_icca(&addr_icca))
         {
@@ -1610,12 +1647,12 @@ static bool patch_quick_retire()
 
         int64_t quickexitaddr = (int64_t)&quickexit_result_loop;
         patch_memory(quickexitaddr+3, (char *)&addr_icca, 4);
-        
+
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_loop,
                       (void **)&real_result_loop);
     }
-    
+
     printf("popnhax: quick retire enabled\n");
     return true;
 }
@@ -1623,7 +1660,7 @@ static bool patch_quick_retire()
 static bool patch_base_offset(int32_t value) {
     char *as_hex = (char *) &value;
     bool res = true;
-    
+
     /* call get_addr_timing_offset() so that it can still work after timing value is overwritten */
     uint32_t original_timing;
     get_addr_timing_offset(&original_timing);
@@ -1633,13 +1670,13 @@ static bool patch_base_offset(int32_t value) {
         printf("popnhax: base offset: cannot patch base SD timing\n");
         res = false;
     }
-    
+
     if (!patch_hex("\xB8\xB4\xFF\xFF\xFF", 5, 1, as_hex, 4))
     {
         printf("popnhax: base offset: cannot patch base HD timing\n");
         res = false;
     }
-    
+
     return res;
 }
 
@@ -1655,7 +1692,7 @@ static bool patch_hd_on_sd(uint8_t mode) {
         printf("popnhax: HD on SD: cannot set HD offset\n");
         return false;
     }
-        
+
     /* set window to 1360*768 */
     if ( mode == 2 )
     {
@@ -1698,17 +1735,17 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.quick_retire) {
-            patch_quick_retire();
+            patch_quick_retire(config.pfree);
         }
 
         if (config.hd_on_sd) {
             patch_hd_on_sd(config.hd_on_sd);
         }
-                
+
         if (config.hidden_is_offset){
             patch_hidden_is_offset();
         }
-            
+
         if (config.event_mode) {
             patch_event_mode();
         }
@@ -1743,7 +1780,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     #if DEBUG == 1
         patch_get_time();
     #endif
-    
+
         MH_EnableHook(MH_ALL_HOOKS);
 
         break;
