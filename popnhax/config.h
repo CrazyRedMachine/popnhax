@@ -9,6 +9,7 @@ struct popnhax_config {
     bool quick_retire;
     uint8_t hd_on_sd;
     bool force_unlocks;
+    bool force_unlock_deco;
     bool unset_volume;
     bool event_mode;
     bool remove_timer;

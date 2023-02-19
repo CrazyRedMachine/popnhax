@@ -86,6 +86,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, hd_on_sd,
                  "/popnhax/hd_on_sd")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlocks,
                  "/popnhax/force_unlocks")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlock_deco,
+                 "/popnhax/force_unlock_deco")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, unset_volume,
                  "/popnhax/unset_volume")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, event_mode, "/popnhax/event_mode")
@@ -563,6 +565,7 @@ static bool patch_purelong()
 
         DWORD old_prot;
         VirtualProtect((LPVOID)patch_str, 20, PAGE_EXECUTE_READWRITE, &old_prot);
+        /* replace cdq/idiv by xor/div in score increment computation to avoid score overflow */
         for (int i=12; i>=0; i--)
         {
             patch_str[i+1] = patch_str[i];
@@ -576,11 +579,10 @@ static bool patch_purelong()
     return true;
 }
 
-static bool patch_database(bool force_unlocks) {
+static bool patch_database(uint8_t force_unlocks) {
     DWORD dllSize = 0;
     char *data = getDllData("popn22.dll", &dllSize);
 
-    /* replace idiv by div in score increment computation to avoid score overflow with pure long */
     patch_purelong();
 
     {
@@ -1051,23 +1053,10 @@ static bool patch_skip_tutorials() {
 }
 
 bool force_unlock_deco_parts() {
-    DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
-
+    if (!patch_hex("\x83\xC4\x04\x83\x38\x00\x75\x22", 8, 6, "\x90\x90", 2))
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x83\xC4\x04\x83\x38\x00\x75\x22", 8)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-        if (pattern_offset == -1) {
         printf("popnhax: couldn't unlock deco parts\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        patch_memory(patch_addr, (char *)"\x83\xC4\x04\x83\x38\x00\x90\x90", 8);
+        return false;
     }
 
     printf("popnhax: unlocked deco parts\n");
@@ -1187,81 +1176,39 @@ static bool patch_unlocks_offline() {
     DWORD dllSize = 0;
     char *data = getDllData("popn22.dll", &dllSize);
 
-    int64_t first_loc = 0;
-
     {
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x8B\xE5\x5D\xC2\x04\x00\xC3", 7)
+        FUZZY_CODE(task, 0, "\xB8\x49\x06\x00\x00\x66\x3B", 7)
 
-        first_loc = find_block(data, dllSize, &task, 0);
-        if (first_loc == -1) {
-            printf("Couldn't find unlock loc 1\n");
-            return false;
-        }
-    }
-
-    int64_t second_loc = 0;
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x00\x00\x50\x8B", 4)
-
-        second_loc = find_block(data, 0x50, &task, first_loc);
-        if (first_loc == -1) {
-            printf("Couldn't find unlock loc 2\n");
-            return false;
-        }
-    }
-
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x00\x00\x84\xC0\x74", 5)
-
-        int64_t pattern_offset = find_block(data, 0x10, &task, second_loc);
+        int64_t pattern_offset = find_block(data, dllSize-0xE0000, &task, 0xE0000);
         if (pattern_offset == -1) {
             printf("Couldn't find first song unlock\n");
             return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        patch_memory(patch_addr, (char *)"\x00\x00\x84\xC0\x90\x90", 6);
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 2;
+        patch_memory(patch_addr, (char *)"\x90\x90", 2);
     }
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xFF\xFF\xA9\x06\x00\x00\x68\x74", 8)
-
-        int64_t pattern_offset = find_block(data, 0xDD, &task, second_loc);
-        if (pattern_offset == -1) {
+        if (!patch_hex("\xA9\x06\x00\x00\x68\x74", 6, 5, "\xEB", 1))
+        {
             printf("Couldn't find second song unlock\n");
             return false;
         }
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        patch_memory(patch_addr, (char *)"\xFF\xFF\xA9\x06\x00\x00\x68\xEB", 8);
-
-        printf("popnhax: songs unlocked for offline\n");
     }
 
+    printf("popnhax: songs unlocked for offline\n");
+
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xA9\x50\x01\x00\x00\x74", 6)
-
-        int64_t pattern_offset = find_block_back(data, 0x50000, &task, second_loc);
-        if (pattern_offset == -1) {
+        if (!patch_hex("\xA9\x10\x01\x00\x00\x74", 6, 5, "\xEB", 1)  /* unilab */
+         && !patch_hex("\xA9\x50\x01\x00\x00\x74", 6, 5, "\xEB", 1))
+        {
             printf("Couldn't find character unlock\n");
             return false;
         }
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        patch_memory(patch_addr, (char *)"\xA9\x50\x01\x00\x00\xEB", 6);
 
         printf("popnhax: characters unlocked for offline\n");
     }
@@ -1774,8 +1721,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             }
 
             patch_unlocks_offline();
-            force_unlock_deco_parts();
         }
+
+        if (config.force_unlock_deco)
+            force_unlock_deco_parts();
 
     #if DEBUG == 1
         patch_get_time();

@@ -7,7 +7,7 @@ int find_block_core(char *haystack, size_t haystack_size, fuzzy_search_task *nee
                     size_t orig_offset, int dir) {
     size_t offset = orig_offset;
     haystack_size += orig_offset;
-    while (offset + 1 < orig_offset + haystack_size) {
+    while (offset + 1 < haystack_size) {
         size_t offset_temp = offset;
         int found = 1;
 
