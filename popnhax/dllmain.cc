@@ -1186,7 +1186,7 @@ bool force_unlock_charas() {
 static bool patch_unlocks_offline() {
     DWORD dllSize = 0;
     char *data = getDllData("popn22.dll", &dllSize);
-
+printf("popnhax: attempt unlock offline\n");
     int64_t first_loc = 0;
 
     {
@@ -1200,6 +1200,7 @@ static bool patch_unlocks_offline() {
             printf("Couldn't find unlock loc 1\n");
             return false;
         }
+printf("popnhax: found unlock loc 1\n");
     }
 
     int64_t second_loc = 0;
@@ -1214,6 +1215,7 @@ static bool patch_unlocks_offline() {
             printf("Couldn't find unlock loc 2\n");
             return false;
         }
+printf("popnhax: found unlock loc 2\n");
     }
 
     {
@@ -1222,14 +1224,16 @@ static bool patch_unlocks_offline() {
         FUZZY_START(task, 1)
         FUZZY_CODE(task, 0, "\x00\x00\x84\xC0\x74", 5)
 
-        int64_t pattern_offset = find_block(data, 0x10, &task, second_loc);
+        int64_t pattern_offset = find_block(data, 0x50, &task, second_loc);
         if (pattern_offset == -1) {
             printf("Couldn't find first song unlock\n");
             return false;
         }
 
+printf("popnhax: found first song unlock, ATTEMPT PATCH\n");
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         patch_memory(patch_addr, (char *)"\x00\x00\x84\xC0\x90\x90", 6);
+printf("popnhax: PATCH DONE\n");
     }
 
     {
@@ -1243,6 +1247,7 @@ static bool patch_unlocks_offline() {
             printf("Couldn't find second song unlock\n");
             return false;
         }
+printf("popnhax: found second song unlock, ATTEMPT PATCH\n");
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         patch_memory(patch_addr, (char *)"\xFF\xFF\xA9\x06\x00\x00\x68\xEB", 8);
 
@@ -1260,6 +1265,7 @@ static bool patch_unlocks_offline() {
             printf("Couldn't find character unlock\n");
             return false;
         }
+printf("popnhax: found chara unlock, ATTEMPT PATCH\n");
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         patch_memory(patch_addr, (char *)"\xA9\x50\x01\x00\x00\xEB", 6);
 
