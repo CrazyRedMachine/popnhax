@@ -10,7 +10,7 @@
   <hd_on_sd __type="u8">0</hd_on_sd>
   <!-- Force unlock music, charts, and characters -->
   <force_unlocks __type="bool">0</force_unlocks>
-  <!-- Force unlock deco parts (/!\ DO NOT USE ON LATER GAMES WITHOUT DECO /!\ -->
+  <!-- Force unlock deco parts (avoid using this on later games without deco) -->
   <force_unlock_deco __type="bool">0</force_unlock_deco>
   <!-- Prevent Windows volume from being reset on boot -->
   <unset_volume __type="bool">0</unset_volume>
@@ -22,15 +22,20 @@
   <freeze_timer __type="bool">0</freeze_timer>
   <!-- Force skip menu and long note tutorials without a card -->
   <skip_tutorials __type="bool">0</skip_tutorials>
-  <!-- Settings for database hooking patches follow: -->
-  <!-- Enable database modifications -->
+
+  <!-- Enable database modifications (omnimix, custom tracks) -->
   <patch_db __type="bool">0</patch_db>
-  <!-- Force the newly created buffers to be the same size as the original buffers -->
-  <disable_expansions __type="bool">0</disable_expansions>
-  <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
-  <disable_redirection __type="bool">0</disable_redirection>
   <!-- Autoload latest patch file (highest datecode) from data_mods folder -->
   <patch_xml_auto __type="bool">1</patch_xml_auto>
   <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
   <patch_xml_filename __type="str"></patch_xml_filename>
+  
+  <!-- DEBUG OPTIONS, GENERALLY SHOULD NOT BE CHANGED -->  
+  
+  <!-- Offset the keysounds by x ms (negative is earlier) -->
+  <keysound_offset __type="s8">0</keysound_offset>
+  <!-- Force the newly created buffers to be the same size as the original buffers -->
+  <disable_expansions __type="bool">0</disable_expansions>
+  <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
+  <disable_redirection __type="bool">0</disable_redirection>
 </popnhax>

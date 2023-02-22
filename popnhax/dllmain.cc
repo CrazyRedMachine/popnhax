@@ -107,6 +107,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_xml_auto
                  "/popnhax/patch_xml_auto")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, patch_xml_filename,
                  "/popnhax/patch_xml_filename")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, keysound_offset,
+                 "/popnhax/keysound_offset")
 PSMAP_END
 
 enum BufferIndexes {
@@ -170,6 +172,13 @@ void quickexit_game_loop()
     __asm("call_real:\n");
     __asm("pop ebx\n");
     real_game_loop();
+}
+
+int16_t g_keysound_offset = 0;
+void (*real_eval_timing)();
+void patch_eval_timing() {
+    __asm("mov esi, %0\n": :"b"((int32_t)g_keysound_offset));
+    real_eval_timing();
 }
 
 uint32_t g_transition_addr = 0;
@@ -1280,6 +1289,68 @@ static bool get_addr_timing_offset(uint32_t *res)
     return true;
 }
 
+/* helper function to retrieve SD timing address */
+static bool get_addr_sd_timing(uint32_t *res)
+{
+    static uint32_t addr = 0;
+
+    if (addr != 0)
+    {
+            *res = addr;
+            return true;
+    }
+
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
+    fuzzy_search_task task;
+
+    FUZZY_START(task, 1)
+    FUZZY_CODE(task, 0, "\xB8\xC4\xFF\xFF\xFF", 5)
+    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    if (pattern_offset == -1) {
+        return false;
+    }
+
+    addr = (uint32_t) ((int64_t)data + pattern_offset + 1);
+#if DEBUG == 1
+    printf("SD TIMING MEMORYZONE %x\n", addr);
+#endif
+    *res = addr;
+    return true;
+}
+
+/* helper function to retrieve HD timing address */
+static bool get_addr_hd_timing(uint32_t *res)
+{
+    static uint32_t addr = 0;
+
+    if (addr != 0)
+    {
+            *res = addr;
+            return true;
+    }
+
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
+    fuzzy_search_task task;
+
+    FUZZY_START(task, 1)
+    FUZZY_CODE(task, 0, "\xB8\xB4\xFF\xFF\xFF", 5)
+    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    if (pattern_offset == -1) {
+        return false;
+    }
+
+    addr = (uint32_t) ((int64_t)data + pattern_offset + 1);
+#if DEBUG == 1
+    printf("HD TIMING MEMORYZONE %x\n", addr);
+#endif
+    *res = addr;
+    return true;
+}
+
 static bool patch_hidden_is_offset()
 {
     DWORD dllSize = 0;
@@ -1604,6 +1675,75 @@ static bool patch_quick_retire(bool pfree)
     return true;
 }
 
+static bool patch_add_to_base_offset(int8_t delta) {
+    int32_t new_value = delta;
+    char *as_hex = (char *) &new_value;
+
+    printf("popnhax: base offset: adding %d to base offset.\n",delta);
+
+    /* call get_addr_timing_offset() so that it can still work after timing value is overwritten */
+    uint32_t original_timing;
+    get_addr_timing_offset(&original_timing);
+
+    uint32_t sd_timing_addr;
+    if (!get_addr_sd_timing(&sd_timing_addr))
+    {
+        printf("popnhax: base offset: cannot find base SD timing\n");
+        return false;
+    }
+
+    int32_t current_value = *(int32_t *) sd_timing_addr;
+    new_value = current_value+delta;
+    patch_memory(sd_timing_addr, as_hex, 4);
+    printf("popnhax: base offset: SD offset is now %d.\n",new_value);
+
+
+    uint32_t hd_timing_addr;
+    if (!get_addr_hd_timing(&hd_timing_addr))
+    {
+        printf("popnhax: base offset: cannot find base HD timing\n");
+        return false;
+    }
+    current_value = *(int32_t *) hd_timing_addr;
+    new_value = current_value+delta;
+    patch_memory(hd_timing_addr, as_hex, 4);
+    printf("popnhax: base offset: HD offset is now %d.\n",new_value);
+
+    return true;
+}
+
+static bool patch_keysound_offset(int8_t value)
+{
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+    g_keysound_offset = -1*value;
+
+    patch_add_to_base_offset(value);
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x51\x53\x56\x57\x0f\xb7\xf8\x8b\x34\xfd", 10)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: keysound offset: cannot prepatch\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x07;
+        patch_memory(patch_addr, (char *)"\x03", 1);
+
+        MH_CreateHook((LPVOID)(patch_addr-0x03), (LPVOID)patch_eval_timing,
+                      (void **)&real_eval_timing);
+
+        printf("popnhax: keysound offset: timing offset by %d ms\n", value);
+    }
+
+    return true;
+}
+
 static bool patch_base_offset(int32_t value) {
     char *as_hex = (char *) &value;
     bool res = true;
@@ -1611,6 +1751,12 @@ static bool patch_base_offset(int32_t value) {
     /* call get_addr_timing_offset() so that it can still work after timing value is overwritten */
     uint32_t original_timing;
     get_addr_timing_offset(&original_timing);
+
+    uint32_t sd_timing_addr;
+    get_addr_sd_timing(&sd_timing_addr);
+
+    uint32_t hd_timing_addr;
+    get_addr_hd_timing(&hd_timing_addr);
 
     if (!patch_hex("\xB8\xC4\xFF\xFF\xFF", 5, 1, as_hex, 4))
     {
@@ -1626,6 +1772,8 @@ static bool patch_base_offset(int32_t value) {
 
     return res;
 }
+
+
 
 static bool patch_hd_on_sd(uint8_t mode) {
     if (mode > 2)
@@ -1691,6 +1839,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.hidden_is_offset){
             patch_hidden_is_offset();
+        }
+
+        if (config.keysound_offset){
+            /* must be called after hd_on_sd */
+            patch_keysound_offset(config.keysound_offset);
         }
 
         if (config.event_mode) {

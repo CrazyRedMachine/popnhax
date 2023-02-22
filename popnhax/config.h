@@ -21,6 +21,7 @@ struct popnhax_config {
     bool disable_redirection;
     bool patch_xml_auto;
     char patch_xml_filename[MAX_PATH];
+    int8_t keysound_offset;
 };
 
 #endif
