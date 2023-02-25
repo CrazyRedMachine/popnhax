@@ -82,8 +82,10 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, pfree,
                  "/popnhax/pfree")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, quick_retire,
                  "/popnhax/quick_retire")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, hd_on_sd,
-                 "/popnhax/hd_on_sd")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_hd_timing,
+                 "/popnhax/force_hd_timing")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, force_hd_resolution,
+                 "/popnhax/force_hd_resolution")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlocks,
                  "/popnhax/force_unlocks")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlock_deco,
@@ -1773,39 +1775,50 @@ static bool patch_base_offset(int32_t value) {
     return res;
 }
 
-
-
-static bool patch_hd_on_sd(uint8_t mode) {
-    if (mode > 2)
+static bool patch_hd_timing() {
+    if (!patch_base_offset(-76))
     {
-        printf("ponhax: HD on SD mode invalid value %d\n",mode);
+        printf("popnhax: HD timing: cannot set HD offset\n");
         return false;
     }
 
-    if (!patch_base_offset(-76))
+    printf("popnhax: HD timing forced\n");
+    return true;
+}
+
+static bool patch_hd_resolution(uint8_t mode) {
+    if (mode > 2)
     {
-        printf("popnhax: HD on SD: cannot set HD offset\n");
+        printf("ponhax: HD resolution invalid value %d\n",mode);
         return false;
     }
 
     /* set window to 1360*768 */
-    if ( mode == 2 )
+    if (!patch_hex("\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9)
+     && !patch_hex("\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9))
     {
-        if (!patch_hex("\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9)
-        && !patch_hex("\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9))
-        {
-            printf("popnhax: HD on SD: cannot find screen width function\n");
-            return false;
-        }
-
-        if (!patch_hex("\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\x00\x03\x00\x00\xC3\xCC\xCC\xCC", 9))
-            printf("popnhax: HD on SD: cannot find screen height function\n");
-
-        if (!patch_hex("\x8B\x54\x24\x20\x53\x51\x52\xEB\x0C", 9, -6, "\x90\x90", 2))
-            printf("popnhax: HD on SD: cannot find screen aspect ratio function\n");
+        printf("popnhax: HD resolution: cannot find screen width function\n");
+        return false;
     }
 
-    printf("popnhax: HD on SD mode %d\n",mode);
+    if (!patch_hex("\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\x00\x03\x00\x00\xC3\xCC\xCC\xCC", 9))
+        printf("popnhax: HD resolution: cannot find screen height function\n");
+
+    if (!patch_hex("\x8B\x54\x24\x20\x53\x51\x52\xEB\x0C", 9, -6, "\x90\x90", 2))
+        printf("popnhax: HD resolution: cannot find screen aspect ratio function\n");
+
+
+    if ( mode == 1 )
+    {
+        /* move texts (by forcing HD behavior) */
+        if (!patch_hex("\x1B\xC9\x83\xE1\x95\x81\xC1\x86", 8, -5, "\xB9\xFF\xFF\xFF\xFF\x90\x90", 7))
+            printf("popnhax: HD resolution: cannot move gamecode position\n");
+
+        if (!patch_hex("\x6a\x01\x6a\x00\x50\x8b\x06\x33\xff", 9, -7, "\xEB", 1))
+            printf("popnhax: HD resolution: cannot move credit/network position\n");
+    }
+
+    printf("popnhax: HD resolution forced%s\n",(mode==2)?" (centered texts)":"");
 
     return true;
 }
@@ -1833,8 +1846,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_quick_retire(config.pfree);
         }
 
-        if (config.hd_on_sd) {
-            patch_hd_on_sd(config.hd_on_sd);
+        if (config.force_hd_timing) {
+            patch_hd_timing();
+        }
+
+        if (config.force_hd_resolution) {
+            patch_hd_resolution(config.force_hd_resolution);
         }
 
         if (config.hidden_is_offset){
@@ -1842,7 +1859,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.keysound_offset){
-            /* must be called after hd_on_sd */
+            /* must be called _after_ force_hd_timing */
             patch_keysound_offset(config.keysound_offset);
         }
 
