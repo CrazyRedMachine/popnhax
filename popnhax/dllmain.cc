@@ -111,6 +111,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, patch_xml_filen
                  "/popnhax/patch_xml_filename")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, keysound_offset,
                  "/popnhax/keysound_offset")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, beam_brightness,
+                 "/popnhax/beam_brightness")
 PSMAP_END
 
 enum BufferIndexes {
@@ -1291,6 +1293,37 @@ static bool get_addr_timing_offset(uint32_t *res)
     return true;
 }
 
+/* helper function to retrieve beam brightness address */
+static bool get_addr_beam_brightness(uint32_t *res)
+{
+    static uint32_t addr = 0;
+
+    if (addr != 0)
+    {
+            *res = addr;
+            return true;
+    }
+
+    DWORD dllSize = 0;
+    char *data = getDllData("popn22.dll", &dllSize);
+
+    fuzzy_search_task task;
+
+    FUZZY_START(task, 1)
+    FUZZY_CODE(task, 0, "\xB8\x64\x00\x00\x00\xD9", 6)
+    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    if (pattern_offset == -1) {
+        return false;
+    }
+
+    addr = (uint32_t) ((int64_t)data + pattern_offset + 1);
+#if DEBUG == 1
+    printf("BEAM BRIGHTNESS MEMORYZONE %x\n", addr);
+#endif
+    *res = addr;
+    return true;
+}
+
 /* helper function to retrieve SD timing address */
 static bool get_addr_sd_timing(uint32_t *res)
 {
@@ -1746,6 +1779,63 @@ static bool patch_keysound_offset(int8_t value)
     return true;
 }
 
+static bool patch_add_to_beam_brightness(int8_t delta) {
+    int32_t new_value = delta;
+    char *as_hex = (char *) &new_value;
+
+    printf("popnhax: beam brightness: adding %d to beam brightness.\n",delta);
+
+    uint32_t beam_brightness_addr;
+    if (!get_addr_beam_brightness(&beam_brightness_addr))
+    {
+        printf("popnhax: beam brightness: cannot find base address\n");
+        return false;
+    }
+
+    int32_t current_value = *(int32_t *) beam_brightness_addr;
+    new_value = current_value+delta;
+    if (new_value < 0)
+    {
+        printf("popnhax: beam brightness: fix invalid value (%d -> 0)\n",new_value);
+        new_value = 0;
+    }
+    if (new_value > 255)
+    {
+        printf("popnhax: beam brightness: fix invalid value (%d -> 255)\n",new_value);
+        new_value = 255;
+    }
+
+    patch_memory(beam_brightness_addr, as_hex, 4);
+    patch_memory(beam_brightness_addr+0x39, as_hex, 4);
+    printf("popnhax: beam brightness is now %d.\n",new_value);
+
+    return true;
+}
+
+static bool patch_beam_brightness(uint8_t value) {
+    uint32_t newvalue = value;
+    char *as_hex = (char *) &newvalue;
+    bool res = true;
+
+    /* call get_addr_beam_brightness() so that it can still work after base value is overwritten */
+    uint32_t beam_brightness_addr;
+    get_addr_beam_brightness(&beam_brightness_addr);
+
+    if (!patch_hex("\xB8\x64\x00\x00\x00\xD9", 6, 0x3A, as_hex, 4))
+    {
+        printf("popnhax: base offset: cannot patch HD beam brightness\n");
+        res = false;
+    }
+
+    if (!patch_hex("\xB8\x64\x00\x00\x00\xD9", 6, 1, as_hex, 4))
+    {
+        printf("popnhax: base offset: cannot patch SD beam brightness\n");
+        res = false;
+    }
+
+    return res;
+}
+
 static bool patch_base_offset(int32_t value) {
     char *as_hex = (char *) &value;
     bool res = true;
@@ -1790,6 +1880,13 @@ static bool patch_hd_resolution(uint8_t mode) {
     if (mode > 2)
     {
         printf("ponhax: HD resolution invalid value %d\n",mode);
+        return false;
+    }
+
+    /* set popkun and beam brightness to 85 instead of 100, like HD mode does */
+    if (!patch_beam_brightness(85))
+    {
+        printf("popnhax: HD resolution: cannot set beam brightness\n");
         return false;
     }
 
@@ -1861,6 +1958,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (config.keysound_offset){
             /* must be called _after_ force_hd_timing */
             patch_keysound_offset(config.keysound_offset);
+        }
+
+        if (config.beam_brightness){
+            /* must be called _after_ force_hd_resolution */
+            patch_add_to_beam_brightness(config.beam_brightness);
         }
 
         if (config.event_mode) {

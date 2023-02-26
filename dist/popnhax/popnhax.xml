@@ -32,11 +32,13 @@
   <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
   <patch_xml_filename __type="str"></patch_xml_filename>
   <!-- END OF USER SETTINGS -->
-  
+
   <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED) -->
-  
+
   <!-- Offset the keysounds by x ms (negative is earlier) -->
   <keysound_offset __type="s8">0</keysound_offset>
+  <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
+  <beam_brightness __type="s8">0</beam_brightness>
   <!-- Force the newly created buffers to be the same size as the original buffers -->
   <disable_expansions __type="bool">0</disable_expansions>
   <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->

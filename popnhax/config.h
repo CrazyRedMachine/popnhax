@@ -23,6 +23,7 @@ struct popnhax_config {
     bool patch_xml_auto;
     char patch_xml_filename[MAX_PATH];
     int8_t keysound_offset;
+    int8_t beam_brightness;
 };
 
 #endif
