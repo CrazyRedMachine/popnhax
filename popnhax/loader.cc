@@ -684,7 +684,7 @@ void parse_charadb(const char *input_filename, const char *target) {
                             PROPERTY_TYPE_ATTR, beforeTarget, 64);
 
         if (strlen(beforeTarget) > 0 && atoi(target) >= atoi(beforeTarget)) {
-            printf("Currently loading %s, found database that is only valid before %s, skipping %s...\n", beforeTarget, target, input_filename);
+            printf("Currently loading %s, found database that is only valid before %s, skipping %s...\n", target, beforeTarget, input_filename);
             return;
         }
 
@@ -692,7 +692,7 @@ void parse_charadb(const char *input_filename, const char *target) {
         property_node_refer(config_xml, property_search(config_xml, NULL, "/database"), "after@",
                             PROPERTY_TYPE_ATTR, afterTarget, 64);
         if (strlen(afterTarget) > 0 && atoi(target) < atoi(afterTarget)) {
-            printf("Currently loading %s, found database that is only valid after %s, skipping %s...\n", beforeTarget, target, input_filename);
+            printf("Currently loading %s, found database that is only valid after %s, skipping %s...\n", target, afterTarget, input_filename);
             return;
         }
     }
@@ -832,7 +832,7 @@ void parse_musicdb(const char *input_filename, const char *target) {
                             PROPERTY_TYPE_ATTR, beforeTarget, 64);
 
         if (strlen(beforeTarget) > 0 && atoi(target) >= atoi(beforeTarget)) {
-            printf("Currently loading %s, found database that is only valid before %s, skipping %s...\n", beforeTarget, target, input_filename);
+            printf("Currently loading %s, found database that is only valid before %s, skipping %s...\n", target, beforeTarget, input_filename);
             return;
         }
 
@@ -840,7 +840,7 @@ void parse_musicdb(const char *input_filename, const char *target) {
         property_node_refer(config_xml, property_search(config_xml, NULL, "/database"), "after@",
                             PROPERTY_TYPE_ATTR, afterTarget, 64);
         if (strlen(afterTarget) > 0 && atoi(target) < atoi(afterTarget)) {
-            printf("Currently loading %s, found database that is only valid after %s, skipping %s...\n", beforeTarget, target, input_filename);
+            printf("Currently loading %s, found database that is only valid after %s, skipping %s...\n", target, afterTarget, input_filename);
             return;
         }
     }

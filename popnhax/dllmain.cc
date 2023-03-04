@@ -115,6 +115,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_xml_auto
                  "/popnhax/patch_xml_auto")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, patch_xml_filename,
                  "/popnhax/patch_xml_filename")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, force_datecode,
+                 "/popnhax/force_datecode")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, keysound_offset,
                  "/popnhax/keysound_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, beam_brightness,
@@ -158,6 +160,22 @@ uint8_t *new_buffer_addrs[LIMIT_TABLE_SIZE] = {NULL};
 std::vector<UpdateBufferEntry*> buffer_offsets;
 std::vector<UpdateOtherEntry*> other_offsets;
 std::vector<HookEntry*> hook_offsets;
+
+char *g_datecode_override = NULL;
+void (*real_asm_patch_datecode)();
+void asm_patch_datecode() {
+    __asm("push ecx\n");
+    __asm("push esi\n");
+    __asm("push edi\n");
+    __asm("mov ecx,10\n");
+    __asm("mov esi, %0\n": :"b"((int32_t)g_datecode_override));
+    __asm("add edi, 6\n");
+    __asm("rep movsb\n");
+    __asm("pop edi\n");
+    __asm("pop esi\n");
+    __asm("pop ecx\n");
+    real_asm_patch_datecode();
+}
 
 void (*real_omnimix_patch_jbx)();
 void omnimix_patch_jbx() {
@@ -598,6 +616,32 @@ static bool patch_purelong()
     return true;
 }
 
+static bool patch_datecode(char *datecode) {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+    g_datecode_override = strdup(datecode);
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset != -1) {
+            uint64_t patch_addr = (int64_t)data + pattern_offset + 0x08;
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode,
+                          (void **)&real_asm_patch_datecode);
+
+            printf("popnhax: datecode set to %s\n",g_datecode_override);
+            return true;
+        } else {
+            printf("popnhax: Couldn't patch datecode\n");
+            return false;
+        }
+    }
+}
+
 static bool patch_database(uint8_t force_unlocks) {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
@@ -630,17 +674,25 @@ static bool patch_database(uint8_t force_unlocks) {
         uint8_t *datecode = NULL;
         bool found = false;
 
-        printf("pophax: auto detect patch file\n");
-        property *config_xml = load_prop_file("prop/ea3-config.xml");
-        READ_STR_OPT(config_xml, property_search(config_xml, NULL, "/ea3/soft"), "ext", datecode)
-        free(config_xml);
+        if (config.force_datecode[0] != '\0')
+        {
+            printf("popnhax: auto detect patch file with datecode override %s\n",config.force_datecode);
+            datecode = (uint8_t*) strdup(config.force_datecode);
+        }
+        else
+        {
+            printf("popnhax: auto detect patch file from ea3-config\n");
+            property *config_xml = load_prop_file("prop/ea3-config.xml");
+            READ_STR_OPT(config_xml, property_search(config_xml, NULL, "/ea3/soft"), "ext", datecode)
+            free(config_xml);
+        }
 
         if (datecode == NULL) {
             printf("popnhax: (patch_xml_auto) failed to retrieve datecode from ea3-config. Please disable patch_xml_auto option and use patch_xml_filename to specify which file should be used.\n");
             return false;
         }
 
-        printf("popnhax: (patch_xml_auto) datecode from ea3-config : %s\n", datecode);
+        printf("popnhax: (patch_xml_auto) datecode : %s\n", datecode);
         printf("popnhax: (patch_xml_auto) XML patch files search...\n");
         s.search("data_mods", "xml", false);
         auto result = s.getResult();
@@ -1977,10 +2029,18 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             free(tmp_name);
         }
 
-        printf("popnhax: Game dll: %s\n",g_game_dll_fn);
+        printf("popnhax: game dll: %s\n",g_game_dll_fn);
         printf("popnhax: config file: %s\n",g_config_fn);
 
         _load_config(g_config_fn, &config, config_psmap);
+
+        if (config.force_datecode[0] != '\0')
+        {
+            if (strlen(config.force_datecode) != 10)
+                printf("popnhax: force_datecode: Invalid datecode, should be 10 digits (e.g. 2022061300)\n");
+            else
+                patch_datecode(config.force_datecode);
+        }
 
         if (config.unset_volume) {
             patch_unset_volume();
@@ -2033,6 +2093,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.patch_db) {
+            /* must be called after force_datecode */
             patch_database(config.force_unlocks);
         }
 

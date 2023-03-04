@@ -27,7 +27,7 @@
 
   <!-- Enable database modifications (omnimix, custom tracks) -->
   <patch_db __type="bool">0</patch_db>
-  <!-- Autoload latest patch file (highest datecode) from data_mods folder -->
+  <!-- Auto select patch file from data_mods folder (will detect datecode from ea3-config or force_datecode option) -->
   <patch_xml_auto __type="bool">1</patch_xml_auto>
   <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
   <patch_xml_filename __type="str"></patch_xml_filename>
@@ -35,6 +35,8 @@
 
   <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED) -->
 
+  <!-- Force a different datecode than the one found in ea3-config -->
+  <force_datecode __type="str"></force_datecode>
   <!-- Offset the keysounds by x ms (negative is earlier) -->
   <keysound_offset __type="s8">0</keysound_offset>
   <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->

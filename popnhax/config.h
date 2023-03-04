@@ -22,6 +22,7 @@ struct popnhax_config {
     bool disable_redirection;
     bool patch_xml_auto;
     char patch_xml_filename[MAX_PATH];
+    char force_datecode[11];
     int8_t keysound_offset;
     int8_t beam_brightness;
 };
