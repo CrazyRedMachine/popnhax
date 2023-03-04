@@ -1002,12 +1002,16 @@ void load_databases(const char *target_datecode) {
     // Character databases must be loaded before music databases because the music databases could reference modified/new characters
     for(uint16_t i=0;i<result.size();i++)
     {
+        if ( strstr(result[i].c_str(), "charadb") == NULL )
+            continue;
         printf("(charadb) Loading %s...\n", result[i].c_str());
         parse_charadb(result[i].c_str(), target_datecode);
     }
 
     for(uint16_t i=0;i<result.size();i++)
     {
+        if ( strstr(result[i].c_str(), "musicdb") == NULL )
+            continue;
         printf("(musicdb) Loading %s...\n", result[i].c_str());
         parse_musicdb(result[i].c_str(), target_datecode);
     }
