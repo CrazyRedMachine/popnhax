@@ -8,6 +8,9 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <io.h>
+#define F_OK 0
+#define access _access
 
 #include "util/fuzzy_search.h"
 
@@ -24,7 +27,10 @@
 
 #include "SearchFile.h"
 
-#define DEBUG 0
+const char* g_game_dll_fn = NULL;
+const char* g_config_fn   = NULL;
+
+#define DEBUG 1
 
 #if DEBUG == 1
 double g_multiplier = 1.;
@@ -331,7 +337,7 @@ asm(
 
 void patch_string(const char *input_string, const char *new_string) {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     while (1) {
         fuzzy_search_task task;
@@ -354,7 +360,7 @@ void patch_string(const char *input_string, const char *new_string) {
 
 bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *replace, uint8_t replace_size) {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     fuzzy_search_task task;
 
@@ -559,7 +565,7 @@ char *parse_patchdb(const char *input_filename, char *base_data) {
 static bool patch_purelong()
 {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
         fuzzy_search_task task;
@@ -594,7 +600,7 @@ static bool patch_purelong()
 
 static bool patch_database(uint8_t force_unlocks) {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     patch_purelong();
 
@@ -840,7 +846,7 @@ static bool patch_database(uint8_t force_unlocks) {
         }
     }
 
-    HMODULE _moduleBase = GetModuleHandle("popn22.dll");
+    HMODULE _moduleBase = GetModuleHandle(g_game_dll_fn);
     for (size_t i = 0; i < hook_offsets.size(); i++) {
         switch (hook_offsets[i]->method) {
             case 0: {
@@ -872,7 +878,7 @@ static bool patch_database(uint8_t force_unlocks) {
 
 static bool patch_unset_volume() {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     int64_t first_loc = 0;
 
@@ -910,7 +916,7 @@ static bool patch_unset_volume() {
 
 static bool patch_event_mode() {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
         fuzzy_search_task task;
@@ -937,7 +943,7 @@ static bool patch_event_mode() {
 
 static bool patch_remove_timer() {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     int64_t first_loc = 0;
 
@@ -975,7 +981,7 @@ static bool patch_remove_timer() {
 
 static bool patch_freeze_timer() {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
         fuzzy_search_task task;
@@ -999,7 +1005,7 @@ static bool patch_freeze_timer() {
 
 static bool patch_skip_tutorials() {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     int64_t first_loc = 0;
 
@@ -1079,7 +1085,7 @@ bool force_unlock_deco_parts() {
 
 bool force_unlock_songs() {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     int music_unlocks = 0, chart_unlocks = 0;
 
@@ -1133,7 +1139,7 @@ bool force_unlock_songs() {
 
 bool force_unlock_charas() {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     int chara_unlocks = 0;
 
@@ -1187,7 +1193,7 @@ bool force_unlock_charas() {
 
 static bool patch_unlocks_offline() {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
         fuzzy_search_task task;
@@ -1241,7 +1247,7 @@ static bool get_addr_icca(uint32_t *res)
     }
 
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     fuzzy_search_task task;
 
@@ -1272,7 +1278,7 @@ static bool get_addr_timing_offset(uint32_t *res)
     }
 
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     fuzzy_search_task task;
 
@@ -1305,7 +1311,7 @@ static bool get_addr_beam_brightness(uint32_t *res)
     }
 
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     fuzzy_search_task task;
 
@@ -1336,7 +1342,7 @@ static bool get_addr_sd_timing(uint32_t *res)
     }
 
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     fuzzy_search_task task;
 
@@ -1367,7 +1373,7 @@ static bool get_addr_hd_timing(uint32_t *res)
     }
 
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     fuzzy_search_task task;
 
@@ -1389,7 +1395,7 @@ static bool get_addr_hd_timing(uint32_t *res)
 static bool patch_hidden_is_offset()
 {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
     uint32_t timing_addr = 0;
     if (!get_addr_timing_offset(&timing_addr))
     {
@@ -1476,7 +1482,7 @@ static bool patch_hidden_is_offset()
 
 static bool patch_pfree() {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     /* stop stage counter (2 matches, 1st one is the good one) */
     {
@@ -1620,7 +1626,7 @@ pfree_apply:
 static bool patch_quick_retire(bool pfree)
 {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     if ( !pfree )
     {
@@ -1750,7 +1756,7 @@ static bool patch_add_to_base_offset(int8_t delta) {
 static bool patch_keysound_offset(int8_t value)
 {
     DWORD dllSize = 0;
-    char *data = getDllData("popn22.dll", &dllSize);
+    char *data = getDllData(g_game_dll_fn, &dllSize);
     g_keysound_offset = -1*value;
 
     patch_add_to_base_offset(value);
@@ -1929,7 +1935,52 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             return TRUE;
         }
 
-        _load_config("popnhax.xml", &config, config_psmap);
+        LPWSTR *szArglist;
+        int nArgs;
+
+        szArglist = CommandLineToArgvW(GetCommandLineW(), &nArgs);
+        if (szArglist == NULL) {
+            printf("popnhax: Failed to get cmdline\n");
+            return 0;
+        }
+
+        for (int i = 0; i < nArgs; i++) {
+            /* game dll */
+            if ( wcsstr(szArglist[i], L".dll") != NULL && wcsstr(szArglist[i], L"popn2") == szArglist[i] )
+            {
+                char* resultStr = new char [wcslen(szArglist[i]) + 1];
+                wsprintfA ( resultStr, "%S", szArglist[i]);
+                g_game_dll_fn = strdup(resultStr);
+            }
+            /* config xml */
+            else if ( wcscmp(szArglist[i], L"--popnhax-config") == 0 )
+            {
+                char* resultStr = new char [wcslen(szArglist[i+1]) + 1];
+                wsprintfA ( resultStr, "%S", szArglist[i+1]);
+                g_config_fn = strdup(resultStr);
+            }
+        }
+        LocalFree(szArglist);
+
+        if (g_game_dll_fn == NULL)
+            g_game_dll_fn = strdup("popn22.dll");
+
+        if (g_config_fn == NULL)
+        {
+            /* if there's an xml named like the custom game dll, it takes priority */
+            char *tmp_name = strdup(g_game_dll_fn);
+            strcpy(tmp_name+strlen(tmp_name)-3, "xml");
+            if (access(tmp_name, F_OK) == 0)
+                g_config_fn = strdup(tmp_name);
+            else
+                g_config_fn = strdup("popnhax.xml");
+            free(tmp_name);
+        }
+
+        printf("popnhax: Game dll: %s\n",g_game_dll_fn);
+        printf("popnhax: config file: %s\n",g_config_fn);
+
+        _load_config(g_config_fn, &config, config_psmap);
 
         if (config.unset_volume) {
             patch_unset_volume();
@@ -1987,7 +2038,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.force_unlocks) {
             if (!config.patch_db) {
-                // Only unlock using these methods if it's not done directly through the database hooks
+                /* Only unlock using these methods if it's not done directly through the database hooks */
                 force_unlock_songs();
                 force_unlock_charas();
             }
