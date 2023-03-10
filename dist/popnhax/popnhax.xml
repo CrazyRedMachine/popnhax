@@ -24,6 +24,8 @@
   <freeze_timer __type="bool">0</freeze_timer>
   <!-- Force skip menu and long note tutorials without a card -->
   <skip_tutorials __type="bool">0</skip_tutorials>
+  <!-- Force full options to display (useful when no numpad is available) -->
+  <force_full_opt __type="bool">0</force_full_opt>
 
   <!-- Enable database modifications (omnimix, custom tracks) -->
   <patch_db __type="bool">0</patch_db>

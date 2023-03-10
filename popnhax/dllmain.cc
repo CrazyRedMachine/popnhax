@@ -105,6 +105,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, freeze_timer,
                  "/popnhax/freeze_timer")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, skip_tutorials,
                  "/popnhax/skip_tutorials")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_full_opt,
+                 "/popnhax/force_full_opt")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_db,
                  "/popnhax/patch_db")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_expansions,
@@ -1978,6 +1980,66 @@ static bool patch_hd_resolution(uint8_t mode) {
     return true;
 }
 
+void (*real_song_options)();
+void patch_song_options() {
+    __asm("mov byte ptr[ecx+0xA15], 0\n");
+    real_song_options();
+}
+
+void (*real_numpad0_options)();
+void patch_numpad0_options() {
+    __asm("mov byte ptr[ebp+0xA15], 1\n");
+    real_numpad0_options();
+}
+
+static bool patch_options()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+    /* starting value */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\xFF\xD0\xB8\x01\x00\x00\x00\x01\x46\x34\x01\x46\x38\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x04\x8B\x54\x24\x08\x89\x48\x20\x89\x50\x24\xC7\x40\x2C\x00\x00\x00\x00\xC6\x40\x30\x01\xC2\x08\x00\xCC\xCC\xCC\xCC\x83\xEC\x18\x33\xC0", 60)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: always full options: cannot find function call\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_song_options,
+                      (void **)&real_song_options);
+
+    }
+    /* prevent switching with numpad 0 */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\xC6\x85\x1F\x0A\x00\x00\x00\xC6\x85\x20\x0A\x00\x00\x00\xE9\x3E\x01\x00\x00\x33\xC9", 21)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: always full options: cannot find numpad0 check\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x22;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_numpad0_options,
+                      (void **)&real_numpad0_options);
+
+    }
+
+    printf("popnhax: always display full options\n");
+    return true;
+
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -2109,6 +2171,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.force_unlock_deco)
             force_unlock_deco_parts();
+
+        if (config.force_full_opt)
+            patch_options();
 
     #if DEBUG == 1
         patch_get_time();

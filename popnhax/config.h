@@ -16,6 +16,7 @@ struct popnhax_config {
     bool remove_timer;
     bool freeze_timer;
     bool skip_tutorials;
+    bool force_full_opt;
 
     bool patch_db;
     bool disable_expansions;
