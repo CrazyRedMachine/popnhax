@@ -30,7 +30,7 @@
 const char* g_game_dll_fn = NULL;
 const char* g_config_fn   = NULL;
 
-#define DEBUG 1
+#define DEBUG 0
 
 #if DEBUG == 1
 double g_multiplier = 1.;
@@ -123,6 +123,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, keysound_offset,
                  "/popnhax/keysound_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, beam_brightness,
                  "/popnhax/beam_brightness")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, fps_uncap,
+                 "/popnhax/fps_uncap")
 PSMAP_END
 
 enum BufferIndexes {
@@ -1980,6 +1982,17 @@ static bool patch_hd_resolution(uint8_t mode) {
     return true;
 }
 
+static bool patch_fps_uncap() {
+    if (!patch_hex("\x7E\x07\xB9\x0C\x00\x00\x00\xEB\x09\x85\xC9", 11, 0, "\xEB\x1C", 2))
+    {
+        printf("popnhax: fps uncap: cannot find frame limiter\n");
+        return false;
+    }
+
+    printf("popnhax: fps uncapped\n");
+    return true;
+}
+
 void (*real_song_options)();
 void patch_song_options() {
     __asm("mov byte ptr[ecx+0xA15], 0\n");
@@ -2174,6 +2187,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.force_full_opt)
             patch_options();
+
+        if (config.fps_uncap)
+            patch_fps_uncap();
 
     #if DEBUG == 1
         patch_get_time();

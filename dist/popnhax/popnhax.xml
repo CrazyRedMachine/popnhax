@@ -43,6 +43,8 @@
   <keysound_offset __type="s8">0</keysound_offset>
   <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
   <beam_brightness __type="s8">0</beam_brightness>
+  <!-- Disable the builtin frame limiter (smoother animations at 120fps+) -->
+  <fps_uncap __type="bool">0</fps_uncap>
   <!-- Force the newly created buffers to be the same size as the original buffers -->
   <disable_expansions __type="bool">0</disable_expansions>
   <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->

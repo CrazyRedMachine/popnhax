@@ -26,6 +26,7 @@ struct popnhax_config {
     char force_datecode[11];
     int8_t keysound_offset;
     int8_t beam_brightness;
+    bool fps_uncap;
 };
 
 #endif
