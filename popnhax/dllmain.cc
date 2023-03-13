@@ -188,6 +188,77 @@ void omnimix_patch_jbx() {
     real_omnimix_patch_jbx();
 }
 
+bool g_return_to_options = false;
+void (*real_screen_transition)();
+void quickexit_screen_transition()
+{
+    if (g_return_to_options)
+    {
+        __asm("mov dword ptr [esi+0x30], 0x1C\n");
+        //flag is set back to false in the option select screen after score cleanup
+    }
+    real_screen_transition();
+}
+
+uint32_t g_score_addr = 0;
+void (*real_retrieve_score)();
+void quickretry_retrieve_score()
+{
+    __asm("mov %0, esi\n":"=S"(g_score_addr): :);
+    real_retrieve_score();
+}
+
+uint32_t g_startsong_addr = 0;
+void quickexit_option_screen_cleanup()
+{
+    if (g_return_to_options)
+    {
+        /* we got here from quickretry, cleanup score */
+        __asm("push ecx\n");
+        __asm("push esi\n");
+        __asm("push edi\n");
+        __asm("mov edi, %0\n": :"D"(g_score_addr));
+        __asm("mov esi, edi\n");
+        __asm("add esi, 0x560\n");
+        __asm("mov ecx, 0x98\n");
+        __asm("rep movsd\n");
+        __asm("pop edi\n");
+        __asm("pop esi\n");
+        __asm("pop ecx\n");
+        g_return_to_options = false;
+    }
+}
+
+void (*real_option_screen)();
+void quickexit_option_screen()
+{
+    quickexit_option_screen_cleanup();
+
+    __asm("push ebx\n");
+    __asm("mov ebx, dword ptr [0x12345678]\n"); /* placeholder value, will be set to addr_icca afterwards */
+    __asm("add ebx, 0xAC\n");
+    __asm("mov ebx, [ebx]\n");
+
+    __asm("shr ebx, 24\n");
+    __asm("cmp bl, 8\n");
+    __asm("pop ebx\n");
+    __asm("jne real_option_screen\n");
+
+    /* numpad 7 is held, rewrite transition pointer */
+    __asm("pop edi\n");
+    __asm("pop ecx\n");
+    __asm("pop edx\n");
+    __asm("xor edx, edx\n");
+    __asm("mov ecx, %0\n": :"c"(g_startsong_addr));
+    __asm("push edx\n");
+    __asm("push ecx\n");
+    __asm("push edi\n");
+
+    __asm("real_option_screen:\n");
+    real_option_screen();
+}
+
+bool g_pfree_mode = false;
 void (*real_game_loop)();
 void quickexit_game_loop()
 {
@@ -195,12 +266,25 @@ void quickexit_game_loop()
     __asm("mov ebx, dword ptr [0x12345678]\n"); /* placeholder value, will be set to addr_icca afterwards */
     __asm("add ebx, 0xAC\n");
     __asm("mov ebx, [ebx]\n");
-    __asm("shr ebx, 16\n");
+
+    __asm("shr ebx, 16\n"); // numpad9: 00 08 00 00
+    __asm("cmp bl, 8\n");
+    __asm("je leave_song\n");
+
+    __asm("shr ebx, 8\n"); // numpad7: 08 00 00 00
     __asm("cmp bl, 8\n");
     __asm("jne call_real\n");
+    /* numpad 7 is pressed: quick retry if pfree is active */
+    if (!g_pfree_mode)
+        __asm("jmp call_real\n");
+    g_return_to_options = true;
+    /* numpad 7 or 9 is pressed */
+    __asm("leave_song:\n");
     __asm("mov eax, 1\n");
     __asm("pop ebx\n");
     __asm("ret\n");
+
+    /* no quick exit */
     __asm("call_real:\n");
     __asm("pop ebx\n");
     real_game_loop();
@@ -288,25 +372,14 @@ void hidden_is_offset_commit_options()
 }
 
 void (*real_stage_update)();
-void hook_stage_update_pfree()
-{
-    //__asm("push ebx\n"); //handled by :"=b"
-    __asm("mov ebx, dword ptr [esi+0x14]\n");
-    __asm("lea ebx, [ebx+0xC]\n");
-    __asm("mov %0, ebx\n":"=b"(g_transition_addr): :);
-    //__asm("pop ebx\n");
-    //__asm("ret\n");
-}
-
 void hook_stage_update()
 {
-    //__asm("push ebx\n"); //handled by :"=b"
     __asm("mov ebx, dword ptr [esi+0x14]\n");
     __asm("lea ebx, [ebx+0xC]\n");
     __asm("mov %0, ebx\n":"=b"(g_transition_addr): :);
-    //__asm("pop ebx\n");
-    //__asm("ret\n");
-    real_stage_update();
+
+    if (!g_pfree_mode)
+        real_stage_update();
 }
 
 void (*real_check_music_idx)();
@@ -1556,7 +1629,7 @@ static bool patch_pfree() {
         g_stage_addr = *(uint32_t*)(patch_addr+1);
 
         /* hook to retrieve address for exit to thank you for playing screen */
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update_pfree,
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update,
                      (void **)&real_stage_update);
 
     }
@@ -1686,8 +1759,7 @@ static bool patch_quick_retire(bool pfree)
 
     if ( !pfree )
     {
-        /* hook the stage counter function to retrieve stage and transition addr for quick exit session
-         * (when pfree is active it's taking care of hooking that function differently to prevent stage from incrementing)
+        /* pfree already installs this hook
          */
         {
             fuzzy_search_task task;
@@ -1710,7 +1782,7 @@ static bool patch_quick_retire(bool pfree)
         }
     }
 
-    /* hook numpad for instant quit song */
+    /* instant retire with numpad 9 in song */
     {
         fuzzy_search_task task;
 
@@ -1739,7 +1811,7 @@ static bool patch_quick_retire(bool pfree)
                       (void **)&real_game_loop);
     }
 
-    /* hook numpad in result screen to quit pfree */
+    /* instant exit with numpad 9 on result screen */
     {
         fuzzy_search_task task;
 
@@ -1769,6 +1841,100 @@ static bool patch_quick_retire(bool pfree)
     }
 
     printf("popnhax: quick retire enabled\n");
+
+    /* retrieve songstart function pointer for quick retry */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\xE9\x0C\x01\x00\x00\x8B\x85\x10\x0A\x00\x00", 11)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+
+        if (pattern_offset == -1) {
+            printf("popnhax: quick retry: cannot retrieve song start function\n");
+            return false;
+        }
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 4;
+        g_startsong_addr = *(uint32_t*)(patch_addr);
+    }
+
+    /* instant retry (go back to option select) with numpad 7 */
+    {
+        /* retrieve current stage score addr for cleanup */
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\xF3\xA5\x5F\x5E\x5B\xC2\x04\x00", 8)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+
+        if (pattern_offset == -1) {
+            printf("popnhax: quick retry: cannot retrieve score addr\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 5;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickretry_retrieve_score,
+                      (void **)&real_retrieve_score);
+    }
+    {
+        /* hook quick retire transition to go back to option select instead */
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x6A\x01\x8B\xCE\xFF\xD0\xE8", 7)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+
+        if (pattern_offset == -1) {
+            printf("popnhax: quick retry: cannot retrieve screen transition function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_screen_transition,
+                      (void **)&real_screen_transition);
+    }
+
+    /* instant launch song with numpad 7 on option select (hold 7 during song for quick retry) */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x51\x50\x8B\x83\x0C\x0A\x00\x00\xEB\x09\x33\xD2", 12)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+
+        if (pattern_offset == -1) {
+            printf("popnhax: quick retry: cannot retrieve option screen loop\n");
+            return false;
+        }
+
+        uint32_t addr_icca;
+        if (!get_addr_icca(&addr_icca))
+        {
+            printf("popnhax: quick retry: cannot retrieve ICCA address for numpad hook\n");
+            return false;
+        }
+        int64_t quickexitaddr = (int64_t)&quickexit_option_screen;
+        uint8_t *patch_str = (uint8_t*) quickexitaddr;
+
+        uint8_t placeholder_offset = 0;
+        while (patch_str[placeholder_offset+0] != 0x78
+            || patch_str[placeholder_offset+1] != 0x56
+            || patch_str[placeholder_offset+2] != 0x34
+            || patch_str[placeholder_offset+3] != 0x12)
+            placeholder_offset++;
+
+        patch_memory(quickexitaddr+placeholder_offset, (char *)&addr_icca, 4);
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 12 + 5 + 2;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen,
+                      (void **)&real_option_screen);
+    }
+
+    printf("popnhax: quick retry enabled\n");
     return true;
 }
 
@@ -2122,6 +2288,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.pfree) {
+            g_pfree_mode = true; /* used by asm hook */
             patch_pfree();
         }
 

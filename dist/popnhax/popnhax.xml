@@ -2,18 +2,24 @@
 <popnhax>
   <!-- Hidden+ setting (press 0 for advanced options) is now an offset adjust (negative means you have to hit earlier) -->
   <hidden_is_offset __type="bool">0</hidden_is_offset>
+
   <!-- Premium free (unlimited stages per credit) -->
   <pfree __type="bool">0</pfree>
-  <!-- Press numpad 9 to exit song, or on result screen to exit session (great for pfree!) -->
+
+  <!-- Press numpad 9 in song to retire instantly, or on result screen to leave game session (thank you for playing) -->
+  <!-- quick_retire with pfree also enables quick retry: hold numpad 7 to retry -->
   <quick_retire __type="bool">0</quick_retire>
+
   <!-- HD timing for pcb_type=0 -->
   <force_hd_timing __type="bool">0</force_hd_timing>
   <!-- HD resolution for pcb_type=0 (0: no, 1: keep texts as on HD cab (smaller LCD mod), 2: center texts (32" LCD mod) ) -->
   <force_hd_resolution __type="u8">0</force_hd_resolution>
+
   <!-- Force unlock music, charts, and characters -->
   <force_unlocks __type="bool">0</force_unlocks>
   <!-- Force unlock deco parts (avoid using this on later games without deco) -->
   <force_unlock_deco __type="bool">0</force_unlock_deco>
+
   <!-- Prevent Windows volume from being reset on boot -->
   <unset_volume __type="bool">0</unset_volume>
   <!-- Force booting directly into event mode -->
@@ -37,13 +43,13 @@
 
   <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED) -->
 
-  <!-- Force a different datecode than the one found in ea3-config -->
+  <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00) -->
   <force_datecode __type="str"></force_datecode>
   <!-- Offset the keysounds by x ms (negative is earlier) -->
   <keysound_offset __type="s8">0</keysound_offset>
   <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
   <beam_brightness __type="s8">0</beam_brightness>
-  <!-- Disable the builtin frame limiter (smoother animations at 120fps+) -->
+  <!-- Disable the builtin frame limiter (faster/smoother animations at 120fps+) -->
   <fps_uncap __type="bool">0</fps_uncap>
   <!-- Force the newly created buffers to be the same size as the original buffers -->
   <disable_expansions __type="bool">0</disable_expansions>
