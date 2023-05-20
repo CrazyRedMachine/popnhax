@@ -96,6 +96,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlocks,
                  "/popnhax/force_unlocks")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlock_deco,
                  "/popnhax/force_unlock_deco")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, audio_source_fix,
+                 "/popnhax/audio_source_fix")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, unset_volume,
                  "/popnhax/unset_volume")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, event_mode, "/popnhax/event_mode")
@@ -1051,6 +1053,30 @@ static bool patch_database(uint8_t force_unlocks) {
     }
 
     printf("popnhax: patched limit-related code\n");
+
+    return true;
+}
+
+static bool patch_audio_source_fix() {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x85\xC0\x75\x96\x8D\x70\x7F\xE8\xF8\x2B\x00\x00", 12)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        patch_memory(patch_addr, (char *)"\x90\x90\x90\x90", 4);
+    }
+
+    printf("popnhax: audio source fixed\n");
 
     return true;
 }
@@ -3018,6 +3044,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.practice_mode) {
             patch_practice_mode();
+        }
+
+        if (config.audio_source_fix) {
+            patch_audio_source_fix();
         }
 
         if (config.unset_volume) {

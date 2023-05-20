@@ -20,6 +20,8 @@
   <!-- Force unlock deco parts (avoid using this on later games without deco) -->
   <force_unlock_deco __type="bool">0</force_unlock_deco>
 
+  <!-- Prevent crash on boot when using a different default audio source (aka HDMI audio patch) -->
+  <audio_source_fix __type="bool">0</audio_source_fix>
   <!-- Prevent Windows volume from being reset on boot -->
   <unset_volume __type="bool">0</unset_volume>
   <!-- Force booting directly into event mode -->
