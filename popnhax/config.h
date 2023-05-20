@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 struct popnhax_config {
+    bool practice_mode;
     bool hidden_is_offset;
     bool pfree;
     bool quick_retire;

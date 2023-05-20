@@ -117,6 +117,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_xml_auto
                  "/popnhax/patch_xml_auto")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, patch_xml_filename,
                  "/popnhax/patch_xml_filename")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, practice_mode,
+                 "/popnhax/practice_mode")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, force_datecode,
                  "/popnhax/force_datecode")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, keysound_offset,
@@ -258,6 +260,31 @@ void quickexit_option_screen()
     real_option_screen();
 }
 
+
+static bool r_ran;
+static bool regul_flg;
+//static bool dj_auto;
+static bool ex_res_flg;
+static bool disp = 0;
+static bool use_sp_flg;
+uint32_t ori_plop = 0;
+uint32_t *g_plop_addr;
+uint32_t add_stage_addr;
+void (*restore_op)();
+void restore_plop()
+{
+	__asm("push esi\n");
+	__asm("push ebx\n");
+    __asm("mov eax, [%0]\n"::"a"(*g_plop_addr));
+    __asm("mov ebx, %0\n"::"b"(ori_plop));
+    __asm("mov byte ptr [eax+0x34], bl\n");
+    __asm("pop ebx\n");
+    __asm("pop esi\n");
+	restore_op();
+}
+
+
+
 bool g_pfree_mode = false;
 void (*real_game_loop)();
 void quickexit_game_loop()
@@ -275,6 +302,9 @@ void quickexit_game_loop()
     __asm("cmp bl, 8\n");
     __asm("jne call_real\n");
     /* numpad 7 is pressed: quick retry if pfree is active */
+
+    use_sp_flg = 0;
+
     if (!g_pfree_mode)
         __asm("jmp call_real\n");
     g_return_to_options = true;
@@ -287,7 +317,15 @@ void quickexit_game_loop()
     /* no quick exit */
     __asm("call_real:\n");
     __asm("pop ebx\n");
+
+/* r2nk226 ついかテスト */
+    if (regul_flg|r_ran){
+        use_sp_flg = 1;
+    }
+    ex_res_flg = 0;
+    disp = 1;
     real_game_loop();
+
 }
 
 int16_t g_keysound_offset = 0;
@@ -316,9 +354,21 @@ void quickexit_result_loop()
     __asm("mov ebx, %0\n": :"b"(g_transition_addr));
     __asm("mov dword ptr[ebx], 0xFFFFFFFC\n");
 
+        disp = 0;// 7.9 message off
+        use_sp_flg = 0;
+
     __asm("call_real_result:\n");
     //__asm("pop ebx\n"); //handled by :"b"
+
+
+// r2nk226#1109 ついかテスト
+    if (use_sp_flg){
+        g_return_to_options = 1;
+        quickexit_option_screen_cleanup();
+    }
+    ex_res_flg = 1;
     real_result_loop();
+
 }
 
 bool g_timing_require_update = false;
@@ -1744,7 +1794,11 @@ pfree_apply:
         patch_str[8] = offset_from_stage1[1];
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x03;
+
+        add_stage_addr = (int64_t)data + pattern_offset + 0x03;
+
         patch_memory(patch_addr, patch_str, 23);
+        
     }
 
     printf("popnhax: premium free enabled\n");
@@ -1833,7 +1887,7 @@ static bool patch_quick_retire(bool pfree)
         }
 
         int64_t quickexitaddr = (int64_t)&quickexit_result_loop;
-        patch_memory(quickexitaddr+3, (char *)&addr_icca, 4);
+        patch_memory(quickexitaddr+4, (char *)&addr_icca, 4);// +3 -> +4
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_loop,
@@ -2219,6 +2273,685 @@ static bool patch_options()
 
 }
 
+
+/* r2nk226 */
+
+
+/* playerdata */
+static bool get_addr_pldata(uint32_t *res)
+{
+    static uint32_t addr = 0;
+
+    if (addr != 0)
+    {
+        *res = addr;
+        return true;
+    }
+
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    fuzzy_search_task task;
+
+    FUZZY_START(task, 1)
+    FUZZY_CODE(task, 0, "\x14\xFF\xE2\xC3\xCC\xCC", 6) // +10hからポインタ群がある
+    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    if (pattern_offset == -1) {
+        return false;
+    }
+
+    addr = *(uint32_t *) ((int64_t)data + pattern_offset + 0x31);// 取りたいのは+31hのとこ
+    g_plop_addr = (uint32_t *) ((int64_t)data + pattern_offset + 0x31);
+
+#if DEBUG == 1
+    printf("pldata is %x\n", addr);
+#endif
+    *res = addr;
+    return true;
+}
+
+/* Unilab Check */
+static bool unilab_check()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+        
+    fuzzy_search_task task;
+
+    FUZZY_START(task, 1)
+    FUZZY_CODE(task, 0, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8)
+
+    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    if (pattern_offset == -1) {
+            return false;
+        }
+    printf("popnhax: guidese : Unilabooooooo\n");
+    return true;
+}
+
+/* INPUT numkey */
+uint32_t *input_func;
+static bool get_addr_numkey()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    fuzzy_search_task task;
+
+    FUZZY_START(task, 1)
+    FUZZY_CODE(task, 0, "\x85\xC9\x74\x08\x8B\x01\x8B\x40\x24\x52\xFF\xD0", 12) 
+    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    if (pattern_offset == -1) {
+        return false;
+    }
+
+    input_func = (uint32_t *) ((int64_t)data + pattern_offset + 26);
+#if DEBUG == 1
+    printf("INPUT num addr %x\n", input_func);
+#endif
+    return true;
+}
+
+/* R-RANDOM address */
+uint32_t *g_ran_addr;
+uint32_t *btaddr;
+uint32_t *ran_func;
+static bool get_addr_random()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize); // hook \x83\xC4\x04\xB9\x02\x00\x00\x00 button \x03\xC5\x83\xF8\x09\x7C\xDE
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x83\xC4\x04\xB9\x02\x00\x00\x00", 8) 
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+
+        g_ran_addr = (uint32_t *) ((int64_t)data + pattern_offset -0x13);
+
+    }
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x51\x55\x56\xC7\x44\x24\x08\x00\x00\x00", 10) 
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+        ran_func = (uint32_t *) ((int64_t)data + pattern_offset);
+    }
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x03\xC5\x83\xF8\x09\x7C\xDE", 7) 
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+
+        btaddr = (uint32_t *) ((int64_t)data + pattern_offset -20);
+        
+    }
+#if DEBUG == 1
+    printf("popnhax: get_addr_random: g_ran_addr is %x\n", g_ran_addr);
+    printf("popnhax: get_addr_random: ran_func is %x\n", ran_func);
+    printf("popnhax: get_addr_random: btaddr is %x\n", *btaddr);
+#endif
+    return true;
+}
+
+/* R-RANDOM hook */ 
+void (*real_get_random)();
+void r_random()
+{
+    if (r_ran){
+        __asm("mov eax, [%0]\n"::"a"(*g_plop_addr));
+        __asm("mov al, byte ptr [eax+0x34]\n"); //+34がプレイオプション0正規、1ミラー、2乱、3S乱
+        __asm("cmp al, 2\n");
+        __asm("jae call_rran_end\n"); /* jae=jnc 正規とミラーのみ処理 */
+        __asm("movzx eax, al\n");
+        __asm("nop\n":"=a"(ori_plop)::); //もとのオプション退避
+        __asm("push 0\n");
+        __asm("mov ebx, %0\n"::"b"(*btaddr)); //mov ebx,1093A124
+        __asm("call %0\n"::"a"(ran_func)); //call 100B3B80
+        __asm("add esp, 4\n");
+		/* 1093A124 にレーンNOランダム生成されるから
+			0番目の数字を加算って処理をする
+			0の場合は1番目の数字を加算		*/
+	    __asm("lea ebx, dword ptr [%0]\n"::"b"(*btaddr));
+	    __asm("cmp word ptr [ebx], 0\n");
+	    __asm("jne lane_no\n");
+	    __asm("add ebx, 2\n");
+	    __asm("lane_no:\n");
+	    __asm("movzx ebx, word ptr [ebx]\n");
+
+        __asm("push ebx\n"); //加算数値を退避
+  
+	    __asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
+
+        /* lane create base*/
+        if (ori_plop == 0){
+	        __asm("mov edx, [%0]\n"::"d"(*g_plop_addr));
+	        __asm("mov byte ptr [edx+0x34], 1\n"); // ここでプレイオプションに1を書き込む。正規だけミラー偽装あとで戻すこと
+            __asm("xor ecx, ecx\n");
+	        __asm("lane_seiki:\n");
+	        //__asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
+	        __asm("mov word ptr [eax+ecx*2], cx\n"); //mov word ptr [0x1093A124 + eax*2], cx
+	        __asm("inc ecx\n");
+	        __asm("cmp ecx,9\n");
+	        __asm("jl lane_seiki\n");
+	        //__asm("jmp next_lane\n");
+        } else if (ori_plop == 1){
+            __asm("xor ecx, ecx\n");
+	        __asm("lane_mirror:\n");
+	        __asm("mov edx, 8\n");
+	        __asm("sub edx, ecx\n");
+	        //__asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
+	        __asm("mov word ptr [eax+ecx*2], dx\n");//mov word ptr [0x1093A124 + eax*2], dx
+	        __asm("inc ecx\n");
+	        __asm("cmp ecx,9\n");
+	        __asm("jl lane_mirror\n");
+        }
+	
+        __asm("pop ebx\n"); //ebxに加算する数字が入ってる
+        __asm("next_lane:\n");
+	    __asm("lea ebp, [eax + edi*2]\n");
+	    __asm("movzx edx, word ptr [ebp]\n");
+	    __asm("add dx, bx\n");
+	    __asm("cmp dx, 9\n");
+	    __asm("jc no_in\n");
+		__asm("sub dx, 9\n");
+        
+        __asm("no_in:\n");
+	    __asm("mov word ptr [ebp], dx\n");
+	    __asm("inc edi\n");
+	    __asm("cmp edi,9\n");
+	    __asm("jl next_lane\n");
+        __asm("call_rran_end:\n");
+    }
+	real_get_random();
+}
+
+/* Get address for Special Menu */
+uint32_t *g_rend_addr;
+uint32_t *font_color;
+uint32_t *font_rend_func;
+static bool get_rendaddr()
+{
+    static uint32_t addr = 0;
+
+    if (addr != 0)
+    {
+        return true;
+    }
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0,
+                   "\x3b\xC3\x74\x13\xC7\x00\x02\x00\x00\x00\x89\x58\x04\x89\x58\x08", 16)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+        
+        g_rend_addr = (uint32_t *)((int64_t)data + pattern_offset -4);
+        font_color = (uint32_t *)((int64_t)data + pattern_offset +36);
+    }
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x0C\x8D\x44\x24\x10", 24)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+
+        font_rend_func = (uint32_t *)((int64_t)data + pattern_offset +16);
+    }
+
+    #if DEBUG == 1
+        printf("popnhax: get_rendaddr: g_rend_addr is %x\n", *g_rend_addr);
+        printf("popnhax: get_rendaddr: font_color is %x\n", *font_color);
+        printf("popnhax: get_rendaddr: font_rend_func is %x\n", font_rend_func);
+    #endif
+
+    return true;
+}
+
+/* speed change */
+uint32_t *g_2dx_addr;
+uint32_t *g_humen_addr;
+uint32_t *g_soflan_addr;
+static bool get_speedaddr()
+{
+    static uint32_t addr = 0;
+
+    if (addr != 0)
+    {
+        return true;
+    }
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x83\xC4\x0C\x8B\xC3\x8D\x7C\x24", 8)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+        
+        g_2dx_addr = (uint32_t *)((int64_t)data + pattern_offset +16);
+
+    }
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x8B\x74\x24\x18\x8D\x0C\x5B\x8B\x54\x8E\xF4", 11)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+
+        g_humen_addr = (uint32_t *)((int64_t)data + pattern_offset);
+
+    }
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x0F\xBF\xC5\x83\xC4\x0C\x66\x89\x6E\x08", 10)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+
+        g_soflan_addr = (uint32_t *)((int64_t)data + pattern_offset +10);
+
+    }
+    #if DEBUG == 1
+        printf("popnhax: get_speedaddr: g_2dx_addr is %x\n", g_2dx_addr);
+        printf("popnhax: get_speedaddr: g_humen_addr is %x\n", g_humen_addr);
+        printf("popnhax: get_speedaddr: g_soflan_addr is %x\n", g_soflan_addr);
+    #endif
+    return true;
+}
+
+void (*real_get_bpm)();
+void regul_speed()
+{
+    if (regul_flg){
+        __asm("mov bp, 0x64\n"); //BPM 100
+        __asm("mov [esi+8], bp\n");
+    }
+    __asm("movsx eax, bp\n");
+    real_get_bpm();
+}
+
+static uint32_t speed;
+void (*real_2dx_addr)();
+void ex_2dx_speed()
+{
+    if (speed == 1){
+        __asm("mov dword ptr [edi+0x30], 0x89D0\n");// 44100Hz -> 35280Hz
+        __asm("mov ecx, dword ptr [edi+0x34]\n");
+        __asm("shl ecx, 0x02\n");
+        __asm("mov eax, 0x33333334\n");
+        __asm("mul ecx\n");
+        __asm("mov eax, edx\n");
+        __asm("shr eax, 0x1F\n");
+        __asm("add eax, edx\n");
+        __asm("mov dword ptr [edi+0x34], eax\n");
+    } else if(speed == 2){
+        __asm("mov dword ptr [edi+0x30], 0x72D8\n");// 44100Hz -> 29400Hz
+        __asm("mov ecx, dword ptr [edi+0x34]\n");
+        __asm("shl ecx, 0x01\n");
+        __asm("mov eax, 0x55555556\n");
+        __asm("mul ecx\n");
+        __asm("mov eax, edx\n");
+        __asm("shr eax, 0x1F\n");
+        __asm("add eax, edx\n");
+        __asm("mov dword ptr [edi+0x34], eax\n");
+    }
+    real_2dx_addr();
+}
+
+void ex_chart()
+{
+    use_sp_flg = 1;
+    __asm("mov al, byte ptr [esp+0x448]\n");
+    __asm("cmp al, 1\n");
+    __asm("mov ecx, dword ptr [esp+0x30]\n");
+    __asm("jne call_ex\n");
+    __asm("lea ecx, dword ptr [ecx+ecx*2]\n");
+    __asm("shr ecx, 1\n");
+    __asm("call_ex:\n");
+    __asm("lea ecx, dword ptr [ecx-0x6C]\n");
+    __asm("mov eax, 0x15555556\n");
+    __asm("mul ecx\n");
+    __asm("mov eax, edx\n");
+    __asm("shr eax, 0x1F\n");
+    __asm("add eax, edx\n");
+    __asm("xor ecx, ecx\n");
+    __asm("mov ebp, dword ptr [esp+0x2C]\n");
+    __asm("lea ebx, dword ptr [ebp+0x6c]\n");
+}
+
+void (*real_humen_addr)();
+void ex_humen_speed()
+{
+    if (speed == 1){
+        __asm("push ebx\n");
+        ex_chart();
+        __asm("call_loop:\n");
+        __asm("lea ebx, dword ptr [ebx+0xC]\n");
+        __asm("mov edx, dword ptr [ebx]\n");
+        __asm("lea edx, dword ptr [edx+edx*4]\n");
+        __asm("shr edx, 2\n");
+        __asm("mov dword ptr [ebx], edx\n");
+        __asm("mov edx, dword ptr [ebx+8]\n");
+        __asm("cmp edx, 0\n");
+        __asm("je long_pop\n");
+        __asm("lea edx, dword ptr [edx+edx*4]\n");
+        __asm("shr edx, 2\n");
+        __asm("mov dword ptr [ebx+8], edx\n");
+        __asm("long_pop:\n");
+        __asm("inc ecx\n");
+        __asm("cmp eax, ecx\n");
+        __asm("jnle call_loop\n");
+        __asm("pop ebx\n");
+    } else if (speed == 2){
+        __asm("push ebx\n");
+        ex_chart();
+        __asm("call_loop2:\n");
+        __asm("lea ebx, dword ptr [ebx+0xC]\n");
+        __asm("mov edx, dword ptr [ebx]\n");
+        __asm("lea edx, dword ptr [edx+edx*2]\n");
+        __asm("shr edx, 1\n");
+        __asm("mov dword ptr [ebx], edx\n");
+        __asm("mov edx, dword ptr [ebx+8]\n");
+        __asm("cmp edx, 0\n");
+        __asm("je long_pop2\n");
+        __asm("lea edx, dword ptr [edx+edx*2]\n");
+        __asm("shr edx, 1\n");
+        __asm("mov dword ptr [ebx+8], edx\n");
+        __asm("long_pop2:\n");
+        __asm("inc ecx\n");
+        __asm("cmp eax, ecx\n");
+        __asm("jnle call_loop2\n");
+        __asm("pop ebx\n");
+    }
+    real_humen_addr();
+}
+
+/*
+void (*add_stage_ext)();
+void clear_flg(){
+    disp = 0;
+    use_sp_flg = 0;
+    add_stage_ext();
+}
+*/
+const char menu_1[] = "--- Practice Mode ---";
+//const char menu_2[] = "DJAUTO (numpad5) >> %s";
+const char menu_2[] = "Scores are not recorded."; //NO CONTEST 表現がわからん
+const char menu_3[] = "REGUL SPEED (numpad4) >> %s";
+const char menu_4[] = "R-RANDOM (numpad6) >> %s";
+const char menu_5[] = "SPEED (numpad8) >> %s";
+//const char menu_6[] = "menu display on/off (numpad9)";
+const char menu_7[] = "quick retry (numpad7)";
+const char menu_8[] = "quick retire (numpad9)";
+const char menu_6[] = "quit pfree mode (numpad9)";
+const char menu_on[] = "ON";
+const char menu_off[] = "OFF";
+const char sp100[] = "100%";
+const char sp80[] = "80%"; //1.25倍
+const char sp67[] = "66.6%";//1.5倍
+const char *flg_1; //dj_auto
+const char *flg_2; //regul speed
+const char *flg_3; //r-random
+void (*real_aging_loop)();
+void new_menu()
+{
+    __asm("mov ecx, 4\n");
+    __asm("call %0\n"::"a"(input_func));
+    __asm("test al, al\n");
+    __asm("je SW_4\n");
+    regul_flg ^= 1;
+    __asm("SW_4:\n");
+    flg_2 = menu_off;
+    if (regul_flg){
+        flg_2 = menu_on;
+    }
+
+    __asm("mov ecx, 6\n");
+    __asm("call %0\n"::"a"(input_func));
+    __asm("test al, al\n");
+    __asm("je SW_6\n");
+    r_ran ^= 1;
+    __asm("SW_6:\n");
+    flg_3 = menu_off;
+    if (r_ran){
+        flg_3 = menu_on;
+    }
+
+    __asm("mov ecx, 8\n");
+    __asm("call %0\n"::"a"(input_func));
+    __asm("test al, al\n");
+    __asm("je SW_8\n");
+    speed++;
+    __asm("SW_8:\n");
+
+    __asm("mov eax, [%0]\n"::"a"(*g_rend_addr));
+    __asm("cmp eax, 0\n");
+    __asm("je call_menu\n");
+    __asm("mov dword ptr [eax], 2\n");
+    __asm("mov dword ptr [eax+4], 1\n");
+    __asm("mov dword ptr [eax+8], 0\n");
+    __asm("mov dword ptr [eax+0x34], 1\n");
+    
+
+//Practice Mode--
+    __asm("call_menu:\n");
+    __asm("push %0\n"::"a"(menu_1));
+    __asm("push 0x150\n");
+    __asm("push 0x2C0\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+0x50)); //Blue
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x0C\n");
+
+//NO CONTEST
+if (use_sp_flg){
+    __asm("push %0\n"::"a"(menu_2));
+    __asm("push 0x164\n");
+    __asm("push 0x2C0\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+0x30)); //Yellow
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x0C\n");
+}
+
+//REGUL SPEED no-soflan
+    __asm("push %0\n"::"D"(flg_2));
+    __asm("push %0\n"::"a"(menu_3));
+    __asm("push 0x178\n");
+    __asm("push 0x2C0\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+//R-RANDOM
+    __asm("push %0\n"::"D"(flg_3));
+    __asm("push %0\n"::"a"(menu_4));
+    __asm("push 0x18C\n");
+    __asm("push 0x2C0\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+//SPEED 変更
+    __asm("nop\n"::"a"(sp100));
+    if (speed == 1){
+        __asm("nop\n"::"a"(sp80));
+    } else if (speed == 2){
+        __asm("nop\n"::"a"(sp67));
+    } else if(speed >= 3){
+        speed = 0;
+    }
+    __asm("push eax\n");
+    __asm("push %0\n"::"a"(menu_5));
+    __asm("push 0x1A0\n");
+    __asm("push 0x2C0\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+/* quick menu on/off */
+    if (disp){
+
+//quick retry
+        __asm("push %0\n"::"a"(menu_7));
+        __asm("push 0x1B4\n");
+        __asm("push 0x2C0\n");
+        __asm("mov esi, %0\n"::"a"(*font_color+0x10)); //Green
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x0C\n");
+
+//quick retire & exit
+        __asm("nop\n"::"a"(menu_8));
+        if (ex_res_flg){
+        __asm("nop\n"::"a"(menu_6));
+        } 
+        __asm("push eax\n");
+        __asm("push 0x1C8\n");
+        __asm("push 0x2C0\n");
+    //    __asm("mov esi, %0\n"::"a"(*font_color+0x10)); //Green
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x0C\n");
+    }
+	real_aging_loop();
+}
+
+static bool patch_practice_mode()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    /* AGING MODE to Practice Mode */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x83\xEC\x40\x53\x56\x57", 6)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+
+        if (pattern_offset == -1) {
+            printf("popnhax: cannot retrieve aging loop\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 6;
+        if (!get_rendaddr())
+        {
+            printf("popnhax: Cannot find address for drawing\n");
+            return false;
+        }
+        if (!get_addr_numkey())
+        {
+            printf("popnhax: Cannot find address for number pad\n");
+            return false;
+        }
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)new_menu,
+                      (void **)&real_aging_loop);
+
+        uint32_t addr_pldata;
+        if (!get_addr_pldata(&addr_pldata))
+        {
+            printf("popnhax: cannot retrieve pldata address for guidese\n");
+            return false;
+        }
+    }
+
+    {
+        if (!get_speedaddr())
+        {
+            printf("popnhax: Cannot find address for speed change\n");
+            return false;
+        }
+        MH_CreateHook((LPVOID)g_2dx_addr, (LPVOID)ex_2dx_speed,
+        (void **)&real_2dx_addr);
+        MH_CreateHook((LPVOID)g_humen_addr, (LPVOID)ex_humen_speed,
+        (void **)&real_humen_addr);
+        MH_CreateHook((LPVOID)g_soflan_addr, (LPVOID)regul_speed,
+        (void **)&real_get_bpm);
+    }
+
+    printf("popnhax: speed hook enabled\n");
+
+    {
+        if (!get_addr_random())
+        {
+            printf("popnhax: Random LANE addr was not found\n");
+            return false;
+        }
+
+        MH_CreateHook((LPVOID)g_ran_addr, (LPVOID)r_random,
+        (void **)&real_get_random);
+    }
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x5E\x8B\xE5\x5D\xC2\x04\x00\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x55\x8B\xEC\x83\xE4\xF8\x51\x56\x8B\xF1\x8B", 32)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: Cannot find address for restore addr\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset -11;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)restore_plop,
+                      (void **)&restore_op);
+    }
+
+    printf("popnhax: R-Random hook enabled\n");
+/*
+    //add_stage に フラグオフ追加 (char *)"\x31\xC0\x40\xC3", 4
+    {
+        MH_CreateHook((LPVOID)(add_stage_addr+0x12), (LPVOID)clear_flg,
+                      (void **)&add_stage_ext);
+    }
+*/
+    return true;
+}
+
+
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -2281,6 +3014,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 printf("popnhax: force_datecode: Invalid datecode, should be 10 digits (e.g. 2022061300)\n");
             else
                 patch_datecode(config.force_datecode);
+        }
+
+        if (config.practice_mode) {
+            patch_practice_mode();
         }
 
         if (config.unset_volume) {

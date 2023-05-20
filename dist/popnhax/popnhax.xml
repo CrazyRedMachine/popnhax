@@ -41,6 +41,10 @@
   <patch_xml_filename __type="str"></patch_xml_filename>
   <!-- END OF USER SETTINGS -->
 
+  <!-- EXPERIMENTAL PATCHES (USE AT OWN RISK, MIGHT INTERFERE WITH OTHER OPTIONS) -->
+  <!-- Enable practice mode menu (r-ran, constant chart speed, slow motion, etc...) -->
+  <practice_mode __type="bool">0</practice_mode>
+
   <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED) -->
 
   <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00) -->
