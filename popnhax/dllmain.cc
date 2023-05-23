@@ -209,6 +209,16 @@ void (*real_retrieve_score)();
 void quickretry_retrieve_score()
 {
     __asm("mov %0, esi\n":"=S"(g_score_addr): :);
+    /* let's force E and fail medal for quick exit
+     * (regular retire or end of song will overwrite)
+     */
+    uint8_t *clear_type = (uint8_t*)(g_score_addr+0x24);
+    uint8_t *clear_rank = (uint8_t*)(g_score_addr+0x25);
+    if (*clear_type == 0)
+    {
+        *clear_type = 1;
+        *clear_rank = 1;
+    }
     real_retrieve_score();
 }
 
@@ -275,14 +285,14 @@ uint32_t add_stage_addr;
 void (*restore_op)();
 void restore_plop()
 {
-	__asm("push esi\n");
-	__asm("push ebx\n");
+    __asm("push esi\n");
+    __asm("push ebx\n");
     __asm("mov eax, [%0]\n"::"a"(*g_plop_addr));
     __asm("mov ebx, %0\n"::"b"(ori_plop));
     __asm("mov byte ptr [eax+0x34], bl\n");
     __asm("pop ebx\n");
     __asm("pop esi\n");
-	restore_op();
+    restore_op();
 }
 
 
@@ -1941,7 +1951,7 @@ static bool patch_quick_retire(bool pfree)
 
     /* instant retry (go back to option select) with numpad 7 */
     {
-        /* retrieve current stage score addr for cleanup */
+        /* retrieve current stage score addr for cleanup (also used to fix quick retire medal) */
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
@@ -2014,7 +2024,9 @@ static bool patch_quick_retire(bool pfree)
                       (void **)&real_option_screen);
     }
 
-    printf("popnhax: quick retry enabled\n");
+    if (pfree)
+        printf("popnhax: quick retry enabled\n");
+    
     return true;
 }
 
@@ -2450,61 +2462,61 @@ void r_random()
         __asm("mov ebx, %0\n"::"b"(*btaddr)); //mov ebx,1093A124
         __asm("call %0\n"::"a"(ran_func)); //call 100B3B80
         __asm("add esp, 4\n");
-		/* 1093A124 にレーンNOランダム生成されるから
-			0番目の数字を加算って処理をする
-			0の場合は1番目の数字を加算		*/
-	    __asm("lea ebx, dword ptr [%0]\n"::"b"(*btaddr));
-	    __asm("cmp word ptr [ebx], 0\n");
-	    __asm("jne lane_no\n");
-	    __asm("add ebx, 2\n");
-	    __asm("lane_no:\n");
-	    __asm("movzx ebx, word ptr [ebx]\n");
+        /* 1093A124 にレーンNOランダム生成されるから
+            0番目の数字を加算って処理をする
+            0の場合は1番目の数字を加算        */
+        __asm("lea ebx, dword ptr [%0]\n"::"b"(*btaddr));
+        __asm("cmp word ptr [ebx], 0\n");
+        __asm("jne lane_no\n");
+        __asm("add ebx, 2\n");
+        __asm("lane_no:\n");
+        __asm("movzx ebx, word ptr [ebx]\n");
 
         __asm("push ebx\n"); //加算数値を退避
   
-	    __asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
+        __asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
 
         /* lane create base*/
         if (ori_plop == 0){
-	        __asm("mov edx, [%0]\n"::"d"(*g_plop_addr));
-	        __asm("mov byte ptr [edx+0x34], 1\n"); // ここでプレイオプションに1を書き込む。正規だけミラー偽装あとで戻すこと
+            __asm("mov edx, [%0]\n"::"d"(*g_plop_addr));
+            __asm("mov byte ptr [edx+0x34], 1\n"); // ここでプレイオプションに1を書き込む。正規だけミラー偽装あとで戻すこと
             __asm("xor ecx, ecx\n");
-	        __asm("lane_seiki:\n");
-	        //__asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
-	        __asm("mov word ptr [eax+ecx*2], cx\n"); //mov word ptr [0x1093A124 + eax*2], cx
-	        __asm("inc ecx\n");
-	        __asm("cmp ecx,9\n");
-	        __asm("jl lane_seiki\n");
-	        //__asm("jmp next_lane\n");
+            __asm("lane_seiki:\n");
+            //__asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
+            __asm("mov word ptr [eax+ecx*2], cx\n"); //mov word ptr [0x1093A124 + eax*2], cx
+            __asm("inc ecx\n");
+            __asm("cmp ecx,9\n");
+            __asm("jl lane_seiki\n");
+            //__asm("jmp next_lane\n");
         } else if (ori_plop == 1){
             __asm("xor ecx, ecx\n");
-	        __asm("lane_mirror:\n");
-	        __asm("mov edx, 8\n");
-	        __asm("sub edx, ecx\n");
-	        //__asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
-	        __asm("mov word ptr [eax+ecx*2], dx\n");//mov word ptr [0x1093A124 + eax*2], dx
-	        __asm("inc ecx\n");
-	        __asm("cmp ecx,9\n");
-	        __asm("jl lane_mirror\n");
+            __asm("lane_mirror:\n");
+            __asm("mov edx, 8\n");
+            __asm("sub edx, ecx\n");
+            //__asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
+            __asm("mov word ptr [eax+ecx*2], dx\n");//mov word ptr [0x1093A124 + eax*2], dx
+            __asm("inc ecx\n");
+            __asm("cmp ecx,9\n");
+            __asm("jl lane_mirror\n");
         }
-	
+    
         __asm("pop ebx\n"); //ebxに加算する数字が入ってる
         __asm("next_lane:\n");
-	    __asm("lea ebp, [eax + edi*2]\n");
-	    __asm("movzx edx, word ptr [ebp]\n");
-	    __asm("add dx, bx\n");
-	    __asm("cmp dx, 9\n");
-	    __asm("jc no_in\n");
-		__asm("sub dx, 9\n");
+        __asm("lea ebp, [eax + edi*2]\n");
+        __asm("movzx edx, word ptr [ebp]\n");
+        __asm("add dx, bx\n");
+        __asm("cmp dx, 9\n");
+        __asm("jc no_in\n");
+        __asm("sub dx, 9\n");
         
         __asm("no_in:\n");
-	    __asm("mov word ptr [ebp], dx\n");
-	    __asm("inc edi\n");
-	    __asm("cmp edi,9\n");
-	    __asm("jl next_lane\n");
+        __asm("mov word ptr [ebp], dx\n");
+        __asm("inc edi\n");
+        __asm("cmp edi,9\n");
+        __asm("jl next_lane\n");
         __asm("call_rran_end:\n");
     }
-	real_get_random();
+    real_get_random();
 }
 
 /* Get address for Special Menu */
@@ -2876,7 +2888,7 @@ if (use_sp_flg){
         __asm("call %0\n"::"a"(font_rend_func));
         __asm("add esp, 0x0C\n");
     }
-	real_aging_loop();
+    real_aging_loop();
 }
 
 static bool patch_practice_mode()
