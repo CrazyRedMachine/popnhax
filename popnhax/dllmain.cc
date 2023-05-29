@@ -88,6 +88,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, pfree,
                  "/popnhax/pfree")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, quick_retire,
                  "/popnhax/quick_retire")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, score_challenge,
+                 "/popnhax/score_challenge")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_hd_timing,
                  "/popnhax/force_hd_timing")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, force_hd_resolution,
@@ -1834,7 +1836,7 @@ pfree_apply:
         add_stage_addr = (int64_t)data + pattern_offset + 0x03;
 
         patch_memory(patch_addr, patch_str, 23);
-        
+
     }
 
     printf("popnhax: premium free enabled\n");
@@ -2026,7 +2028,7 @@ static bool patch_quick_retire(bool pfree)
 
     if (pfree)
         printf("popnhax: quick retry enabled\n");
-    
+
     return true;
 }
 
@@ -2154,6 +2156,184 @@ static bool patch_beam_brightness(uint8_t value) {
     }
 
     return res;
+}
+
+uint16_t *g_course_id_ptr;
+uint16_t *g_course_song_id_ptr;
+void (*real_parse_ranking_info)();
+void score_challenge_retrieve_addr()
+{
+    /* only set pointer if g_course_id_ptr is not set yet, 
+     * to avoid overwriting with past challenge data which
+     * is sent afterwards
+     */
+    __asm("mov ebx, %0\n": :"b"(g_course_id_ptr));
+    __asm("test ebx, ebx\n");
+    __asm("jne parse_ranking_info\n");
+
+    __asm("lea %0, [esi]\n":"=S"(g_course_id_ptr): :);
+    __asm("lea %0, [esi+0x8D4]\n":"=S"(g_course_song_id_ptr): :);
+    __asm("parse_ranking_info:\n");
+    real_parse_ranking_info();
+}
+
+void (*score_challenge_prep_songdata)();
+void (*score_challenge_song_inject)();
+void (*score_challenge_test_if_logged1)();
+void (*score_challenge_test_if_normal_mode)();
+
+void (*real_make_score_challenge_category)();
+void make_score_challenge_category()
+{   
+    __asm("push ecx\n");
+    __asm("push ebx\n");
+    __asm("push edi\n");
+
+    if (g_course_id_ptr && *g_course_id_ptr != 0)
+    {
+        score_challenge_test_if_logged1();
+        __asm("mov al, byte ptr ds:[eax+0x1A5]\n"); /* or look for this function 8A 80 A5 01 00 00 C3 CC */
+        __asm("test al, al\n");
+        __asm("je leave_score_challenge\n");
+
+        score_challenge_test_if_normal_mode();
+        __asm("test al, al\n");
+        __asm("jne leave_score_challenge\n");
+
+        __asm("mov cx, %0\n": :"r"(*g_course_song_id_ptr));
+        __asm("mov dl,6\n");
+        __asm("lea eax,[esp+0x8]\n");
+        score_challenge_prep_songdata();
+        __asm("lea edi,[esi+0x24]\n");
+        __asm("mov ebx,eax\n");
+        score_challenge_song_inject();
+        __asm("mov byte ptr ds:[esi+0xA4],1\n");
+    }
+
+    __asm("leave_score_challenge:\n");
+    __asm("pop edi\n");
+    __asm("pop ebx\n");
+    __asm("pop ecx\n");
+}
+
+/* all code handling score challenge is still in the game but the 
+ * function responsible for building and adding the score challenge
+ * category to song selection has been stubbed. let's rewrite it
+ */
+static bool patch_score_challenge()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    /* Part1: retrieve course id and song id, useful and will simplify a little */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x81\xC6\xCC\x08\x00\x00\xC7\x44\x24", 9)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: score challenge: cannot find course/song address\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)score_challenge_retrieve_addr,
+                      (void **)&real_parse_ranking_info);
+    }
+
+    /* Part2: retrieve subfunctions which used to be called by the now stubbed function */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x66\x89\x08\x88\x50\x02", 6)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: score challenge: cannot find song data prep function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        score_challenge_prep_songdata = (void(*)())patch_addr;
+    }
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x8B\x4F\x0C\x83\xEC\x10\x56\x85\xC9\x75\x04\x33\xC0\xEB\x08\x8B\x47\x14\x2B\xC1\xC1\xF8\x02\x8B\x77\x10\x8B\xD6\x2B\xD1\xC1\xFA\x02\x3B\xD0\x73\x2B", 37)
+
+        int64_t pattern_offset = find_block(data, dllSize-0x60000, &task, 0x60000);
+        if (pattern_offset == -1) {
+            printf("popnhax: score challenge: cannot find category song inject function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        score_challenge_song_inject = (void(*)())patch_addr;
+    }
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: score challenge: cannot find check if logged function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x24;
+
+        score_challenge_test_if_logged1 = (void(*)())patch_addr;
+    }
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\xF7\xD8\x1B\xC0\x40\xC3\xE8", 7)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: score challenge: cannot find check if logged function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x6;
+
+        score_challenge_test_if_normal_mode = (void(*)())patch_addr;
+    }
+
+    /* Part3: "unstub" the score challenge category creation */
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8)
+
+        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        if (pattern_offset == -1) {
+            printf("popnhax: score challenge: cannot find category building loop\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x66;
+
+        uint32_t function_offset = *((uint32_t*)(patch_addr+0x01));
+        uint64_t function_addr = patch_addr+5+function_offset;
+
+        MH_CreateHook((LPVOID)(function_addr), (LPVOID)make_score_challenge_category,
+                      (void **)&real_make_score_challenge_category);
+    }
+
+    printf("popnhax: score challenge reactivated (requires server support)\n");
+    return true;
 }
 
 static bool patch_base_offset(int32_t value) {
@@ -2353,7 +2533,7 @@ static bool unilab_check()
 {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
-        
+
     fuzzy_search_task task;
 
     FUZZY_START(task, 1)
@@ -2377,7 +2557,7 @@ static bool get_addr_numkey()
     fuzzy_search_task task;
 
     FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, "\x85\xC9\x74\x08\x8B\x01\x8B\x40\x24\x52\xFF\xD0", 12) 
+    FUZZY_CODE(task, 0, "\x85\xC9\x74\x08\x8B\x01\x8B\x40\x24\x52\xFF\xD0", 12)
     int64_t pattern_offset = find_block(data, dllSize, &task, 0);
     if (pattern_offset == -1) {
         return false;
@@ -2403,7 +2583,7 @@ static bool get_addr_random()
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x83\xC4\x04\xB9\x02\x00\x00\x00", 8) 
+        FUZZY_CODE(task, 0, "\x83\xC4\x04\xB9\x02\x00\x00\x00", 8)
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
@@ -2417,7 +2597,7 @@ static bool get_addr_random()
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x51\x55\x56\xC7\x44\x24\x08\x00\x00\x00", 10) 
+        FUZZY_CODE(task, 0, "\x51\x55\x56\xC7\x44\x24\x08\x00\x00\x00", 10)
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
@@ -2429,7 +2609,7 @@ static bool get_addr_random()
         fuzzy_search_task task;
 
         FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x03\xC5\x83\xF8\x09\x7C\xDE", 7) 
+        FUZZY_CODE(task, 0, "\x03\xC5\x83\xF8\x09\x7C\xDE", 7)
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
@@ -2437,7 +2617,7 @@ static bool get_addr_random()
         }
 
         btaddr = (uint32_t *) ((int64_t)data + pattern_offset -20);
-        
+
     }
 #if DEBUG == 1
     printf("popnhax: get_addr_random: g_ran_addr is %x\n", g_ran_addr);
@@ -2447,7 +2627,7 @@ static bool get_addr_random()
     return true;
 }
 
-/* R-RANDOM hook */ 
+/* R-RANDOM hook */
 void (*real_get_random)();
 void r_random()
 {
@@ -2473,7 +2653,7 @@ void r_random()
         __asm("movzx ebx, word ptr [ebx]\n");
 
         __asm("push ebx\n"); //加算数値を退避
-  
+
         __asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
 
         /* lane create base*/
@@ -2499,7 +2679,7 @@ void r_random()
             __asm("cmp ecx,9\n");
             __asm("jl lane_mirror\n");
         }
-    
+
         __asm("pop ebx\n"); //ebxに加算する数字が入ってる
         __asm("next_lane:\n");
         __asm("lea ebp, [eax + edi*2]\n");
@@ -2508,7 +2688,7 @@ void r_random()
         __asm("cmp dx, 9\n");
         __asm("jc no_in\n");
         __asm("sub dx, 9\n");
-        
+
         __asm("no_in:\n");
         __asm("mov word ptr [ebp], dx\n");
         __asm("inc edi\n");
@@ -2545,7 +2725,7 @@ static bool get_rendaddr()
         if (pattern_offset == -1) {
             return false;
         }
-        
+
         g_rend_addr = (uint32_t *)((int64_t)data + pattern_offset -4);
         font_color = (uint32_t *)((int64_t)data + pattern_offset +36);
     }
@@ -2597,7 +2777,7 @@ static bool get_speedaddr()
         if (pattern_offset == -1) {
             return false;
         }
-        
+
         g_2dx_addr = (uint32_t *)((int64_t)data + pattern_offset +16);
 
     }
@@ -2809,7 +2989,7 @@ void new_menu()
     __asm("mov dword ptr [eax+4], 1\n");
     __asm("mov dword ptr [eax+8], 0\n");
     __asm("mov dword ptr [eax+0x34], 1\n");
-    
+
 
 //Practice Mode--
     __asm("call_menu:\n");
@@ -2880,7 +3060,7 @@ if (use_sp_flg){
         __asm("nop\n"::"a"(menu_8));
         if (ex_res_flg){
         __asm("nop\n"::"a"(menu_6));
-        } 
+        }
         __asm("push eax\n");
         __asm("push 0x1C8\n");
         __asm("push 0x2C0\n");
@@ -3073,6 +3253,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.quick_retire) {
             patch_quick_retire(config.pfree);
+        }
+
+        if (config.score_challenge) {
+            patch_score_challenge();
         }
 
         if (config.force_hd_timing) {

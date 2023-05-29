@@ -8,6 +8,7 @@ struct popnhax_config {
     bool hidden_is_offset;
     bool pfree;
     bool quick_retire;
+    bool score_challenge;
     bool force_hd_timing;
     uint8_t force_hd_resolution;
     bool force_unlocks;

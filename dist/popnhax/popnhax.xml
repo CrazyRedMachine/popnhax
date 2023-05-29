@@ -10,6 +10,9 @@
   <!-- quick_retire with pfree also enables quick retry: hold numpad 7 to retry -->
   <quick_retire __type="bool">0</quick_retire>
 
+  <!-- Bring back score challenge in the game for servers supporting it (only for kaimei onwards) -->
+  <score_challenge __type="bool">0</score_challenge>
+
   <!-- HD timing for pcb_type=0 -->
   <force_hd_timing __type="bool">0</force_hd_timing>
   <!-- HD resolution for pcb_type=0 (0: no, 1: keep texts as on HD cab (smaller LCD mod), 2: center texts (32" LCD mod) ) -->
