@@ -27,6 +27,7 @@ struct popnhax_config {
     bool patch_xml_auto;
     char patch_xml_filename[MAX_PATH];
     char force_datecode[11];
+    bool network_datecode;
     int8_t keysound_offset;
     int8_t beam_brightness;
     bool fps_uncap;

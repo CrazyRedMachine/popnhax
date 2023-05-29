@@ -125,6 +125,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, practice_mode,
                  "/popnhax/practice_mode")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, force_datecode,
                  "/popnhax/force_datecode")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, network_datecode,
+                 "/popnhax/network_datecode")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, keysound_offset,
                  "/popnhax/keysound_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, beam_brightness,
@@ -185,6 +187,47 @@ void asm_patch_datecode() {
     __asm("pop esi\n");
     __asm("pop ecx\n");
     real_asm_patch_datecode();
+}
+
+/* retrieve destination address when it checks for "soft/ext", then wait next iteration to overwrite */
+uint8_t g_libavs_datecode_patch_state = 0;
+char *datecode_property_ptr;
+uint32_t eaxsave;
+void (*real_asm_patch_datecode_libavs)();
+void asm_patch_datecode_libavs() {
+    if (g_libavs_datecode_patch_state == 2)
+        __asm("jmp leave_datecode_patch\n");
+
+    if (g_libavs_datecode_patch_state == 1)
+    {
+        __asm("push edx\n");
+        __asm("push eax\n");
+        __asm("push ecx\n");
+        /* memcpy(datecode_property_ptr, g_datecode_override, 10);*/
+        __asm("mov edx,_g_datecode_override\n");
+        __asm("mov eax,_datecode_property_ptr\n");
+        __asm("mov ecx,dword ptr ds:[edx]      \n");
+        __asm("mov dword ptr ds:[eax],ecx      \n");
+        __asm("mov ecx,dword ptr ds:[edx+4]    \n");
+        __asm("mov dword ptr ds:[eax+4],ecx    \n");
+        __asm("movzx edx,word ptr ds:[edx+8]   \n");
+        __asm("mov word ptr ds:[eax+8],dx      \n");
+        __asm("pop ecx\n");
+        __asm("pop eax\n");
+        __asm("pop edx\n");
+
+        g_libavs_datecode_patch_state++;
+        __asm("jmp leave_datecode_patch\n");
+    }
+
+    __asm("mov %0, [esp+0x38]\n":"=a"(datecode_property_ptr):);
+    if ((uint32_t)datecode_property_ptr > 0x200000 && datecode_property_ptr[0] == 's'&& datecode_property_ptr[5] == 'e'&& datecode_property_ptr[7] == 't')
+    {
+        __asm("mov %0, ecx\n":"=c"(datecode_property_ptr):);
+        g_libavs_datecode_patch_state++;
+    }
+    __asm("leave_datecode_patch:\n");
+    real_asm_patch_datecode_libavs();
 }
 
 void (*real_omnimix_patch_jbx)();
@@ -774,13 +817,41 @@ static bool patch_datecode(char *datecode) {
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode,
                           (void **)&real_asm_patch_datecode);
 
-            printf("popnhax: datecode set to %s\n",g_datecode_override);
-            return true;
+            printf("popnhax: datecode set to %s",g_datecode_override);
         } else {
             printf("popnhax: Couldn't patch datecode\n");
             return false;
         }
     }
+
+    if (!config.network_datecode)
+	{
+        printf("\n");
+        return true;
+    }
+
+    /* network_datecode is on: also patch libavs so that forced datecode shows in network packets */
+    DWORD avsdllSize = 0;
+    char *avsdata = getDllData("libavs-win32.dll", &avsdllSize);
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x57\x56\x89\x34\x24\x8B\xF2\x8B\xD0\x0F\xB6\x46\x2E", 13)
+
+        int64_t pattern_offset = find_block(avsdata, avsdllSize, &task, 0);
+        if (pattern_offset != -1) {
+            uint64_t patch_addr = (int64_t)avsdata + pattern_offset;
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode_libavs,
+                          (void **)&real_asm_patch_datecode_libavs);
+
+            printf("(including network)\n");
+        } else {
+            printf("(WARNING: failed to apply to network)\n");
+            return false;
+        }
+    }
+    return true;
 }
 
 static bool patch_database(uint8_t force_unlocks) {
@@ -2163,7 +2234,7 @@ uint16_t *g_course_song_id_ptr;
 void (*real_parse_ranking_info)();
 void score_challenge_retrieve_addr()
 {
-    /* only set pointer if g_course_id_ptr is not set yet, 
+    /* only set pointer if g_course_id_ptr is not set yet,
      * to avoid overwriting with past challenge data which
      * is sent afterwards
      */
@@ -2184,7 +2255,7 @@ void (*score_challenge_test_if_normal_mode)();
 
 void (*real_make_score_challenge_category)();
 void make_score_challenge_category()
-{   
+{
     __asm("push ecx\n");
     __asm("push ebx\n");
     __asm("push edi\n");
@@ -2216,7 +2287,7 @@ void make_score_challenge_category()
     __asm("pop ecx\n");
 }
 
-/* all code handling score challenge is still in the game but the 
+/* all code handling score challenge is still in the game but the
  * function responsible for building and adding the score challenge
  * category to song selection has been stubbed. let's rewrite it
  */

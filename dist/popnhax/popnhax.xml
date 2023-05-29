@@ -46,14 +46,16 @@
   <patch_xml_filename __type="str"></patch_xml_filename>
   <!-- END OF USER SETTINGS -->
 
-  <!-- EXPERIMENTAL PATCHES (USE AT OWN RISK, MIGHT INTERFERE WITH OTHER OPTIONS) -->
+  <!-- EXPERIMENTAL PATCHES (USE AT OWN RISK, PREFERABLY OFFLINE, MIGHT INTERFERE WITH OTHER OPTIONS) -->
   <!-- Enable practice mode menu (r-ran, constant chart speed, slow motion, etc...) -->
   <practice_mode __type="bool">0</practice_mode>
 
-  <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED) -->
+  <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED UNLESS YOU KNOW WHAT YOU'RE DOING) -->
 
   <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00) -->
   <force_datecode __type="str"></force_datecode>
+  <!-- Also apply force_datecode to network packets -->
+  <network_datecode __type="bool">1</network_datecode>
   <!-- Offset the keysounds by x ms (negative is earlier) -->
   <keysound_offset __type="s8">0</keysound_offset>
   <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
