@@ -117,6 +117,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_expans
                  "/popnhax/disable_expansions")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_redirection,
                  "/popnhax/disable_redirection")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_multiboot,
+                 "/popnhax/disable_multiboot")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_xml_auto,
                  "/popnhax/patch_xml_auto")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, patch_xml_filename,
@@ -825,7 +827,7 @@ static bool patch_datecode(char *datecode) {
     }
 
     if (!config.network_datecode)
-	{
+    {
         printf("\n");
         return true;
     }
@@ -845,9 +847,9 @@ static bool patch_datecode(char *datecode) {
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode_libavs,
                           (void **)&real_asm_patch_datecode_libavs);
 
-            printf("(including network)\n");
+            printf(" (including network)\n");
         } else {
-            printf("(WARNING: failed to apply to network)\n");
+            printf(" (WARNING: failed to apply to network)\n");
             return false;
         }
     }
@@ -3297,10 +3299,35 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         _load_config(g_config_fn, &config, config_psmap);
 
+        if (!config.disable_multiboot)
+        {
+            /* automatically force datecode based on dll name when applicable (e.g. popn22_2022061300.dll and no force_datecode) */
+            if ( (strcmp(g_game_dll_fn, "popn22.dll")!=0)
+              && (config.force_datecode[0] == '\0') )
+            {
+                printf("popnhax: multiboot autotune activated (custom game dll, default xml, force_datecode off)\n");
+                if ((strlen(g_game_dll_fn) == 21))
+                {
+                    memcpy(config.force_datecode, g_game_dll_fn+7, 10);
+                    printf("popnhax: multiboot: auto set datecode to %s\n", config.force_datecode);
+                    if (config.force_unlock_deco && ( strcmp(config.force_datecode, "2022061300") > 0) )
+                    {
+                        printf("popnhax: multiboot: auto disable force_unlock_deco\n");
+                        config.force_unlock_deco = false;
+                    }
+                    if (config.score_challenge && ( strcmp(config.force_datecode,"2022092800") <= 0 ) )
+                    {
+                        printf("popnhax: multiboot: auto disable score challenge\n");
+                        config.score_challenge = false;
+                    }
+                }
+            }
+        }
+
         if (config.force_datecode[0] != '\0')
         {
             if (strlen(config.force_datecode) != 10)
-                printf("popnhax: force_datecode: Invalid datecode, should be 10 digits (e.g. 2022061300)\n");
+                printf("popnhax: force_datecode: Invalid datecode %s, should be 10 digits (e.g. 2022061300)\n", config.force_datecode);
             else
                 patch_datecode(config.force_datecode);
         }

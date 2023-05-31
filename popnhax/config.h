@@ -24,6 +24,7 @@ struct popnhax_config {
     bool patch_db;
     bool disable_expansions;
     bool disable_redirection;
+    bool disable_multiboot;
     bool patch_xml_auto;
     char patch_xml_filename[MAX_PATH];
     char force_datecode[11];

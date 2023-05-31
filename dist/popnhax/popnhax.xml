@@ -66,4 +66,6 @@
   <disable_expansions __type="bool">0</disable_expansions>
   <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
   <disable_redirection __type="bool">0</disable_redirection>
+  <!-- Disable multiboot auto conf tuning (which takes place when using popn22_yyyymmdd00.dll format and an xml without force_datecode option) -->
+  <disable_multiboot __type="bool">0</disable_multiboot>
 </popnhax>
