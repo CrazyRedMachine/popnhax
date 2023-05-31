@@ -2,6 +2,10 @@
 <popnhax>
   <!-- Hidden+ setting (press 0 for advanced options) is now an offset adjust (negative means you have to hit earlier) -->
   <hidden_is_offset __type="bool">0</hidden_is_offset>
+  <!-- Display offset adjust on score result screen (requires hidden_is_offset, won't be sent over network) -->
+  <show_offset __type="bool">0</show_offset>
+  <!-- Display fast/slow counter on result screen even on judge+ off/lost/panic -->
+  <show_fast_slow __type="bool">0</show_fast_slow>
 
   <!-- Premium free (unlimited stages per credit) -->
   <pfree __type="bool">0</pfree>

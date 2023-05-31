@@ -6,6 +6,8 @@
 struct popnhax_config {
     bool practice_mode;
     bool hidden_is_offset;
+    bool show_offset;
+    bool show_fast_slow;
     bool pfree;
     bool quick_retire;
     bool score_challenge;

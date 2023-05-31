@@ -84,6 +84,10 @@ struct popnhax_config config = {};
 PSMAP_BEGIN(config_psmap, static)
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hidden_is_offset,
                  "/popnhax/hidden_is_offset")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_fast_slow,
+                 "/popnhax/show_fast_slow")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_offset,
+                 "/popnhax/show_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, pfree,
                  "/popnhax/pfree")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, quick_retire,
@@ -445,6 +449,7 @@ void modded_set_timing_func()
     return;
 }
 
+uint32_t g_masked_hidden = 0;
 void (*real_commit_options)();
 void hidden_is_offset_commit_options()
 {
@@ -453,6 +458,7 @@ void hidden_is_offset_commit_options()
     __asm("xor eax, eax\n");
     __asm("mov eax, [esi]\n");
     __asm("shr eax, 0x18\n");
+    __asm("or %0, eax\n":"=m"(g_masked_hidden):); /* save to restore display when using result_screen_show_offset patch */
     __asm("cmp eax, 1\n");
     __asm("jne call_real_commit\n");
 
@@ -478,6 +484,25 @@ void hidden_is_offset_commit_options()
     __asm("call_real_commit:\n");
     __asm("pop eax\n");
     real_commit_options();
+}
+
+uint32_t g_show_hidden_addr = 0; /* offset from ESP at which hidden setting value is */
+void (*real_show_hidden_result)();
+void asm_show_hidden_result()
+{
+    if (g_masked_hidden)
+    {
+        __asm("push edx\n");
+        __asm("mov edx, esp\n");
+        __asm("add edx, %0\n"::""(g_show_hidden_addr):);
+        __asm("add edx, 4\n"); /* to account for the "push edx" */
+        __asm("or dword ptr [edx], 0x00000001\n");
+        g_masked_hidden = 0;
+        __asm("pop edx\n");
+    }
+
+    __asm("call_real_hidden_result:\n");
+    real_show_hidden_result();
 }
 
 void (*real_stage_update)();
@@ -1143,22 +1168,9 @@ static bool patch_database(uint8_t force_unlocks) {
 }
 
 static bool patch_audio_source_fix() {
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
+    if (!patch_hex("\x85\xC0\x75\x96\x8D\x70\x7F\xE8\xF8\x2B\x00\x00", 12, 0, "\x90\x90\x90\x90", 4))
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x85\xC0\x75\x96\x8D\x70\x7F\xE8\xF8\x2B\x00\x00", 12)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        patch_memory(patch_addr, (char *)"\x90\x90\x90\x90", 4);
+        return false;
     }
 
     printf("popnhax: audio source fixed\n");
@@ -1205,25 +1217,10 @@ static bool patch_unset_volume() {
 }
 
 static bool patch_event_mode() {
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
+    if (!patch_hex("\x8B\x00\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC"
+                   "\xCC\xCC\xC7", 17, 0, "\x31\xC0\x40\xC3", 4))
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\x8B\x00\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC"
-                   "\xCC\xCC\xC7",
-                   17)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        patch_memory(patch_addr, (char *)"\x31\xC0\x40\xC3", 4);
+        return false;
     }
 
     printf("popnhax: event mode forced\n");
@@ -1270,22 +1267,9 @@ static bool patch_remove_timer() {
 }
 
 static bool patch_freeze_timer() {
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
+    if (!patch_hex("\xC7\x45\x38\x09\x00\x00\x00", 7, 0, "\x90\x90\x90\x90\x90\x90\x90", 7))
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xC7\x45\x38\x09\x00\x00\x00", 7)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        patch_memory(patch_addr, (char *)"\x90\x90\x90\x90\x90\x90\x90", 7);
+        return false;
     }
 
     printf("popnhax: timer frozen at 10 seconds remaining\n");
@@ -1767,6 +1751,83 @@ static bool patch_hidden_is_offset()
     }
 
     printf("popnhax: hidden is offset: hidden is now an offset adjust\n");
+    return true;
+}
+
+static bool patch_show_hidden_adjust_result_screen() {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    int64_t first_loc = 0;
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x6A\x00\x0F\xBE\xCB", 5)
+
+        first_loc = find_block(data, dllSize, &task, 0);
+        if (first_loc == -1) {
+            return false;
+        }
+    }
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x80\xBC\x24", 3)
+
+        int64_t pattern_offset = find_block(data, 0x200, &task, first_loc);
+        if (pattern_offset == -1) {
+            return false;
+        }
+        g_show_hidden_addr = *((uint32_t *)((int64_t)data + pattern_offset + 0x03));
+        uint64_t hook_addr = (int64_t)data + pattern_offset;
+        MH_CreateHook((LPVOID)(hook_addr), (LPVOID)asm_show_hidden_result,
+                      (void **)&real_show_hidden_result);
+    }
+
+    printf("popnhax: show hidden/adjust value on result screen\n");
+
+    return true;
+}
+
+static bool force_show_fast_slow() {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    int64_t first_loc = 0;
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x6A\x00\x0F\xBE\xCB", 5)
+
+        first_loc = find_block(data, dllSize, &task, 0);
+        if (first_loc == -1) {
+            return false;
+        }
+    }
+
+    {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, "\x0F\x85", 2)
+
+        int64_t pattern_offset = find_block(data, 0x50, &task, first_loc);
+        if (pattern_offset == -1) {
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        patch_memory(patch_addr, (char *)"\x90\x90\x90\x90\x90\x90", 6);
+    }
+
+    printf("popnhax: always show fast/slow on result screen\n");
+
     return true;
 }
 
@@ -3367,6 +3428,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.hidden_is_offset){
             patch_hidden_is_offset();
+            if (config.show_offset){
+                patch_show_hidden_adjust_result_screen();
+            }
+        }
+
+        if (config.show_fast_slow){
+            force_show_fast_slow();
         }
 
         if (config.keysound_offset){
