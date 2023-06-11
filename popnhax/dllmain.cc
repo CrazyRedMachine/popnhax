@@ -139,6 +139,10 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, beam_brightness,
                  "/popnhax/beam_brightness")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, fps_uncap,
                  "/popnhax/fps_uncap")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_translation,
+                 "/popnhax/disable_translation")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, dump_dict,
+                 "/popnhax/dump_dict")
 PSMAP_END
 
 enum BufferIndexes {
@@ -630,6 +634,194 @@ bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *r
 
     return true;
 
+}
+
+FILE *dictfile;
+
+bool patch_sjis(const uint8_t *find, uint8_t find_size, int64_t *offset, uint8_t *replace, uint8_t replace_size) {
+    static DWORD dllSize = 0;
+    static char *data = getDllData(g_game_dll_fn, &dllSize);
+    static uint8_t first_offset = 0;
+
+    int64_t offset_orig = *offset;
+    uint64_t patch_addr;
+    bool valid_sjis = false;
+    do {
+        fuzzy_search_task task;
+
+        FUZZY_START(task, 1)
+        FUZZY_CODE(task, 0, find, find_size)
+
+        *offset = find_block(data, dllSize-*offset, &task, *offset);
+        if (*offset == -1) {
+            fprintf(stderr,"NOT FOUND\n");
+            *offset = offset_orig;
+            return false;
+        }
+
+        if ( !first_offset )
+        {
+            if (config.dump_dict)
+            {
+                printf("popnhax: dump_dict: dump applied patches in dict_applied.txt\n");
+                dictfile = fopen("dict_applied.txt","wb");
+            }
+            /* limit search to a 0x100000-wide zone starting from first string found to speedup the process
+             * make sure to put the first string first (usually 種類順)
+             */
+            dllSize = *offset + 0x100000;
+            first_offset = 1;
+        }
+
+        patch_addr = (int64_t)data + *offset;
+
+        /* filter out partial matches (check that there isn't a valid sjis char before our match) */
+        uint8_t byte1 = *(uint8_t*)(patch_addr-2);
+        uint8_t byte2 = *(uint8_t*)(patch_addr-1);
+        bool valid_first  = ((0x81 <= byte1) && (byte1 <= 0x9F)) || ((0xE0 <= byte1) && (byte1 <= 0xFC));
+        bool valid_secnd  = ((0x40 <= byte2) && (byte2 <= 0x9E)) || ((0x9F <= byte2) && (byte2 <= 0xFC));
+        valid_sjis = valid_first && valid_secnd;
+
+        if (valid_sjis)
+        {
+            fprintf(stderr, "Partial match at offset 0x%x, retry...\n",(uint32_t)*offset);
+            *offset += find_size;
+        }
+    } while (valid_sjis);
+
+    if (config.dump_dict)
+        fprintf(dictfile,"0x%x;%s;%s\n",(uint32_t)*offset,(char*)find,(char*)replace);
+
+    /* safety check replace is not too big */
+    uint8_t free_size = find_size-1;
+    do
+    {
+        free_size++;
+    }
+    while ( *(uint8_t *)(patch_addr+free_size) == 0 );
+
+    if ((free_size-1) < replace_size)
+    {
+        printf("WARNING: translation %s is too big, truncating to ",(char *)replace);
+        replace_size = free_size-1;
+        replace[replace_size-1] = '\0';
+        printf("%s\n",(char *)replace);
+    }
+
+    patch_memory(patch_addr, (char *)replace, replace_size);
+
+    return true;
+}
+
+static FILE* _translation_open_dict(char *foldername)
+{
+    char dict_filepath[64];
+    sprintf(dict_filepath, "%s%s%s", "data_mods\\", foldername, "\\popn22.dict");
+    FILE *file = fopen(dict_filepath, "rb");
+    return file;
+}
+
+bool patch_translation(FILE* dict_fp)
+{
+    uint8_t original[128];
+    uint8_t translation[128];
+    uint8_t buffer;
+    int64_t curr_offset = 0;
+    uint8_t word_count = 0;
+    uint8_t orig_size = 0;
+
+    if (dict_fp == NULL)
+        return false;
+
+#define STATE_WAITING 0
+#define STATE_ORIGINAL 1
+#define STATE_TRANSLATION 2
+    uint16_t err_count = 0;
+    uint8_t state = STATE_WAITING;
+    uint8_t arr_idx = 0;
+    while (fread(&buffer, 1, 1, dict_fp) == 1)
+    {
+        switch (state)
+        {
+            case STATE_WAITING:
+                if (buffer == ';')
+                {
+                    state = STATE_ORIGINAL;
+                    arr_idx = 0;
+                }
+                else
+                {
+                    printf("Unexpected char %c\n", buffer);
+                    return false;
+                }
+                break;
+            case STATE_ORIGINAL:
+                if (buffer == ';')
+                {
+                    original[arr_idx++] = '\0';
+                    state = STATE_TRANSLATION;
+                    orig_size = arr_idx;
+                    arr_idx = 0;
+                }
+                else
+                {
+                    original[arr_idx++] = buffer;
+                }
+                break;
+            case STATE_TRANSLATION:
+                if (buffer == ';')
+                {
+                    /* end of word, let's patch! */
+                    translation[arr_idx-1] = '\0'; /* strip last \n */
+                    while ( arr_idx < orig_size )
+                    {
+                        translation[arr_idx++] = '\0'; /* fill with null when translation is shorter */
+                    }
+                    printf("%d: %s -> %s\n",++word_count,(char *)original,(char *)translation);
+
+                    /* patch all occurrences */
+                    /*curr_offset = 0;
+                    uint8_t count = 0;
+                    while (patch_sjis(original, orig_size, &curr_offset, translation, arr_idx-1))
+                    {
+                     count++;
+                    }
+                    printf("%d occurrences found\n",count);
+                    */
+                    if (!patch_sjis(original, orig_size, &curr_offset, translation, arr_idx-1))
+                    {
+                        printf("Warning: string %s (%s) not found in order, trying again.\n", (char *)original, (char *)translation);
+                        curr_offset = 0;
+                        if (!patch_sjis(original, orig_size, &curr_offset, translation, arr_idx-1))
+                        {
+                            printf("Warning: string %s not found, skipping.\n", (char *)original);
+                            err_count++;
+                        }
+                    }
+
+                    state = STATE_ORIGINAL;
+                    arr_idx = 0;
+                }
+                else
+                {
+                    translation[arr_idx++] = buffer;
+                }
+                break;
+            default:
+                break;
+        }
+    }
+    printf("popnhax: translation: patched all strings");
+    if (err_count)
+        printf(" (%u skipped strings)", err_count);
+    printf("\n");
+
+    if (config.dump_dict)
+        fclose(dictfile);
+    return true;
+#undef STATE_WAITING
+#undef STATE_ORIGINAL
+#undef STATE_TRANSLATION
 }
 
 char *parse_patchdb(const char *input_filename, char *base_data) {
@@ -3393,6 +3585,32 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 printf("popnhax: force_datecode: Invalid datecode %s, should be 10 digits (e.g. 2022061300)\n", config.force_datecode);
             else
                 patch_datecode(config.force_datecode);
+        }
+
+        /* look for possible translation patch folder ("_yyyymmddrr_tr" for multiboot, or simply "_translation") */
+        if (!config.disable_translation)
+        {
+            FILE *fp = NULL;
+            char translation_folder[16] = "";
+            /* parse */
+            if (config.force_datecode[0] != '\0')
+            {
+                sprintf(translation_folder, "_%s%s", config.force_datecode, "_tr");
+                fp = _translation_open_dict(translation_folder);
+            }
+
+            if (!fp)
+            {
+                sprintf(translation_folder, "%s", "_translation");
+                fp = _translation_open_dict(translation_folder);
+            }
+
+            if (fp != NULL)
+            {
+                printf("popnhax: translation: using folder \"%s\"\n", translation_folder);
+                patch_translation(fp);
+                fclose(fp);
+            }
         }
 
         if (config.practice_mode) {

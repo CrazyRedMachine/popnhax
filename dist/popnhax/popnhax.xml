@@ -56,20 +56,32 @@
 
   <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED UNLESS YOU KNOW WHAT YOU'RE DOING) -->
 
+  <!-- Datecode and Multiboot -->
   <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00) -->
   <force_datecode __type="str"></force_datecode>
   <!-- Also apply force_datecode to network packets -->
   <network_datecode __type="bool">1</network_datecode>
+  <!-- Disable multiboot auto conf tuning (which takes place when using popn22_yyyymmddrr.dll format and an xml without force_datecode option) -->
+  <disable_multiboot __type="bool">0</disable_multiboot>
+
+  <!-- Timing and lanes -->
   <!-- Offset the keysounds by x ms (negative is earlier) -->
   <keysound_offset __type="s8">0</keysound_offset>
   <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
   <beam_brightness __type="s8">0</beam_brightness>
   <!-- Disable the builtin frame limiter (faster/smoother animations at 120fps+) -->
   <fps_uncap __type="bool">0</fps_uncap>
+
+  <!-- Song db patches -->
   <!-- Force the newly created buffers to be the same size as the original buffers -->
   <disable_expansions __type="bool">0</disable_expansions>
   <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
   <disable_redirection __type="bool">0</disable_redirection>
-  <!-- Disable multiboot auto conf tuning (which takes place when using popn22_yyyymmdd00.dll format and an xml without force_datecode option) -->
-  <disable_multiboot __type="bool">0</disable_multiboot>
+
+  <!-- Translation -->
+  <!-- Disable string replacements from .dict file -->
+  <disable_translation __type="bool">0</disable_translation>
+  <!-- Dump applied translations in dict_applied.txt (requires translation) -->
+  <dump_dict __type="bool">0</dump_dict>
+
 </popnhax>

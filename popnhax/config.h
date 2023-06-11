@@ -34,6 +34,8 @@ struct popnhax_config {
     int8_t keysound_offset;
     int8_t beam_brightness;
     bool fps_uncap;
+    bool disable_translation;
+    bool dump_dict;
 };
 
 #endif
