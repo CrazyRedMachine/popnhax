@@ -3363,24 +3363,26 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (!config.disable_multiboot)
         {
             /* automatically force datecode based on dll name when applicable (e.g. popn22_2022061300.dll and no force_datecode) */
-            if ( (strcmp(g_game_dll_fn, "popn22.dll")!=0)
+            if ( (strlen(g_game_dll_fn) == 21)
               && (config.force_datecode[0] == '\0') )
             {
                 printf("popnhax: multiboot autotune activated (custom game dll, default xml, force_datecode off)\n");
-                if ((strlen(g_game_dll_fn) == 21))
+                memcpy(config.force_datecode, g_game_dll_fn+7, 10);
+                printf("popnhax: multiboot: auto set datecode to %s\n", config.force_datecode);
+                if (config.force_unlock_deco && ( strcmp(config.force_datecode, "2022061300") > 0) )
                 {
-                    memcpy(config.force_datecode, g_game_dll_fn+7, 10);
-                    printf("popnhax: multiboot: auto set datecode to %s\n", config.force_datecode);
-                    if (config.force_unlock_deco && ( strcmp(config.force_datecode, "2022061300") > 0) )
-                    {
-                        printf("popnhax: multiboot: auto disable force_unlock_deco\n");
-                        config.force_unlock_deco = false;
-                    }
-                    if (config.score_challenge && ( strcmp(config.force_datecode,"2022092800") <= 0 ) )
-                    {
-                        printf("popnhax: multiboot: auto disable score challenge\n");
-                        config.score_challenge = false;
-                    }
+                    printf("popnhax: multiboot: auto disable force_unlock_deco patch (no more deco)\n");
+                    config.force_unlock_deco = false;
+                }
+                if (config.score_challenge && ( strcmp(config.force_datecode,"2020092800") <= 0 ) )
+                {
+                    printf("popnhax: multiboot: auto disable score challenge patch (already ingame)\n");
+                    config.score_challenge = false;
+                }
+                if (config.patch_db && ( strcmp(config.force_datecode,"2016121400") < 0 ) )
+                {
+                    printf("popnhax: multiboot: auto disable omnimix patch (not compatible)\n");
+                    config.patch_db = false;
                 }
             }
         }
