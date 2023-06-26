@@ -683,7 +683,7 @@ void parse_charadb(const char *input_filename, const char *target) {
         property_node_refer(config_xml, property_search(config_xml, NULL, "/database"), "before@",
                             PROPERTY_TYPE_ATTR, beforeTarget, 64);
 
-        if (strlen(beforeTarget) > 0 && atoi(target) >= atoi(beforeTarget)) {
+        if (strlen(beforeTarget) > 0 && strcmp(target, beforeTarget) >= 0) {
             printf("Currently loading %s, found database that is only valid before %s, skipping %s...\n", target, beforeTarget, input_filename);
             return;
         }
@@ -691,7 +691,7 @@ void parse_charadb(const char *input_filename, const char *target) {
         char afterTarget[64] = {};
         property_node_refer(config_xml, property_search(config_xml, NULL, "/database"), "after@",
                             PROPERTY_TYPE_ATTR, afterTarget, 64);
-        if (strlen(afterTarget) > 0 && atoi(target) < atoi(afterTarget)) {
+        if (strlen(afterTarget) > 0 && strcmp(target, afterTarget) < 0) {
             printf("Currently loading %s, found database that is only valid after %s, skipping %s...\n", target, afterTarget, input_filename);
             return;
         }
@@ -831,7 +831,7 @@ void parse_musicdb(const char *input_filename, const char *target) {
         property_node_refer(config_xml, property_search(config_xml, NULL, "/database"), "before@",
                             PROPERTY_TYPE_ATTR, beforeTarget, 64);
 
-        if (strlen(beforeTarget) > 0 && atoi(target) >= atoi(beforeTarget)) {
+        if (strlen(beforeTarget) > 0 && strcmp(target, beforeTarget) >= 0) {
             printf("Currently loading %s, found database that is only valid before %s, skipping %s...\n", target, beforeTarget, input_filename);
             return;
         }
@@ -839,7 +839,7 @@ void parse_musicdb(const char *input_filename, const char *target) {
         char afterTarget[64] = {};
         property_node_refer(config_xml, property_search(config_xml, NULL, "/database"), "after@",
                             PROPERTY_TYPE_ATTR, afterTarget, 64);
-        if (strlen(afterTarget) > 0 && atoi(target) < atoi(afterTarget)) {
+        if (strlen(afterTarget) > 0 && strcmp(target, afterTarget) < 0) {
             printf("Currently loading %s, found database that is only valid after %s, skipping %s...\n", target, afterTarget, input_filename);
             return;
         }

@@ -27,8 +27,14 @@
 
 #include "SearchFile.h"
 
-const char* g_game_dll_fn = NULL;
-const char* g_config_fn   = NULL;
+const char *g_game_dll_fn = NULL;
+const char *g_config_fn   = NULL;
+FILE       *g_log_fp      = NULL;
+
+#define LOG(...) do { \
+fprintf(g_log_fp, __VA_ARGS__); \
+fflush(g_log_fp);\
+} while (0)
 
 #define DEBUG 0
 
@@ -65,13 +71,13 @@ bool patch_get_time()
 
 static void memdump(uint8_t* addr, uint8_t len)
 {
-    printf("MEMDUMP  :\n");
+    LOG("MEMDUMP  :\n");
     for (int i=0; i<len; i++)
     {
-        printf("%02x ", *addr);
+        LOG("%02x ", *addr);
         addr++;
         if ((i+1)%16 == 0)
-            printf("\n");
+            LOG("\n");
     }
 
 }
@@ -526,7 +532,7 @@ extern "C" void check_music_idx();
 extern "C" int8_t check_music_idx_handler(int32_t music_idx, int32_t chart_idx, int32_t result) {
     int8_t override_flag = get_chart_type_override(new_buffer_addrs[MUSIC_TABLE_IDX], music_idx & 0xffff, chart_idx & 0x0f);
 
-    printf("music_idx: %d, result: %d, override_flag: %d\n", music_idx & 0xffff, result, override_flag);
+    LOG("music_idx: %d, result: %d, override_flag: %d\n", music_idx & 0xffff, result, override_flag);
 
     if (override_flag != -1) {
         return override_flag;
@@ -606,14 +612,14 @@ bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *r
     }
 
 #if DEBUG == 1
-    printf("BEFORE PATCH :\n");
+    LOG("BEFORE PATCH :\n");
     uint8_t *offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
     for (int i=0; i<32; i++)
     {
-        printf("%02x ", *offset);
+        LOG("%02x ", *offset);
         offset++;
         if (i == 15)
-            printf("\n");
+            LOG("\n");
     }
 #endif
 
@@ -621,14 +627,14 @@ bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *r
     patch_memory(patch_addr, (char *)replace, replace_size);
 
 #if DEBUG == 1
-    printf("\nAFTER PATCH :\n");
+    LOG("\nAFTER PATCH :\n");
     offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
     for (int i=0; i<32; i++)
     {
-        printf("%02x ", *offset);
+        LOG("%02x ", *offset);
         offset++;
         if (i == 15)
-            printf("\n");
+            LOG("\n");
     }
 #endif
 
@@ -654,7 +660,6 @@ bool patch_sjis(const uint8_t *find, uint8_t find_size, int64_t *offset, uint8_t
 
         *offset = find_block(data, dllSize-*offset, &task, *offset);
         if (*offset == -1) {
-            fprintf(stderr,"NOT FOUND\n");
             *offset = offset_orig;
             return false;
         }
@@ -663,7 +668,7 @@ bool patch_sjis(const uint8_t *find, uint8_t find_size, int64_t *offset, uint8_t
         {
             if (config.dump_dict)
             {
-                printf("popnhax: dump_dict: dump applied patches in dict_applied.txt\n");
+                LOG("popnhax: dump_dict: dump applied patches in dict_applied.txt\n");
                 dictfile = fopen("dict_applied.txt","wb");
             }
             /* limit search to a 0x100000-wide zone starting from first string found to speedup the process
@@ -684,7 +689,7 @@ bool patch_sjis(const uint8_t *find, uint8_t find_size, int64_t *offset, uint8_t
 
         if (valid_sjis)
         {
-            fprintf(stderr, "Partial match at offset 0x%x, retry...\n",(uint32_t)*offset);
+            printf("Partial match at offset 0x%x, retry...\n",(uint32_t)*offset);
             *offset += find_size;
         }
     } while (valid_sjis);
@@ -702,10 +707,10 @@ bool patch_sjis(const uint8_t *find, uint8_t find_size, int64_t *offset, uint8_t
 
     if ((free_size-1) < replace_size)
     {
-        printf("WARNING: translation %s is too big, truncating to ",(char *)replace);
+        LOG("WARNING: translation %s is too big, truncating to ",(char *)replace);
         replace_size = free_size-1;
         replace[replace_size-1] = '\0';
-        printf("%s\n",(char *)replace);
+        LOG("%s\n",(char *)replace);
     }
 
     patch_memory(patch_addr, (char *)replace, replace_size);
@@ -751,7 +756,7 @@ bool patch_translation(FILE* dict_fp)
                 }
                 else
                 {
-                    printf("Unexpected char %c\n", buffer);
+                    LOG("Unexpected char %c\n", buffer);
                     return false;
                 }
                 break;
@@ -786,7 +791,7 @@ bool patch_translation(FILE* dict_fp)
                     {
                      count++;
                     }
-                    printf("%d occurrences found\n",count);
+                    LOG("%d occurrences found\n",count);
                     */
                     if (!patch_sjis(original, orig_size, &curr_offset, translation, arr_idx-1))
                     {
@@ -794,7 +799,7 @@ bool patch_translation(FILE* dict_fp)
                         curr_offset = 0;
                         if (!patch_sjis(original, orig_size, &curr_offset, translation, arr_idx-1))
                         {
-                            printf("Warning: string %s not found, skipping.\n", (char *)original);
+                            LOG("Warning: string %s not found, skipping.\n", (char *)original);
                             err_count++;
                         }
                     }
@@ -811,10 +816,10 @@ bool patch_translation(FILE* dict_fp)
                 break;
         }
     }
-    printf("popnhax: translation: patched all strings");
+    LOG("popnhax: translation: patched %u strings", word_count - err_count);
     if (err_count)
-        printf(" (%u skipped strings)", err_count);
-    printf("\n");
+        LOG(" (%u skipped strings)", err_count);
+    LOG("\n");
 
     if (config.dump_dict)
         fclose(dictfile);
@@ -996,7 +1001,7 @@ static bool patch_purelong()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: Couldn't find score increment function\n");
+            LOG("popnhax: Couldn't find score increment function\n");
             return false;
         }
 
@@ -1036,16 +1041,16 @@ static bool patch_datecode(char *datecode) {
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode,
                           (void **)&real_asm_patch_datecode);
 
-            printf("popnhax: datecode set to %s",g_datecode_override);
+            LOG("popnhax: datecode set to %s",g_datecode_override);
         } else {
-            printf("popnhax: Couldn't patch datecode\n");
+            LOG("popnhax: Couldn't patch datecode\n");
             return false;
         }
     }
 
     if (!config.network_datecode)
     {
-        printf("\n");
+        LOG("\n");
         return true;
     }
 
@@ -1064,9 +1069,9 @@ static bool patch_datecode(char *datecode) {
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode_libavs,
                           (void **)&real_asm_patch_datecode_libavs);
 
-            printf(" (including network)\n");
+            LOG(" (including network)\n");
         } else {
-            printf(" (WARNING: failed to apply to network)\n");
+            LOG(" (WARNING: failed to apply to network)\n");
             return false;
         }
     }
@@ -1091,9 +1096,9 @@ static bool patch_database(uint8_t force_unlocks) {
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)omnimix_patch_jbx,
                           (void **)&real_omnimix_patch_jbx);
 
-            printf("popnhax: Patched X rev for omnimix\n");
+            LOG("popnhax: Patched X rev for omnimix\n");
         } else {
-            printf("popnhax: Couldn't find rev patch\n");
+            LOG("popnhax: Couldn't find rev patch\n");
         }
     }
 
@@ -1107,43 +1112,43 @@ static bool patch_database(uint8_t force_unlocks) {
 
         if (config.force_datecode[0] != '\0')
         {
-            printf("popnhax: auto detect patch file with datecode override %s\n",config.force_datecode);
+            LOG("popnhax: auto detect patch file with datecode override %s\n",config.force_datecode);
             datecode = (uint8_t*) strdup(config.force_datecode);
         }
         else
         {
-            printf("popnhax: auto detect patch file from ea3-config\n");
+            LOG("popnhax: auto detect patch file from ea3-config\n");
             property *config_xml = load_prop_file("prop/ea3-config.xml");
             READ_STR_OPT(config_xml, property_search(config_xml, NULL, "/ea3/soft"), "ext", datecode)
             free(config_xml);
         }
 
         if (datecode == NULL) {
-            printf("popnhax: (patch_xml_auto) failed to retrieve datecode from ea3-config. Please disable patch_xml_auto option and use patch_xml_filename to specify which file should be used.\n");
+            LOG("popnhax: patch_db: failed to retrieve datecode from ea3-config. Please disable patch_xml_auto option and use patch_xml_filename to specify which file should be used.\n");
             return false;
         }
 
-        printf("popnhax: (patch_xml_auto) datecode : %s\n", datecode);
-        printf("popnhax: (patch_xml_auto) XML patch files search...\n");
+        LOG("popnhax: patch_db: datecode : %s\n", datecode);
+        LOG("popnhax: patch_db: XML patch files search...\n");
         s.search("data_mods", "xml", false);
         auto result = s.getResult();
 
-        printf("popnhax: (patch_xml_auto) found %d xml files in data_mods\n",result.size());
+        LOG("popnhax: patch_db: found %d xml files in data_mods\n",result.size());
         for (uint16_t i=0; i<result.size(); i++) {
             filename = result[i].c_str()+10; // strip "data_mods\" since parsedb will prepend it...
-            printf("%d : %s\n",i,filename);
+            LOG("%d : %s\n",i,filename);
             if (strstr(result[i].c_str(), (const char *)datecode) != NULL) {
                 found = true;
-                printf("popnhax: (patch_xml_auto) found matching datecode, end search\n");
+                LOG("popnhax: patch_db: found matching datecode, end search\n");
                 break;
             }
         }
 
         if (!found) {
-            printf("popnhax: (patch_xml_auto) matching datecode not found, defaulting to latest patch file.\n");
+            LOG("popnhax: patch_db: matching datecode not found, defaulting to latest patch file.\n");
         }
 
-        printf("popnhax: (patch_xml_auto) using %s\n",filename);
+        LOG("popnhax: patch_db: using %s\n",filename);
         target = parse_patchdb(filename, data);
 
     } else {
@@ -1192,6 +1197,7 @@ static bool patch_database(uint8_t force_unlocks) {
     limit_table[STYLE_TABLE_IDX] = new_limit_table[STYLE_TABLE_IDX];
 
     if (config.disable_redirection) {
+        LOG("Redirection-related code is disabled, buffer address, buffer size and related patches will not be applied");
         printf("Redirection-related code is disabled, buffer address, buffer size and related patches will not be applied");
         return true;
     }
@@ -1213,10 +1219,11 @@ static bool patch_database(uint8_t force_unlocks) {
         patch_memory(patch_addr, (char*)&mem_addr, 4);
     }
 
-    printf("popnhax: patched memory db locations\n");
+    LOG("popnhax: patched memory db locations\n");
 
     if (config.disable_expansions) {
         printf("Expansion-related code is disabled, buffer size and related patches will not be applied");
+        LOG("Expansion-related code is disabled, buffer size and related patches will not be applied");
         return true;
     }
 
@@ -1243,6 +1250,7 @@ static bool patch_database(uint8_t force_unlocks) {
 
             if (other_offsets[i]->method != 12 && cur_value != other_offsets[i]->expectedValue) {
                 printf("ERROR! Expected %llx, found %llx @ %llx!\n", other_offsets[i]->expectedValue, cur_value, other_offsets[i]->offset);
+                LOG("ERROR! Expected %llx, found %llx @ %llx!\n", other_offsets[i]->expectedValue, cur_value, other_offsets[i]->offset);
                 exit(1);
             }
 
@@ -1354,7 +1362,7 @@ static bool patch_database(uint8_t force_unlocks) {
         }
     }
 
-    printf("popnhax: patched limit-related code\n");
+    LOG("popnhax: patched limit-related code\n");
 
     return true;
 }
@@ -1365,7 +1373,7 @@ static bool patch_audio_source_fix() {
         return false;
     }
 
-    printf("popnhax: audio source fixed\n");
+    LOG("popnhax: audio source fixed\n");
 
     return true;
 }
@@ -1403,7 +1411,7 @@ static bool patch_unset_volume() {
         patch_memory(patch_addr, (char *)"\xC3", 1);
     }
 
-    printf("popnhax: windows volume untouched\n");
+    LOG("popnhax: windows volume untouched\n");
 
     return true;
 }
@@ -1415,7 +1423,7 @@ static bool patch_event_mode() {
         return false;
     }
 
-    printf("popnhax: event mode forced\n");
+    LOG("popnhax: event mode forced\n");
 
     return true;
 }
@@ -1453,7 +1461,7 @@ static bool patch_remove_timer() {
         patch_memory(patch_addr, (char *)"\x90\xE9", 2);
     }
 
-    printf("popnhax: timer removed\n");
+    LOG("popnhax: timer removed\n");
 
     return true;
 }
@@ -1464,7 +1472,7 @@ static bool patch_freeze_timer() {
         return false;
     }
 
-    printf("popnhax: timer frozen at 10 seconds remaining\n");
+    LOG("popnhax: timer frozen at 10 seconds remaining\n");
 
     return true;
 }
@@ -1532,7 +1540,7 @@ static bool patch_skip_tutorials() {
         patch_memory(patch_addr, (char *)"\x00\x5F\x5E\x66\x83\xF8\x01\xEB", 8);
     }
 
-    printf("popnhax: menu and long note tutorials skipped\n");
+    LOG("popnhax: menu and long note tutorials skipped\n");
 
     return true;
 }
@@ -1540,11 +1548,11 @@ static bool patch_skip_tutorials() {
 bool force_unlock_deco_parts() {
     if (!patch_hex("\x83\xC4\x04\x83\x38\x00\x75\x22", 8, 6, "\x90\x90", 2))
     {
-        printf("popnhax: couldn't unlock deco parts\n");
+        LOG("popnhax: couldn't unlock deco parts\n");
         return false;
     }
 
-    printf("popnhax: unlocked deco parts\n");
+    LOG("popnhax: unlocked deco parts\n");
 
     return true;
 }
@@ -1563,7 +1571,7 @@ bool force_unlock_songs() {
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: couldn't unlock songs and charts\n");
+            LOG("popnhax: couldn't unlock songs and charts\n");
             return false;
         }
 
@@ -1580,12 +1588,12 @@ bool force_unlock_songs() {
             }
 
             if ((entry->mask & 0x08000000) != 0) {
-                printf("[%04d] Unlocking %s\n", i, entry->title_ptr);
+                LOG("[%04d] Unlocking %s\n", i, entry->title_ptr);
                 music_unlocks++;
             }
 
             if ((entry->mask & 0x00000080) != 0) {
-                printf("[%04d] Unlocking charts for %s\n", i, entry->title_ptr);
+                LOG("[%04d] Unlocking charts for %s\n", i, entry->title_ptr);
                 chart_unlocks++;
             }
 
@@ -1598,7 +1606,7 @@ bool force_unlock_songs() {
         }
     }
 
-    printf("popnhax: unlocked %d songs and %d charts\n", music_unlocks, chart_unlocks);
+    LOG("popnhax: unlocked %d songs and %d charts\n", music_unlocks, chart_unlocks);
 
     return true;
 }
@@ -1617,7 +1625,7 @@ bool force_unlock_charas() {
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: couldn't unlock characters\n");
+            LOG("popnhax: couldn't unlock characters\n");
             return false;
         }
 
@@ -1636,13 +1644,13 @@ bool force_unlock_charas() {
             uint32_t new_flags = entry->flags & ~3;
 
             if (new_flags != entry->flags && entry->disp_name_ptr != NULL && strlen((char*)entry->disp_name_ptr) > 0) {
-                printf("Unlocking [%04d] %s... %08x -> %08x\n", i, entry->disp_name_ptr, entry->flags, new_flags);
+                LOG("Unlocking [%04d] %s... %08x -> %08x\n", i, entry->disp_name_ptr, entry->flags, new_flags);
                 patch_memory((uint64_t)&entry->flags, (char *)&new_flags, sizeof(uint32_t));
 
                 if ((entry->flavor_idx == 0 || entry->flavor_idx == -1)) {
                     int flavor_idx = 1;
                     patch_memory((uint64_t)&entry->flavor_idx, (char *)&flavor_idx, sizeof(uint32_t));
-                    printf("Setting default flavor for chara id %d\n", i);
+                    LOG("Setting default flavor for chara id %d\n", i);
                 }
 
                 chara_unlocks++;
@@ -1652,7 +1660,7 @@ bool force_unlock_charas() {
         }
     }
 
-    printf("popnhax: unlocked %d characters\n", chara_unlocks);
+    LOG("popnhax: unlocked %d characters\n", chara_unlocks);
 
     return true;
 }
@@ -1669,7 +1677,7 @@ static bool patch_unlocks_offline() {
 
         int64_t pattern_offset = find_block(data, dllSize-0xE0000, &task, 0xE0000);
         if (pattern_offset == -1) {
-            printf("Couldn't find first song unlock\n");
+            LOG("Couldn't find first song unlock\n");
             return false;
         }
 
@@ -1680,22 +1688,22 @@ static bool patch_unlocks_offline() {
     {
         if (!patch_hex("\xA9\x06\x00\x00\x68\x74", 6, 5, "\xEB", 1))
         {
-            printf("Couldn't find second song unlock\n");
+            LOG("Couldn't find second song unlock\n");
             return false;
         }
     }
 
-    printf("popnhax: songs unlocked for offline\n");
+    LOG("popnhax: songs unlocked for offline\n");
 
     {
         if (!patch_hex("\xA9\x10\x01\x00\x00\x74", 6, 5, "\xEB", 1)  /* unilab */
          && !patch_hex("\xA9\x50\x01\x00\x00\x74", 6, 5, "\xEB", 1))
         {
-            printf("Couldn't find character unlock\n");
+            LOG("Couldn't find character unlock\n");
             return false;
         }
 
-        printf("popnhax: characters unlocked for offline\n");
+        LOG("popnhax: characters unlocked for offline\n");
     }
 
     return true;
@@ -1726,7 +1734,7 @@ static bool get_addr_icca(uint32_t *res)
 
     addr = *(uint32_t *) ((int64_t)data + pattern_offset + 14);
 #if DEBUG == 1
-    printf("ICCA MEMORYZONE %x\n", addr);
+    LOG("ICCA MEMORYZONE %x\n", addr);
 #endif
     *res = addr;
     return true;
@@ -1759,7 +1767,7 @@ static bool get_addr_timing_offset(uint32_t *res)
     uint32_t offset_delta = *(uint32_t *) ((int64_t)data + pattern_offset + 6);
     addr = *(uint32_t *) (((int64_t)data + pattern_offset + 10) + offset_delta + 1);
 #if DEBUG == 1
-    printf("OFFSET MEMORYZONE %x\n", addr);
+    LOG("OFFSET MEMORYZONE %x\n", addr);
 #endif
     *res = addr;
     return true;
@@ -1790,7 +1798,7 @@ static bool get_addr_beam_brightness(uint32_t *res)
 
     addr = (uint32_t) ((int64_t)data + pattern_offset + 1);
 #if DEBUG == 1
-    printf("BEAM BRIGHTNESS MEMORYZONE %x\n", addr);
+    LOG("BEAM BRIGHTNESS MEMORYZONE %x\n", addr);
 #endif
     *res = addr;
     return true;
@@ -1821,7 +1829,7 @@ static bool get_addr_sd_timing(uint32_t *res)
 
     addr = (uint32_t) ((int64_t)data + pattern_offset + 1);
 #if DEBUG == 1
-    printf("SD TIMING MEMORYZONE %x\n", addr);
+    LOG("SD TIMING MEMORYZONE %x\n", addr);
 #endif
     *res = addr;
     return true;
@@ -1852,7 +1860,7 @@ static bool get_addr_hd_timing(uint32_t *res)
 
     addr = (uint32_t) ((int64_t)data + pattern_offset + 1);
 #if DEBUG == 1
-    printf("HD TIMING MEMORYZONE %x\n", addr);
+    LOG("HD TIMING MEMORYZONE %x\n", addr);
 #endif
     *res = addr;
     return true;
@@ -1865,7 +1873,7 @@ static bool patch_hidden_is_offset()
     uint32_t timing_addr = 0;
     if (!get_addr_timing_offset(&timing_addr))
     {
-        printf("popnhax: hidden is offset: cannot find timing offset address\n");
+        LOG("popnhax: hidden is offset: cannot find timing offset address\n");
         return false;
     }
 
@@ -1903,11 +1911,11 @@ static bool patch_hidden_is_offset()
             shift = 14;
 
             if (pattern_offset == -1) {
-                printf("popnhax: hidden is offset: cannot find address\n");
+                LOG("popnhax: hidden is offset: cannot find address\n");
                 return false;
             }
         #if DEBUG == 1
-            printf("popnhax: hidden is offset: appears to be kaimei or less\n");
+            LOG("popnhax: hidden is offset: appears to be kaimei or less\n");
         #endif
         }
 
@@ -1929,7 +1937,7 @@ static bool patch_hidden_is_offset()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: hidden is offset: cannot find offset update function\n");
+            LOG("popnhax: hidden is offset: cannot find offset update function\n");
             return false;
         }
 
@@ -1942,7 +1950,7 @@ static bool patch_hidden_is_offset()
 
     }
 
-    printf("popnhax: hidden is offset: hidden is now an offset adjust\n");
+    LOG("popnhax: hidden is offset: hidden is now an offset adjust\n");
     return true;
 }
 
@@ -1980,7 +1988,7 @@ static bool patch_show_hidden_adjust_result_screen() {
                       (void **)&real_show_hidden_result);
     }
 
-    printf("popnhax: show hidden/adjust value on result screen\n");
+    LOG("popnhax: show hidden/adjust value on result screen\n");
 
     return true;
 }
@@ -2018,7 +2026,7 @@ static bool force_show_fast_slow() {
         patch_memory(patch_addr, (char *)"\x90\x90\x90\x90\x90\x90", 6);
     }
 
-    printf("popnhax: always show fast/slow on result screen\n");
+    LOG("popnhax: always show fast/slow on result screen\n");
 
     return true;
 }
@@ -2035,7 +2043,7 @@ static bool patch_pfree() {
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("couldn't find stop stage counter\n");
+            LOG("couldn't find stop stage counter\n");
             return false;
         }
 
@@ -2063,7 +2071,7 @@ static bool patch_pfree() {
         int64_t offset = find_block(data, dllSize, &task, 0);
         if (offset == -1) {
         #if DEBUG == 1
-            printf("popnhax: pfree: failed to retrieve struct size and offset\n");
+            LOG("popnhax: pfree: failed to retrieve struct size and offset\n");
         #endif
             /* best effort for older games compatibility (works with eclale) */
             offset_from_base = 0x54;
@@ -2085,14 +2093,14 @@ static bool patch_pfree() {
 
         int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
         if (pattern_offset == -1) {
-            printf("popnhax: pfree: failed to retrieve offset from stage1 (child_fun_loc = %llx\n",child_fun_loc);
+            LOG("popnhax: pfree: failed to retrieve offset from stage1 (child_fun_loc = %llx\n",child_fun_loc);
             return false;
         }
 
         offset_from_stage1[0] = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
         offset_from_stage1[1] = *(uint8_t *) ((int64_t)data + pattern_offset + 0x04);
         #if DEBUG == 1
-            printf("popnhax: pfree: offset_from_stage1 is %02x %02x\n",offset_from_stage1[0],offset_from_stage1[1]);
+            LOG("popnhax: pfree: offset_from_stage1 is %02x %02x\n",offset_from_stage1[0],offset_from_stage1[1]);
         #endif
     }
 
@@ -2106,13 +2114,13 @@ static bool patch_pfree() {
 
         int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
         if (pattern_offset == -1) {
-            printf("popnhax: pfree: failed to retrieve offset from base\n");
+            LOG("popnhax: pfree: failed to retrieve offset from base\n");
             return false;
         }
 
         offset_from_base = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
         #if DEBUG == 1
-            printf("popnhax: pfree: offset_from_base is %02x\n",offset_from_base);
+            LOG("popnhax: pfree: offset_from_base is %02x\n",offset_from_base);
         #endif
     }
 
@@ -2129,7 +2137,7 @@ pfree_apply:
 
         first_loc = find_block(data, dllSize, &task, 0);
         if (first_loc == -1) {
-        printf("popnhax: pfree: cannot find stage update function\n");
+        LOG("popnhax: pfree: cannot find stage update function\n");
             return false;
         }
 
@@ -2148,7 +2156,7 @@ pfree_apply:
 
         int64_t pattern_offset = find_block(data, 0x40, &task, first_loc);
         if (pattern_offset == -1) {
-        printf("popnhax: pfree: cannot find stage update function\n");
+        LOG("popnhax: pfree: cannot find stage update function\n");
             return false;
         }
 
@@ -2165,7 +2173,7 @@ pfree_apply:
 
     }
 
-    printf("popnhax: premium free enabled\n");
+    LOG("popnhax: premium free enabled\n");
 
     return true;
 }
@@ -2186,7 +2194,7 @@ static bool patch_quick_retire(bool pfree)
 
             int64_t pattern_offset = find_block(data, dllSize, &task, 0);
             if (pattern_offset == -1) {
-                printf("couldn't find stop stage counter\n");
+                LOG("couldn't find stop stage counter\n");
                 return false;
             }
 
@@ -2210,14 +2218,14 @@ static bool patch_quick_retire(bool pfree)
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
 
         if (pattern_offset == -1) {
-            printf("popnhax: cannot retrieve song loop\n");
+            LOG("popnhax: cannot retrieve song loop\n");
             return false;
         }
 
         uint32_t addr_icca;
         if (!get_addr_icca(&addr_icca))
         {
-            printf("popnhax: cannot retrieve ICCA address for numpad hook\n");
+            LOG("popnhax: cannot retrieve ICCA address for numpad hook\n");
             return false;
         }
 
@@ -2239,14 +2247,14 @@ static bool patch_quick_retire(bool pfree)
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
 
         if (pattern_offset == -1) {
-            printf("popnhax: cannot retrieve result screen loop\n");
+            LOG("popnhax: cannot retrieve result screen loop\n");
             return false;
         }
 
         uint32_t addr_icca;
         if (!get_addr_icca(&addr_icca))
         {
-            printf("popnhax: cannot retrieve ICCA address for numpad hook\n");
+            LOG("popnhax: cannot retrieve ICCA address for numpad hook\n");
             return false;
         }
 
@@ -2258,7 +2266,7 @@ static bool patch_quick_retire(bool pfree)
                       (void **)&real_result_loop);
     }
 
-    printf("popnhax: quick retire enabled\n");
+    LOG("popnhax: quick retire enabled\n");
 
     /* retrieve songstart function pointer for quick retry */
     {
@@ -2270,7 +2278,7 @@ static bool patch_quick_retire(bool pfree)
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
 
         if (pattern_offset == -1) {
-            printf("popnhax: quick retry: cannot retrieve song start function\n");
+            LOG("popnhax: quick retry: cannot retrieve song start function\n");
             return false;
         }
         uint64_t patch_addr = (int64_t)data + pattern_offset - 4;
@@ -2288,7 +2296,7 @@ static bool patch_quick_retire(bool pfree)
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
 
         if (pattern_offset == -1) {
-            printf("popnhax: quick retry: cannot retrieve score addr\n");
+            LOG("popnhax: quick retry: cannot retrieve score addr\n");
             return false;
         }
 
@@ -2306,7 +2314,7 @@ static bool patch_quick_retire(bool pfree)
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
 
         if (pattern_offset == -1) {
-            printf("popnhax: quick retry: cannot retrieve screen transition function\n");
+            LOG("popnhax: quick retry: cannot retrieve screen transition function\n");
             return false;
         }
 
@@ -2325,14 +2333,14 @@ static bool patch_quick_retire(bool pfree)
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
 
         if (pattern_offset == -1) {
-            printf("popnhax: quick retry: cannot retrieve option screen loop\n");
+            LOG("popnhax: quick retry: cannot retrieve option screen loop\n");
             return false;
         }
 
         uint32_t addr_icca;
         if (!get_addr_icca(&addr_icca))
         {
-            printf("popnhax: quick retry: cannot retrieve ICCA address for numpad hook\n");
+            LOG("popnhax: quick retry: cannot retrieve ICCA address for numpad hook\n");
             return false;
         }
         int64_t quickexitaddr = (int64_t)&quickexit_option_screen;
@@ -2353,7 +2361,7 @@ static bool patch_quick_retire(bool pfree)
     }
 
     if (pfree)
-        printf("popnhax: quick retry enabled\n");
+        LOG("popnhax: quick retry enabled\n");
 
     return true;
 }
@@ -2362,7 +2370,7 @@ static bool patch_add_to_base_offset(int8_t delta) {
     int32_t new_value = delta;
     char *as_hex = (char *) &new_value;
 
-    printf("popnhax: base offset: adding %d to base offset.\n",delta);
+    LOG("popnhax: base offset: adding %d to base offset.\n",delta);
 
     /* call get_addr_timing_offset() so that it can still work after timing value is overwritten */
     uint32_t original_timing;
@@ -2371,26 +2379,26 @@ static bool patch_add_to_base_offset(int8_t delta) {
     uint32_t sd_timing_addr;
     if (!get_addr_sd_timing(&sd_timing_addr))
     {
-        printf("popnhax: base offset: cannot find base SD timing\n");
+        LOG("popnhax: base offset: cannot find base SD timing\n");
         return false;
     }
 
     int32_t current_value = *(int32_t *) sd_timing_addr;
     new_value = current_value+delta;
     patch_memory(sd_timing_addr, as_hex, 4);
-    printf("popnhax: base offset: SD offset is now %d.\n",new_value);
+    LOG("popnhax: base offset: SD offset is now %d.\n",new_value);
 
 
     uint32_t hd_timing_addr;
     if (!get_addr_hd_timing(&hd_timing_addr))
     {
-        printf("popnhax: base offset: cannot find base HD timing\n");
+        LOG("popnhax: base offset: cannot find base HD timing\n");
         return false;
     }
     current_value = *(int32_t *) hd_timing_addr;
     new_value = current_value+delta;
     patch_memory(hd_timing_addr, as_hex, 4);
-    printf("popnhax: base offset: HD offset is now %d.\n",new_value);
+    LOG("popnhax: base offset: HD offset is now %d.\n",new_value);
 
     return true;
 }
@@ -2411,7 +2419,7 @@ static bool patch_keysound_offset(int8_t value)
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: keysound offset: cannot prepatch\n");
+            LOG("popnhax: keysound offset: cannot prepatch\n");
             return false;
         }
 
@@ -2421,7 +2429,7 @@ static bool patch_keysound_offset(int8_t value)
         MH_CreateHook((LPVOID)(patch_addr-0x03), (LPVOID)patch_eval_timing,
                       (void **)&real_eval_timing);
 
-        printf("popnhax: keysound offset: timing offset by %d ms\n", value);
+        LOG("popnhax: keysound offset: timing offset by %d ms\n", value);
     }
 
     return true;
@@ -2431,12 +2439,12 @@ static bool patch_add_to_beam_brightness(int8_t delta) {
     int32_t new_value = delta;
     char *as_hex = (char *) &new_value;
 
-    printf("popnhax: beam brightness: adding %d to beam brightness.\n",delta);
+    LOG("popnhax: beam brightness: adding %d to beam brightness.\n",delta);
 
     uint32_t beam_brightness_addr;
     if (!get_addr_beam_brightness(&beam_brightness_addr))
     {
-        printf("popnhax: beam brightness: cannot find base address\n");
+        LOG("popnhax: beam brightness: cannot find base address\n");
         return false;
     }
 
@@ -2444,18 +2452,18 @@ static bool patch_add_to_beam_brightness(int8_t delta) {
     new_value = current_value+delta;
     if (new_value < 0)
     {
-        printf("popnhax: beam brightness: fix invalid value (%d -> 0)\n",new_value);
+        LOG("popnhax: beam brightness: fix invalid value (%d -> 0)\n",new_value);
         new_value = 0;
     }
     if (new_value > 255)
     {
-        printf("popnhax: beam brightness: fix invalid value (%d -> 255)\n",new_value);
+        LOG("popnhax: beam brightness: fix invalid value (%d -> 255)\n",new_value);
         new_value = 255;
     }
 
     patch_memory(beam_brightness_addr, as_hex, 4);
     patch_memory(beam_brightness_addr+0x39, as_hex, 4);
-    printf("popnhax: beam brightness is now %d.\n",new_value);
+    LOG("popnhax: beam brightness is now %d.\n",new_value);
 
     return true;
 }
@@ -2471,13 +2479,13 @@ static bool patch_beam_brightness(uint8_t value) {
 
     if (!patch_hex("\xB8\x64\x00\x00\x00\xD9", 6, 0x3A, as_hex, 4))
     {
-        printf("popnhax: base offset: cannot patch HD beam brightness\n");
+        LOG("popnhax: base offset: cannot patch HD beam brightness\n");
         res = false;
     }
 
     if (!patch_hex("\xB8\x64\x00\x00\x00\xD9", 6, 1, as_hex, 4))
     {
-        printf("popnhax: base offset: cannot patch SD beam brightness\n");
+        LOG("popnhax: base offset: cannot patch SD beam brightness\n");
         res = false;
     }
 
@@ -2560,7 +2568,7 @@ static bool patch_score_challenge()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: score challenge: cannot find course/song address\n");
+            LOG("popnhax: score challenge: cannot find course/song address\n");
             return false;
         }
 
@@ -2579,7 +2587,7 @@ static bool patch_score_challenge()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: score challenge: cannot find song data prep function\n");
+            LOG("popnhax: score challenge: cannot find song data prep function\n");
             return false;
         }
 
@@ -2595,7 +2603,7 @@ static bool patch_score_challenge()
 
         int64_t pattern_offset = find_block(data, dllSize-0x60000, &task, 0x60000);
         if (pattern_offset == -1) {
-            printf("popnhax: score challenge: cannot find category song inject function\n");
+            LOG("popnhax: score challenge: cannot find category song inject function\n");
             return false;
         }
 
@@ -2611,7 +2619,7 @@ static bool patch_score_challenge()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: score challenge: cannot find check if logged function\n");
+            LOG("popnhax: score challenge: cannot find check if logged function\n");
             return false;
         }
 
@@ -2627,7 +2635,7 @@ static bool patch_score_challenge()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: score challenge: cannot find check if logged function\n");
+            LOG("popnhax: score challenge: cannot find check if logged function\n");
             return false;
         }
 
@@ -2645,7 +2653,7 @@ static bool patch_score_challenge()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: score challenge: cannot find category building loop\n");
+            LOG("popnhax: score challenge: cannot find category building loop\n");
             return false;
         }
 
@@ -2658,7 +2666,7 @@ static bool patch_score_challenge()
                       (void **)&real_make_score_challenge_category);
     }
 
-    printf("popnhax: score challenge reactivated (requires server support)\n");
+    LOG("popnhax: score challenge reactivated (requires server support)\n");
     return true;
 }
 
@@ -2678,13 +2686,13 @@ static bool patch_base_offset(int32_t value) {
 
     if (!patch_hex("\xB8\xC4\xFF\xFF\xFF", 5, 1, as_hex, 4))
     {
-        printf("popnhax: base offset: cannot patch base SD timing\n");
+        LOG("popnhax: base offset: cannot patch base SD timing\n");
         res = false;
     }
 
     if (!patch_hex("\xB8\xB4\xFF\xFF\xFF", 5, 1, as_hex, 4))
     {
-        printf("popnhax: base offset: cannot patch base HD timing\n");
+        LOG("popnhax: base offset: cannot patch base HD timing\n");
         res = false;
     }
 
@@ -2694,25 +2702,25 @@ static bool patch_base_offset(int32_t value) {
 static bool patch_hd_timing() {
     if (!patch_base_offset(-76))
     {
-        printf("popnhax: HD timing: cannot set HD offset\n");
+        LOG("popnhax: HD timing: cannot set HD offset\n");
         return false;
     }
 
-    printf("popnhax: HD timing forced\n");
+    LOG("popnhax: HD timing forced\n");
     return true;
 }
 
 static bool patch_hd_resolution(uint8_t mode) {
     if (mode > 2)
     {
-        printf("ponhax: HD resolution invalid value %d\n",mode);
+        LOG("ponhax: HD resolution invalid value %d\n",mode);
         return false;
     }
 
     /* set popkun and beam brightness to 85 instead of 100, like HD mode does */
     if (!patch_beam_brightness(85))
     {
-        printf("popnhax: HD resolution: cannot set beam brightness\n");
+        LOG("popnhax: HD resolution: cannot set beam brightness\n");
         return false;
     }
 
@@ -2720,28 +2728,28 @@ static bool patch_hd_resolution(uint8_t mode) {
     if (!patch_hex("\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9)
      && !patch_hex("\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9))
     {
-        printf("popnhax: HD resolution: cannot find screen width function\n");
+        LOG("popnhax: HD resolution: cannot find screen width function\n");
         return false;
     }
 
     if (!patch_hex("\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\x00\x03\x00\x00\xC3\xCC\xCC\xCC", 9))
-        printf("popnhax: HD resolution: cannot find screen height function\n");
+        LOG("popnhax: HD resolution: cannot find screen height function\n");
 
     if (!patch_hex("\x8B\x54\x24\x20\x53\x51\x52\xEB\x0C", 9, -6, "\x90\x90", 2))
-        printf("popnhax: HD resolution: cannot find screen aspect ratio function\n");
+        LOG("popnhax: HD resolution: cannot find screen aspect ratio function\n");
 
 
     if ( mode == 1 )
     {
         /* move texts (by forcing HD behavior) */
         if (!patch_hex("\x1B\xC9\x83\xE1\x95\x81\xC1\x86", 8, -5, "\xB9\xFF\xFF\xFF\xFF\x90\x90", 7))
-            printf("popnhax: HD resolution: cannot move gamecode position\n");
+            LOG("popnhax: HD resolution: cannot move gamecode position\n");
 
         if (!patch_hex("\x6a\x01\x6a\x00\x50\x8b\x06\x33\xff", 9, -7, "\xEB", 1))
-            printf("popnhax: HD resolution: cannot move credit/network position\n");
+            LOG("popnhax: HD resolution: cannot move credit/network position\n");
     }
 
-    printf("popnhax: HD resolution forced%s\n",(mode==2)?" (centered texts)":"");
+    LOG("popnhax: HD resolution forced%s\n",(mode==2)?" (centered texts)":"");
 
     return true;
 }
@@ -2749,11 +2757,11 @@ static bool patch_hd_resolution(uint8_t mode) {
 static bool patch_fps_uncap() {
     if (!patch_hex("\x7E\x07\xB9\x0C\x00\x00\x00\xEB\x09\x85\xC9", 11, 0, "\xEB\x1C", 2))
     {
-        printf("popnhax: fps uncap: cannot find frame limiter\n");
+        LOG("popnhax: fps uncap: cannot find frame limiter\n");
         return false;
     }
 
-    printf("popnhax: fps uncapped\n");
+    LOG("popnhax: fps uncapped\n");
     return true;
 }
 
@@ -2782,7 +2790,7 @@ static bool patch_options()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: always full options: cannot find function call\n");
+            LOG("popnhax: always full options: cannot find function call\n");
             return false;
         }
 
@@ -2801,7 +2809,7 @@ static bool patch_options()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: always full options: cannot find numpad0 check\n");
+            LOG("popnhax: always full options: cannot find numpad0 check\n");
             return false;
         }
 
@@ -2812,7 +2820,7 @@ static bool patch_options()
 
     }
 
-    printf("popnhax: always display full options\n");
+    LOG("popnhax: always display full options\n");
     return true;
 
 }
@@ -2848,7 +2856,7 @@ static bool get_addr_pldata(uint32_t *res)
     g_plop_addr = (uint32_t *) ((int64_t)data + pattern_offset + 0x31);
 
 #if DEBUG == 1
-    printf("pldata is %x\n", addr);
+    LOG("pldata is %x\n", addr);
 #endif
     *res = addr;
     return true;
@@ -2869,7 +2877,7 @@ static bool unilab_check()
     if (pattern_offset == -1) {
             return false;
         }
-    printf("popnhax: guidese : Unilabooooooo\n");
+    LOG("popnhax: guidese : Unilabooooooo\n");
     return true;
 }
 
@@ -2891,7 +2899,7 @@ static bool get_addr_numkey()
 
     input_func = (uint32_t *) ((int64_t)data + pattern_offset + 26);
 #if DEBUG == 1
-    printf("INPUT num addr %x\n", input_func);
+    LOG("INPUT num addr %x\n", input_func);
 #endif
     return true;
 }
@@ -2946,9 +2954,9 @@ static bool get_addr_random()
 
     }
 #if DEBUG == 1
-    printf("popnhax: get_addr_random: g_ran_addr is %x\n", g_ran_addr);
-    printf("popnhax: get_addr_random: ran_func is %x\n", ran_func);
-    printf("popnhax: get_addr_random: btaddr is %x\n", *btaddr);
+    LOG("popnhax: get_addr_random: g_ran_addr is %x\n", g_ran_addr);
+    LOG("popnhax: get_addr_random: ran_func is %x\n", ran_func);
+    LOG("popnhax: get_addr_random: btaddr is %x\n", *btaddr);
 #endif
     return true;
 }
@@ -3070,9 +3078,9 @@ static bool get_rendaddr()
     }
 
     #if DEBUG == 1
-        printf("popnhax: get_rendaddr: g_rend_addr is %x\n", *g_rend_addr);
-        printf("popnhax: get_rendaddr: font_color is %x\n", *font_color);
-        printf("popnhax: get_rendaddr: font_rend_func is %x\n", font_rend_func);
+        LOG("popnhax: get_rendaddr: g_rend_addr is %x\n", *g_rend_addr);
+        LOG("popnhax: get_rendaddr: font_color is %x\n", *font_color);
+        LOG("popnhax: get_rendaddr: font_rend_func is %x\n", font_rend_func);
     #endif
 
     return true;
@@ -3136,9 +3144,9 @@ static bool get_speedaddr()
 
     }
     #if DEBUG == 1
-        printf("popnhax: get_speedaddr: g_2dx_addr is %x\n", g_2dx_addr);
-        printf("popnhax: get_speedaddr: g_humen_addr is %x\n", g_humen_addr);
-        printf("popnhax: get_speedaddr: g_soflan_addr is %x\n", g_soflan_addr);
+        LOG("popnhax: get_speedaddr: g_2dx_addr is %x\n", g_2dx_addr);
+        LOG("popnhax: get_speedaddr: g_humen_addr is %x\n", g_humen_addr);
+        LOG("popnhax: get_speedaddr: g_soflan_addr is %x\n", g_soflan_addr);
     #endif
     return true;
 }
@@ -3412,19 +3420,19 @@ static bool patch_practice_mode()
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
 
         if (pattern_offset == -1) {
-            printf("popnhax: cannot retrieve aging loop\n");
+            LOG("popnhax: cannot retrieve aging loop\n");
             return false;
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 6;
         if (!get_rendaddr())
         {
-            printf("popnhax: Cannot find address for drawing\n");
+            LOG("popnhax: Cannot find address for drawing\n");
             return false;
         }
         if (!get_addr_numkey())
         {
-            printf("popnhax: Cannot find address for number pad\n");
+            LOG("popnhax: Cannot find address for number pad\n");
             return false;
         }
 
@@ -3434,7 +3442,7 @@ static bool patch_practice_mode()
         uint32_t addr_pldata;
         if (!get_addr_pldata(&addr_pldata))
         {
-            printf("popnhax: cannot retrieve pldata address for guidese\n");
+            LOG("popnhax: cannot retrieve pldata address for guidese\n");
             return false;
         }
     }
@@ -3442,7 +3450,7 @@ static bool patch_practice_mode()
     {
         if (!get_speedaddr())
         {
-            printf("popnhax: Cannot find address for speed change\n");
+            LOG("popnhax: Cannot find address for speed change\n");
             return false;
         }
         MH_CreateHook((LPVOID)g_2dx_addr, (LPVOID)ex_2dx_speed,
@@ -3453,12 +3461,12 @@ static bool patch_practice_mode()
         (void **)&real_get_bpm);
     }
 
-    printf("popnhax: speed hook enabled\n");
+    LOG("popnhax: speed hook enabled\n");
 
     {
         if (!get_addr_random())
         {
-            printf("popnhax: Random LANE addr was not found\n");
+            LOG("popnhax: Random LANE addr was not found\n");
             return false;
         }
 
@@ -3473,7 +3481,7 @@ static bool patch_practice_mode()
 
         int64_t pattern_offset = find_block(data, dllSize, &task, 0);
         if (pattern_offset == -1) {
-            printf("popnhax: Cannot find address for restore addr\n");
+            LOG("popnhax: Cannot find address for restore addr\n");
             return false;
         }
 
@@ -3483,7 +3491,7 @@ static bool patch_practice_mode()
                       (void **)&restore_op);
     }
 
-    printf("popnhax: R-Random hook enabled\n");
+    LOG("popnhax: R-Random hook enabled\n");
 /*
     //add_stage に フラグオフ追加 (char *)"\x31\xC0\x40\xC3", 4
     {
@@ -3499,8 +3507,15 @@ static bool patch_practice_mode()
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
+        g_log_fp = fopen("popnhax.log", "w");
+        if (g_log_fp == NULL)
+        {
+            g_log_fp = stderr;
+            LOG("cannot open popnhax.log for write, output to stderr\n");
+        }
+        LOG("popnhax: Initializing\n");
         if (MH_Initialize() != MH_OK) {
-            printf("Failed to initialize minhook\n");
+            LOG("Failed to initialize minhook\n");
             exit(1);
             return TRUE;
         }
@@ -3510,7 +3525,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         szArglist = CommandLineToArgvW(GetCommandLineW(), &nArgs);
         if (szArglist == NULL) {
-            printf("popnhax: Failed to get cmdline\n");
+            LOG("popnhax: Failed to get cmdline\n");
             return 0;
         }
 
@@ -3547,8 +3562,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             free(tmp_name);
         }
 
-        printf("popnhax: game dll: %s\n",g_game_dll_fn);
-        printf("popnhax: config file: %s\n",g_config_fn);
+        LOG("popnhax: game dll: %s\n",g_game_dll_fn);
+        LOG("popnhax: config file: %s\n",g_config_fn);
 
         _load_config(g_config_fn, &config, config_psmap);
 
@@ -3558,22 +3573,22 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             if ( (strlen(g_game_dll_fn) == 21)
               && (config.force_datecode[0] == '\0') )
             {
-                printf("popnhax: multiboot autotune activated (custom game dll, default xml, force_datecode off)\n");
+                LOG("popnhax: multiboot autotune activated (custom game dll, default xml, force_datecode off)\n");
                 memcpy(config.force_datecode, g_game_dll_fn+7, 10);
-                printf("popnhax: multiboot: auto set datecode to %s\n", config.force_datecode);
+                LOG("popnhax: multiboot: auto set datecode to %s\n", config.force_datecode);
                 if (config.force_unlock_deco && ( strcmp(config.force_datecode, "2022061300") > 0) )
                 {
-                    printf("popnhax: multiboot: auto disable force_unlock_deco patch (no more deco)\n");
+                    LOG("popnhax: multiboot: auto disable force_unlock_deco patch (no more deco)\n");
                     config.force_unlock_deco = false;
                 }
                 if (config.score_challenge && ( strcmp(config.force_datecode,"2020092800") <= 0 ) )
                 {
-                    printf("popnhax: multiboot: auto disable score challenge patch (already ingame)\n");
+                    LOG("popnhax: multiboot: auto disable score challenge patch (already ingame)\n");
                     config.score_challenge = false;
                 }
                 if (config.patch_db && ( strcmp(config.force_datecode,"2016121400") < 0 ) )
                 {
-                    printf("popnhax: multiboot: auto disable omnimix patch (not compatible)\n");
+                    LOG("popnhax: multiboot: auto disable omnimix patch (not compatible)\n");
                     config.patch_db = false;
                 }
             }
@@ -3582,7 +3597,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (config.force_datecode[0] != '\0')
         {
             if (strlen(config.force_datecode) != 10)
-                printf("popnhax: force_datecode: Invalid datecode %s, should be 10 digits (e.g. 2022061300)\n", config.force_datecode);
+                LOG("popnhax: force_datecode: Invalid datecode %s, should be 10 digits (e.g. 2022061300)\n", config.force_datecode);
             else
                 patch_datecode(config.force_datecode);
         }
@@ -3607,7 +3622,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
             if (fp != NULL)
             {
-                printf("popnhax: translation: using folder \"%s\"\n", translation_folder);
+                LOG("popnhax: translation: using folder \"%s\"\n", translation_folder);
                 patch_translation(fp);
                 fclose(fp);
             }
@@ -3684,6 +3699,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.patch_db) {
+            LOG("popnhax: patching songdb\n");
             /* must be called after force_datecode */
             patch_database(config.force_unlocks);
         }
@@ -3712,6 +3728,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
     #endif
 
         MH_EnableHook(MH_ALL_HOOKS);
+
+        LOG("popnhax: done patching game, enjoy!");
+
+        if (g_log_fp != stderr)
+            fclose(g_log_fp);
 
         break;
     }
