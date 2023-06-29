@@ -18,23 +18,22 @@
 #include "minhook/include/MinHook.h"
 
 #include "popnhax/config.h"
+#include "util/log.h"
 #include "util/patch.h"
 #include "util/xmlprop.hpp"
 #include "xmlhelper.h"
+#include "translation.h"
 
 #include "tableinfo.h"
 #include "loader.h"
+
 
 #include "SearchFile.h"
 
 const char *g_game_dll_fn = NULL;
 const char *g_config_fn   = NULL;
-FILE       *g_log_fp      = NULL;
+FILE *g_log_fp = NULL;
 
-#define LOG(...) do { \
-fprintf(g_log_fp, __VA_ARGS__); \
-fflush(g_log_fp);\
-} while (0)
 
 #define DEBUG 0
 
@@ -147,8 +146,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, fps_uncap,
                  "/popnhax/fps_uncap")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_translation,
                  "/popnhax/disable_translation")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, dump_dict,
-                 "/popnhax/dump_dict")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, translation_debug,
+                 "/popnhax/translation_debug")
 PSMAP_END
 
 enum BufferIndexes {
@@ -208,7 +207,6 @@ void asm_patch_datecode() {
 /* retrieve destination address when it checks for "soft/ext", then wait next iteration to overwrite */
 uint8_t g_libavs_datecode_patch_state = 0;
 char *datecode_property_ptr;
-uint32_t eaxsave;
 void (*real_asm_patch_datecode_libavs)();
 void asm_patch_datecode_libavs() {
     if (g_libavs_datecode_patch_state == 2)
@@ -573,261 +571,6 @@ asm(
 "       add esp, 12\n"
 "       jmp [_real_check_music_idx_usaneko]\n"
 );
-
-void patch_string(const char *input_string, const char *new_string) {
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
-    while (1) {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, input_string, strlen(input_string))
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-        if (pattern_offset == -1) {
-            break;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        char *new_string_buff = (char*)calloc(strlen(new_string) + 1, sizeof(char));
-        memcpy(new_string_buff, new_string, strlen(new_string));
-        patch_memory(patch_addr, new_string_buff, strlen(new_string) + 1);
-        free(new_string_buff);
-    }
-}
-
-bool patch_hex(const char *find, uint8_t find_size, int64_t shift, const char *replace, uint8_t replace_size) {
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, find, find_size)
-
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-    if (pattern_offset == -1) {
-        return false;
-    }
-
-#if DEBUG == 1
-    LOG("BEFORE PATCH :\n");
-    uint8_t *offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
-    for (int i=0; i<32; i++)
-    {
-        LOG("%02x ", *offset);
-        offset++;
-        if (i == 15)
-            LOG("\n");
-    }
-#endif
-
-    uint64_t patch_addr = (int64_t)data + pattern_offset + shift;
-    patch_memory(patch_addr, (char *)replace, replace_size);
-
-#if DEBUG == 1
-    LOG("\nAFTER PATCH :\n");
-    offset = (uint8_t *) ((int64_t)data + pattern_offset + shift - 5);
-    for (int i=0; i<32; i++)
-    {
-        LOG("%02x ", *offset);
-        offset++;
-        if (i == 15)
-            LOG("\n");
-    }
-#endif
-
-    return true;
-
-}
-
-FILE *dictfile;
-
-bool patch_sjis(const uint8_t *find, uint8_t find_size, int64_t *offset, uint8_t *replace, uint8_t replace_size) {
-    static DWORD dllSize = 0;
-    static char *data = getDllData(g_game_dll_fn, &dllSize);
-    static uint8_t first_offset = 0;
-
-    int64_t offset_orig = *offset;
-    uint64_t patch_addr;
-    bool valid_sjis = false;
-    do {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, find, find_size)
-
-        *offset = find_block(data, dllSize-*offset, &task, *offset);
-        if (*offset == -1) {
-            *offset = offset_orig;
-            return false;
-        }
-
-        if ( !first_offset )
-        {
-            if (config.dump_dict)
-            {
-                LOG("popnhax: dump_dict: dump applied patches in dict_applied.txt\n");
-                dictfile = fopen("dict_applied.txt","wb");
-            }
-            /* limit search to a 0x100000-wide zone starting from first string found to speedup the process
-             * make sure to put the first string first (usually 種類順)
-             */
-            dllSize = *offset + 0x100000;
-            first_offset = 1;
-        }
-
-        patch_addr = (int64_t)data + *offset;
-
-        /* filter out partial matches (check that there isn't a valid sjis char before our match) */
-        uint8_t byte1 = *(uint8_t*)(patch_addr-2);
-        uint8_t byte2 = *(uint8_t*)(patch_addr-1);
-        bool valid_first  = ((0x81 <= byte1) && (byte1 <= 0x9F)) || ((0xE0 <= byte1) && (byte1 <= 0xFC));
-        bool valid_secnd  = ((0x40 <= byte2) && (byte2 <= 0x9E)) || ((0x9F <= byte2) && (byte2 <= 0xFC));
-        valid_sjis = valid_first && valid_secnd;
-
-        if (valid_sjis)
-        {
-            printf("Partial match at offset 0x%x, retry...\n",(uint32_t)*offset);
-            *offset += find_size;
-        }
-    } while (valid_sjis);
-
-    if (config.dump_dict)
-        fprintf(dictfile,"0x%x;%s;%s\n",(uint32_t)*offset,(char*)find,(char*)replace);
-
-    /* safety check replace is not too big */
-    uint8_t free_size = find_size-1;
-    do
-    {
-        free_size++;
-    }
-    while ( *(uint8_t *)(patch_addr+free_size) == 0 );
-
-    if ((free_size-1) < replace_size)
-    {
-        LOG("WARNING: translation %s is too big, truncating to ",(char *)replace);
-        replace_size = free_size-1;
-        replace[replace_size-1] = '\0';
-        LOG("%s\n",(char *)replace);
-    }
-
-    patch_memory(patch_addr, (char *)replace, replace_size);
-
-    return true;
-}
-
-static FILE* _translation_open_dict(char *foldername)
-{
-    char dict_filepath[64];
-    sprintf(dict_filepath, "%s%s%s", "data_mods\\", foldername, "\\popn22.dict");
-    FILE *file = fopen(dict_filepath, "rb");
-    return file;
-}
-
-bool patch_translation(FILE* dict_fp)
-{
-    uint8_t original[128];
-    uint8_t translation[128];
-    uint8_t buffer;
-    int64_t curr_offset = 0;
-    uint8_t word_count = 0;
-    uint8_t orig_size = 0;
-
-    if (dict_fp == NULL)
-        return false;
-
-#define STATE_WAITING 0
-#define STATE_ORIGINAL 1
-#define STATE_TRANSLATION 2
-    uint16_t err_count = 0;
-    uint8_t state = STATE_WAITING;
-    uint8_t arr_idx = 0;
-    while (fread(&buffer, 1, 1, dict_fp) == 1)
-    {
-        switch (state)
-        {
-            case STATE_WAITING:
-                if (buffer == ';')
-                {
-                    state = STATE_ORIGINAL;
-                    arr_idx = 0;
-                }
-                else
-                {
-                    LOG("Unexpected char %c\n", buffer);
-                    return false;
-                }
-                break;
-            case STATE_ORIGINAL:
-                if (buffer == ';')
-                {
-                    original[arr_idx++] = '\0';
-                    state = STATE_TRANSLATION;
-                    orig_size = arr_idx;
-                    arr_idx = 0;
-                }
-                else
-                {
-                    original[arr_idx++] = buffer;
-                }
-                break;
-            case STATE_TRANSLATION:
-                if (buffer == ';')
-                {
-                    /* end of word, let's patch! */
-                    translation[arr_idx-1] = '\0'; /* strip last \n */
-                    while ( arr_idx < orig_size )
-                    {
-                        translation[arr_idx++] = '\0'; /* fill with null when translation is shorter */
-                    }
-                    printf("%d: %s -> %s\n",++word_count,(char *)original,(char *)translation);
-
-                    /* patch all occurrences */
-                    /*curr_offset = 0;
-                    uint8_t count = 0;
-                    while (patch_sjis(original, orig_size, &curr_offset, translation, arr_idx-1))
-                    {
-                     count++;
-                    }
-                    LOG("%d occurrences found\n",count);
-                    */
-                    if (!patch_sjis(original, orig_size, &curr_offset, translation, arr_idx-1))
-                    {
-                        printf("Warning: string %s (%s) not found in order, trying again.\n", (char *)original, (char *)translation);
-                        curr_offset = 0;
-                        if (!patch_sjis(original, orig_size, &curr_offset, translation, arr_idx-1))
-                        {
-                            LOG("Warning: string %s not found, skipping.\n", (char *)original);
-                            err_count++;
-                        }
-                    }
-
-                    state = STATE_ORIGINAL;
-                    arr_idx = 0;
-                }
-                else
-                {
-                    translation[arr_idx++] = buffer;
-                }
-                break;
-            default:
-                break;
-        }
-    }
-    LOG("popnhax: translation: patched %u strings", word_count - err_count);
-    if (err_count)
-        LOG(" (%u skipped strings)", err_count);
-    LOG("\n");
-
-    if (config.dump_dict)
-        fclose(dictfile);
-    return true;
-#undef STATE_WAITING
-#undef STATE_ORIGINAL
-#undef STATE_TRANSLATION
-}
 
 char *parse_patchdb(const char *input_filename, char *base_data) {
     const char *folder = "data_mods\\";
@@ -1368,7 +1111,7 @@ static bool patch_database(uint8_t force_unlocks) {
 }
 
 static bool patch_audio_source_fix() {
-    if (!patch_hex("\x85\xC0\x75\x96\x8D\x70\x7F\xE8\xF8\x2B\x00\x00", 12, 0, "\x90\x90\x90\x90", 4))
+    if (!find_and_patch_hex(g_game_dll_fn, "\x85\xC0\x75\x96\x8D\x70\x7F\xE8\xF8\x2B\x00\x00", 12, 0, "\x90\x90\x90\x90", 4))
     {
         return false;
     }
@@ -1417,7 +1160,7 @@ static bool patch_unset_volume() {
 }
 
 static bool patch_event_mode() {
-    if (!patch_hex("\x8B\x00\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC"
+    if (!find_and_patch_hex(g_game_dll_fn, "\x8B\x00\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC"
                    "\xCC\xCC\xC7", 17, 0, "\x31\xC0\x40\xC3", 4))
     {
         return false;
@@ -1467,7 +1210,7 @@ static bool patch_remove_timer() {
 }
 
 static bool patch_freeze_timer() {
-    if (!patch_hex("\xC7\x45\x38\x09\x00\x00\x00", 7, 0, "\x90\x90\x90\x90\x90\x90\x90", 7))
+    if (!find_and_patch_hex(g_game_dll_fn, "\xC7\x45\x38\x09\x00\x00\x00", 7, 0, "\x90\x90\x90\x90\x90\x90\x90", 7))
     {
         return false;
     }
@@ -1546,7 +1289,7 @@ static bool patch_skip_tutorials() {
 }
 
 bool force_unlock_deco_parts() {
-    if (!patch_hex("\x83\xC4\x04\x83\x38\x00\x75\x22", 8, 6, "\x90\x90", 2))
+    if (!find_and_patch_hex(g_game_dll_fn, "\x83\xC4\x04\x83\x38\x00\x75\x22", 8, 6, "\x90\x90", 2))
     {
         LOG("popnhax: couldn't unlock deco parts\n");
         return false;
@@ -1686,7 +1429,7 @@ static bool patch_unlocks_offline() {
     }
 
     {
-        if (!patch_hex("\xA9\x06\x00\x00\x68\x74", 6, 5, "\xEB", 1))
+        if (!find_and_patch_hex(g_game_dll_fn, "\xA9\x06\x00\x00\x68\x74", 6, 5, "\xEB", 1))
         {
             LOG("Couldn't find second song unlock\n");
             return false;
@@ -1696,8 +1439,8 @@ static bool patch_unlocks_offline() {
     LOG("popnhax: songs unlocked for offline\n");
 
     {
-        if (!patch_hex("\xA9\x10\x01\x00\x00\x74", 6, 5, "\xEB", 1)  /* unilab */
-         && !patch_hex("\xA9\x50\x01\x00\x00\x74", 6, 5, "\xEB", 1))
+        if (!find_and_patch_hex(g_game_dll_fn, "\xA9\x10\x01\x00\x00\x74", 6, 5, "\xEB", 1)  /* unilab */
+         && !find_and_patch_hex(g_game_dll_fn, "\xA9\x50\x01\x00\x00\x74", 6, 5, "\xEB", 1))
         {
             LOG("Couldn't find character unlock\n");
             return false;
@@ -2477,13 +2220,13 @@ static bool patch_beam_brightness(uint8_t value) {
     uint32_t beam_brightness_addr;
     get_addr_beam_brightness(&beam_brightness_addr);
 
-    if (!patch_hex("\xB8\x64\x00\x00\x00\xD9", 6, 0x3A, as_hex, 4))
+    if (!find_and_patch_hex(g_game_dll_fn, "\xB8\x64\x00\x00\x00\xD9", 6, 0x3A, as_hex, 4))
     {
         LOG("popnhax: base offset: cannot patch HD beam brightness\n");
         res = false;
     }
 
-    if (!patch_hex("\xB8\x64\x00\x00\x00\xD9", 6, 1, as_hex, 4))
+    if (!find_and_patch_hex(g_game_dll_fn, "\xB8\x64\x00\x00\x00\xD9", 6, 1, as_hex, 4))
     {
         LOG("popnhax: base offset: cannot patch SD beam brightness\n");
         res = false;
@@ -2684,13 +2427,13 @@ static bool patch_base_offset(int32_t value) {
     uint32_t hd_timing_addr;
     get_addr_hd_timing(&hd_timing_addr);
 
-    if (!patch_hex("\xB8\xC4\xFF\xFF\xFF", 5, 1, as_hex, 4))
+    if (!find_and_patch_hex(g_game_dll_fn, "\xB8\xC4\xFF\xFF\xFF", 5, 1, as_hex, 4))
     {
         LOG("popnhax: base offset: cannot patch base SD timing\n");
         res = false;
     }
 
-    if (!patch_hex("\xB8\xB4\xFF\xFF\xFF", 5, 1, as_hex, 4))
+    if (!find_and_patch_hex(g_game_dll_fn, "\xB8\xB4\xFF\xFF\xFF", 5, 1, as_hex, 4))
     {
         LOG("popnhax: base offset: cannot patch base HD timing\n");
         res = false;
@@ -2725,27 +2468,27 @@ static bool patch_hd_resolution(uint8_t mode) {
     }
 
     /* set window to 1360*768 */
-    if (!patch_hex("\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9)
-     && !patch_hex("\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9))
+    if (!find_and_patch_hex(g_game_dll_fn, "\x0F\xB6\xC0\xF7\xD8\x1B\xC0\x25\xD0\x02", 10, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9)
+     && !find_and_patch_hex(g_game_dll_fn, "\x84\xc0\x74\x14\x0f\xb6\x05", 7, -5, "\xB8\x50\x05\x00\x00\xC3\xCC\xCC\xCC", 9))
     {
         LOG("popnhax: HD resolution: cannot find screen width function\n");
         return false;
     }
 
-    if (!patch_hex("\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\x00\x03\x00\x00\xC3\xCC\xCC\xCC", 9))
+    if (!find_and_patch_hex(g_game_dll_fn, "\x0f\xb6\xc0\xf7\xd8\x1b\xc0\x25\x20\x01", 10, -5, "\xB8\x00\x03\x00\x00\xC3\xCC\xCC\xCC", 9))
         LOG("popnhax: HD resolution: cannot find screen height function\n");
 
-    if (!patch_hex("\x8B\x54\x24\x20\x53\x51\x52\xEB\x0C", 9, -6, "\x90\x90", 2))
+    if (!find_and_patch_hex(g_game_dll_fn, "\x8B\x54\x24\x20\x53\x51\x52\xEB\x0C", 9, -6, "\x90\x90", 2))
         LOG("popnhax: HD resolution: cannot find screen aspect ratio function\n");
 
 
     if ( mode == 1 )
     {
         /* move texts (by forcing HD behavior) */
-        if (!patch_hex("\x1B\xC9\x83\xE1\x95\x81\xC1\x86", 8, -5, "\xB9\xFF\xFF\xFF\xFF\x90\x90", 7))
+        if (!find_and_patch_hex(g_game_dll_fn, "\x1B\xC9\x83\xE1\x95\x81\xC1\x86", 8, -5, "\xB9\xFF\xFF\xFF\xFF\x90\x90", 7))
             LOG("popnhax: HD resolution: cannot move gamecode position\n");
 
-        if (!patch_hex("\x6a\x01\x6a\x00\x50\x8b\x06\x33\xff", 9, -7, "\xEB", 1))
+        if (!find_and_patch_hex(g_game_dll_fn, "\x6a\x01\x6a\x00\x50\x8b\x06\x33\xff", 9, -7, "\xEB", 1))
             LOG("popnhax: HD resolution: cannot move credit/network position\n");
     }
 
@@ -2755,7 +2498,7 @@ static bool patch_hd_resolution(uint8_t mode) {
 }
 
 static bool patch_fps_uncap() {
-    if (!patch_hex("\x7E\x07\xB9\x0C\x00\x00\x00\xEB\x09\x85\xC9", 11, 0, "\xEB\x1C", 2))
+    if (!find_and_patch_hex(g_game_dll_fn, "\x7E\x07\xB9\x0C\x00\x00\x00\xEB\x09\x85\xC9", 11, 0, "\xEB\x1C", 2))
     {
         LOG("popnhax: fps uncap: cannot find frame limiter\n");
         return false;
@@ -3520,6 +3263,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             return TRUE;
         }
 
+		bool force_trans_debug = false;
+
         LPWSTR *szArglist;
         int nArgs;
 
@@ -3544,6 +3289,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 wsprintfA ( resultStr, "%S", szArglist[i+1]);
                 g_config_fn = strdup(resultStr);
             }
+            else if ( wcscmp(szArglist[i], L"--translation-debug") == 0 )
+            {
+				LOG("--translation-debug: turning on translation-related dumps\n");
+                force_trans_debug = true;
+            }
         }
         LocalFree(szArglist);
 
@@ -3566,6 +3316,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         LOG("popnhax: config file: %s\n",g_config_fn);
 
         _load_config(g_config_fn, &config, config_psmap);
+
+		if (force_trans_debug)
+			config.translation_debug = true;
 
         if (!config.disable_multiboot)
         {
@@ -3605,27 +3358,45 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         /* look for possible translation patch folder ("_yyyymmddrr_tr" for multiboot, or simply "_translation") */
         if (!config.disable_translation)
         {
-            FILE *fp = NULL;
             char translation_folder[16] = "";
+            char translation_path[64] = "";
+
             /* parse */
             if (config.force_datecode[0] != '\0')
             {
+					
                 sprintf(translation_folder, "_%s%s", config.force_datecode, "_tr");
-                fp = _translation_open_dict(translation_folder);
+				sprintf(translation_path, "%s%s", "data_mods\\", translation_folder);
+				if (access(translation_path, F_OK) != 0)
+				{
+					translation_folder[0] = '\0';
+				}
             }
 
-            if (!fp)
+            if (translation_folder[0] == '\0')
             {
                 sprintf(translation_folder, "%s", "_translation");
-                fp = _translation_open_dict(translation_folder);
+				sprintf(translation_path, "%s%s", "data_mods\\", translation_folder);
+				if (access(translation_path, F_OK) != 0)
+				{
+					translation_folder[0] = '\0';
+				}
             }
 
-            if (fp != NULL)
+            if (translation_folder[0] != '\0')
             {
                 LOG("popnhax: translation: using folder \"%s\"\n", translation_folder);
-                patch_translation(fp);
-                fclose(fp);
+				patch_translate(g_game_dll_fn, translation_folder, config.translation_debug);
             }
+			else if ( config.translation_debug )
+			{
+				DWORD dllSize = 0;
+				char *data = getDllData(g_game_dll_fn, &dllSize);
+				LOG("popnhax: translation debug: no translation applied, dump prepatched dll\n");
+				FILE* dllrtp = fopen("dllruntime_prepatched.dll", "wb");
+				fwrite(data, 1, dllSize, dllrtp);
+				fclose(dllrtp);
+			}
         }
 
         if (config.practice_mode) {
