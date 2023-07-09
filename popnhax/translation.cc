@@ -3,7 +3,7 @@
 #include <io.h>
 #include <windows.h>
 
-#include "util/fuzzy_search.h"
+#include "util/search.h"
 
 #include "util/log.h"
 #include "util/patch.h"
@@ -14,7 +14,7 @@
 #define MAX_REPLACE_SIZE 16384
 
 FILE *g_dict_applied_fp;
-bool patch_sjis(const char *dllFilename, const uint8_t *find, uint8_t find_size, int64_t *offset, uint8_t *replace, uint8_t replace_size, bool dump_dict) {
+bool patch_sjis(const char *dllFilename, const char *find, uint8_t find_size, int64_t *offset, char *replace, uint8_t replace_size, bool dump_dict) {
     static DWORD dllSize = 0;
     static char *data = getDllData(dllFilename, &dllSize);
     static uint8_t first_offset = 0;
@@ -23,12 +23,7 @@ bool patch_sjis(const char *dllFilename, const uint8_t *find, uint8_t find_size,
     uint64_t patch_addr;
     bool valid_sjis = false;
     do {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, find, find_size)
-
-        *offset = find_block(data, dllSize-*offset-0x100000, &task, *offset);
+        *offset = search(data, dllSize-*offset, find, find_size, *offset);
         if (*offset == -1) {
             *offset = offset_orig;
             return false;
@@ -41,10 +36,6 @@ bool patch_sjis(const char *dllFilename, const uint8_t *find, uint8_t find_size,
                 LOG("popnhax: dump_dict: dump applied patches in dict_applied.txt\n");
                 g_dict_applied_fp = fopen("dict_applied.txt","wb");
             }
-            /* limit search to a 0x100000-wide zone starting from first string found to speedup the process
-             * make sure to put the first string first (usually 種類順)
-             */
-            dllSize = *offset + 0x100000;
             first_offset = 1;
         }
 
@@ -133,9 +124,9 @@ static void perform_reloc(char *data, int32_t delta, uint32_t ext_base, uint32_t
 					*p += delta;
 					if ( ext_base > 0 && *p >= ((int64_t)data+ext_base) )
 					{
-						fprintf(stderr,"reloc rva %lx to ext ", *p);
+						//fprintf(stderr,"reloc rva %lx to ext ", *p);
 						*p += ext_delta;
-						fprintf(stderr," %lx\n", *p);
+						//fprintf(stderr," %lx\n", *p);
 					}
 					VirtualProtect((LPVOID)p, 4, old_prot, &old_prot);
 				}
@@ -168,10 +159,6 @@ static bool patch_translation_ips(const char *dllFilename, const char *foldernam
 } while (0)
 	DWORD dllSize = 0;
     char *data = getDllData(dllFilename, &dllSize);
-	
-	/* some of the patches might require fixups */
-	PIMAGE_NT_HEADERS headers = (PIMAGE_NT_HEADERS)((int64_t)data + ((PIMAGE_DOS_HEADER)data)->e_lfanew);
-	DWORD_PTR reloc_delta = (DWORD_PTR)((int64_t)data - headers->OptionalHeader.ImageBase);
 
 	char dict_filepath[64];
     sprintf(dict_filepath, "%s%s%s", "data_mods\\", foldername, "\\popn22.ips");
@@ -183,19 +170,8 @@ static bool patch_translation_ips(const char *dllFilename, const char *foldernam
 	}
 
 	LOG("popnhax: translation: popn22.ips found\n");
-	
-	if (dump_dll)
-	{
-		LOG("popnhax: translation debug: dump dll before patch\n");
-		FILE* dllrtp = fopen("dllruntime.dll", "wb");
-		fwrite(data, 1, dllSize, dllrtp);
-		fclose(dllrtp);
-		LOG("popnhax: translation debug: dllruntime.dll generated\n");
-	}
 
-	perform_reloc(data, -1*reloc_delta, 0, 0);
-
-	//check header
+	/* check .ips header */
 	uint8_t buffer[8];
 	if (fread(&buffer, 1, 5, ips_fp) != 5)
 		return false;
@@ -206,9 +182,24 @@ static bool patch_translation_ips(const char *dllFilename, const char *foldernam
 		return false;
 	}
 
+	if (dump_dll)
+	{
+		LOG("popnhax: translation debug: dump dll before patch\n");
+		FILE* dllrtp = fopen("dllruntime.dll", "wb");
+		fwrite(data, 1, dllSize, dllrtp);
+		fclose(dllrtp);
+		LOG("popnhax: translation debug: dllruntime.dll generated\n");
+	}
+
+	/* undo all relocation so you can apply ips patch with correct values, we'll reapply them later */
+	PIMAGE_NT_HEADERS headers = (PIMAGE_NT_HEADERS)((int64_t)data + ((PIMAGE_DOS_HEADER)data)->e_lfanew);
+	DWORD_PTR reloc_delta = (DWORD_PTR)((int64_t)data - headers->OptionalHeader.ImageBase);
+	perform_reloc(data, -1*reloc_delta, 0, 0);
+
 	uint32_t trans_base = 0; /* eclale patch adds new section header which I'm relocating */
 	uint32_t trans_base_offset = 0;
 	uint32_t trans_rebase = 0;
+
 	uint32_t offset = 0;
 	uint16_t size = 0;
 	uint16_t count = 0;
@@ -218,7 +209,7 @@ static bool patch_translation_ips(const char *dllFilename, const char *foldernam
 	{
 		bool skip = false;
 		
-		/* need to convert offset to rva before applying patch */
+		/* need to convert offset to rva before applying patch since the dll is already in memory */
 		uint8_t *bp = (uint8_t *)&offset;
 		offset = BYTE3_TO_UINT(bp);
 		uint32_t rva;
@@ -250,7 +241,7 @@ static bool patch_translation_ips(const char *dllFilename, const char *foldernam
 
 			IPS_READ(&value, 1, "RLE VALUE");
 			
-			LOG("RLE PATCH! size %d value %d\n", size, value);
+			//LOG("RLE PATCH! size %d value %d\n", size, value);
 			//fprintf(stderr, "rle value %d (%d bytes)\n",value, size);
 			if ( size > MAX_REPLACE_SIZE )
 			{
@@ -299,15 +290,11 @@ static bool patch_translation_ips(const char *dllFilename, const char *foldernam
 			}
 		}
 
-//		if ( rva+size > dllSize
-		//LOG( "%02x %02x %02x %02x...\n", replace[0], replace[1], replace[2], replace[3]);
 		if ( trans_base_offset != 0 && offset >= trans_base_offset )
 		{
-			//LOG( "WARNING: patching into new section.\n");
-
+			/* patching into new section */
 			if ( trans_rebase == 0 )
 			{
-				//LOG( "ALLOCATING NEW SECTION FOR TRANS\n");
 				HANDLE hProc = GetCurrentProcess();
 				LPVOID myAlloc = VirtualAllocEx(hProc, NULL, 16384, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
 				if (myAlloc == NULL)
@@ -317,6 +304,8 @@ static bool patch_translation_ips(const char *dllFilename, const char *foldernam
 				}
 				trans_rebase = (uint32_t)myAlloc - (uint32_t)data;
 				//LOG( "virtualalloc worked; address %x (%p)\n", trans_rebase, myAlloc);
+
+				/* seems useless */
 				//memcpy(replace, &trans_rebase, 4);
 				//patch_memory((int64_t)data+0x02d4, (char *)replace, 4);
 				//LOG( "patched .trans section address to %02x %02x %02x %02x\n", replace[0], replace[1], replace[2], replace[3]);
@@ -332,6 +321,7 @@ static bool patch_translation_ips(const char *dllFilename, const char *foldernam
 		}
 	}
 
+	/* redo all relocation now the dll is patched */
 	perform_reloc(data, reloc_delta, trans_base, trans_rebase-trans_base);
 
 	LOG("popnhax: translation: IPS patch applied.\n");
@@ -351,8 +341,8 @@ static bool patch_translation_ips(const char *dllFilename, const char *foldernam
 
 static bool patch_translation_dict(const char *dllFilename, const char *foldername, bool dump_dict)
 {
-    uint8_t original[128];
-    uint8_t translation[128];
+    char original[128];
+    char translation[128];
     uint8_t buffer;
     int64_t curr_offset = 0;
     uint8_t word_count = 0;
@@ -471,7 +461,6 @@ bool patch_translate(const char *dllFilename, const char *folder, bool debug)
 	bool dict_done = false;
 
 	ips_done = patch_translation_ips(dllFilename, folder, debug);
-	
 	dict_done = patch_translation_dict(dllFilename, folder, debug);
 	
 	return ips_done || dict_done;

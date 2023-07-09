@@ -12,7 +12,7 @@
 #define F_OK 0
 #define access _access
 
-#include "util/fuzzy_search.h"
+#include "util/search.h"
 
 #include "minhook/hde32.h"
 #include "minhook/include/MinHook.h"
@@ -737,12 +737,7 @@ static bool patch_purelong()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x80\x1A\x06\x00\x83\xFA\x08\x77\x08", 9)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x80\x1A\x06\x00\x83\xFA\x08\x77\x08", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Couldn't find score increment function\n");
             return false;
@@ -773,12 +768,7 @@ static bool patch_datecode(char *datecode) {
     g_datecode_override = strdup(datecode);
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
         if (pattern_offset != -1) {
             uint64_t patch_addr = (int64_t)data + pattern_offset + 0x08;
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode,
@@ -801,12 +791,7 @@ static bool patch_datecode(char *datecode) {
     DWORD avsdllSize = 0;
     char *avsdata = getDllData("libavs-win32.dll", &avsdllSize);
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x57\x56\x89\x34\x24\x8B\xF2\x8B\xD0\x0F\xB6\x46\x2E", 13)
-
-        int64_t pattern_offset = find_block(avsdata, avsdllSize, &task, 0);
+        int64_t pattern_offset = search(avsdata, avsdllSize, "\x57\x56\x89\x34\x24\x8B\xF2\x8B\xD0\x0F\xB6\x46\x2E", 13, 0);
         if (pattern_offset != -1) {
             uint64_t patch_addr = (int64_t)avsdata + pattern_offset;
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode_libavs,
@@ -828,12 +813,7 @@ static bool patch_database(uint8_t force_unlocks) {
     patch_purelong();
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
         if (pattern_offset != -1) {
             uint64_t patch_addr = (int64_t)data + pattern_offset;
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)omnimix_patch_jbx,
@@ -1125,34 +1105,18 @@ static bool patch_unset_volume() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = 0;
+    int64_t first_loc = search(data, dllSize, "\x04\x00\x81\xC4\x00\x01\x00\x00\xC3\xCC", 10, 0);
+	if (first_loc == -1) {
+			return false;
+	}
 
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x04\x00\x81\xC4\x00\x01\x00\x00\xC3\xCC", 10)
-
-        first_loc = find_block(data, dllSize, &task, 0);
-        if (first_loc == -1) {
-            return false;
-        }
+    int64_t pattern_offset = search(data, 0x10, "\x83", 1, first_loc);
+    if (pattern_offset == -1) {
+        return false;
     }
 
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x83", 1)
-
-        int64_t pattern_offset = find_block(data, 0x10, &task, first_loc);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        patch_memory(patch_addr, (char *)"\xC3", 1);
-    }
+    uint64_t patch_addr = (int64_t)data + pattern_offset;
+    patch_memory(patch_addr, (char *)"\xC3", 1);
 
     LOG("popnhax: windows volume untouched\n");
 
@@ -1175,35 +1139,19 @@ static bool patch_remove_timer() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = 0;
-
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x8B\xAC\x24\x68\x01", 5)
-
-        first_loc = find_block(data, dllSize, &task, 0);
-        if (first_loc == -1) {
-            return false;
-        }
+    int64_t first_loc = search(data, dllSize, "\x8B\xAC\x24\x68\x01", 5, 0);
+    if (first_loc == -1) {
+        return false;
     }
 
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x0F", 1)
-
-        int64_t pattern_offset = find_block(data, 0x15, &task, first_loc);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-        patch_memory(patch_addr, (char *)"\x90\xE9", 2);
+    int64_t pattern_offset = search(data, 0x15, "\x0F", 1, first_loc);
+    if (pattern_offset == -1) {
+        return false;
     }
-
+    
+    uint64_t patch_addr = (int64_t)data + pattern_offset;
+    patch_memory(patch_addr, (char *)"\x90\xE9", 2);
+    
     LOG("popnhax: timer removed\n");
 
     return true;
@@ -1224,42 +1172,23 @@ static bool patch_skip_tutorials() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = 0;
-
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xFD\xFF\x5E\xC2\x04\x00\xE8", 7)
-
-        first_loc = find_block(data, dllSize, &task, 0);
+	{
+        int64_t first_loc = search(data, dllSize, "\xFD\xFF\x5E\xC2\x04\x00\xE8", 7, 0);
         if (first_loc == -1) {
             return false;
         }
-    }
-
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x74", 1)
-
-        int64_t pattern_offset = find_block(data, 0x10, &task, first_loc);
+    
+        int64_t pattern_offset = search(data, 0x10, "\x74", 1, first_loc);
         if (pattern_offset == -1) {
             return false;
         }
-
+        
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         patch_memory(patch_addr, (char *)"\xEB", 1);
     }
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x66\x85\xC0\x75\x5E\x6A", 6)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x66\x85\xC0\x75\x5E\x6A", 6, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -1269,12 +1198,7 @@ static bool patch_skip_tutorials() {
     }
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x00\x5F\x5E\x66\x83\xF8\x01\x75", 8)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x00\x5F\x5E\x66\x83\xF8\x01\x75", 8, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -1307,18 +1231,14 @@ bool force_unlock_songs() {
     int music_unlocks = 0, chart_unlocks = 0;
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x69\xC0\xAC\x00\x00\x00\x8B\x80", 8) // 0xac here is the size of music_entry. May change in the future
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+		// 0xac here is the size of music_entry. May change in the future
+        int64_t pattern_offset = search(data, dllSize, "\x69\xC0\xAC\x00\x00\x00\x8B\x80", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: couldn't unlock songs and charts\n");
             return false;
         }
 
-        uint32_t buffer_offset = *(uint32_t*)((int64_t)data + pattern_offset + task.blocks[0].data[0].length);
+        uint32_t buffer_offset = *(uint32_t*)((int64_t)data + pattern_offset + 8);
         buffer_offset -= 0x1c; // The difference between music_entry.mask and music_entry.fw_genre_ptr to put it at the beginning of the entry
         music_entry *entry = (music_entry*)buffer_offset;
 
@@ -1361,18 +1281,14 @@ bool force_unlock_charas() {
     int chara_unlocks = 0;
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x98\x6B\xC0\x4C\x8B\x80", 6) // 0x4c here is the size of character_entry. May change in the future
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+		// 0x4c here is the size of character_entry. May change in the future
+        int64_t pattern_offset = search(data, dllSize, "\x98\x6B\xC0\x4C\x8B\x80", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: couldn't unlock characters\n");
             return false;
         }
 
-        uint32_t buffer_offset = *(uint32_t*)((int64_t)data + pattern_offset + task.blocks[0].data[0].length);
+        uint32_t buffer_offset = *(uint32_t*)((int64_t)data + pattern_offset + 6);
         buffer_offset -= 0x48; // The difference between character_entry.game_version and character_entry.chara_id_ptr to put it at the beginning of the entry
         character_entry *entry = (character_entry*)buffer_offset;
 
@@ -1413,12 +1329,7 @@ static bool patch_unlocks_offline() {
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xB8\x49\x06\x00\x00\x66\x3B", 7)
-
-        int64_t pattern_offset = find_block(data, dllSize-0xE0000, &task, 0xE0000);
+        int64_t pattern_offset = search(data, dllSize-0xE0000, "\xB8\x49\x06\x00\x00\x66\x3B", 7, 0xE0000);
         if (pattern_offset == -1) {
             LOG("Couldn't find first song unlock\n");
             return false;
@@ -1466,11 +1377,7 @@ static bool get_addr_icca(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, "\xE8\x4B\x14\x00\x00\x84\xC0\x74\x03\x33\xC0\xC3\x8B\x0D", 14)
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    int64_t pattern_offset = search(data, dllSize, "\xE8\x4B\x14\x00\x00\x84\xC0\x74\x03\x33\xC0\xC3\x8B\x0D", 14, 0);
     if (pattern_offset == -1) {
         return false;
     }
@@ -1497,12 +1404,7 @@ static bool get_addr_timing_offset(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, "\xB8\xB4\xFF\xFF\xFF", 5)
-
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    int64_t pattern_offset = search(data, dllSize, "\xB8\xB4\xFF\xFF\xFF", 5, 0);
     if (pattern_offset == -1) {
             return false;
     }
@@ -1530,11 +1432,7 @@ static bool get_addr_beam_brightness(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, "\xB8\x64\x00\x00\x00\xD9", 6)
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    int64_t pattern_offset = search(data, dllSize, "\xB8\x64\x00\x00\x00\xD9", 6, 0);
     if (pattern_offset == -1) {
         return false;
     }
@@ -1561,11 +1459,7 @@ static bool get_addr_sd_timing(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, "\xB8\xC4\xFF\xFF\xFF", 5)
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    int64_t pattern_offset = search(data, dllSize, "\xB8\xC4\xFF\xFF\xFF", 5, 0);
     if (pattern_offset == -1) {
         return false;
     }
@@ -1592,11 +1486,7 @@ static bool get_addr_hd_timing(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, "\xB8\xB4\xFF\xFF\xFF", 5)
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    int64_t pattern_offset = search(data, dllSize, "\xB8\xB4\xFF\xFF\xFF", 5, 0);
     if (pattern_offset == -1) {
         return false;
     }
@@ -1637,20 +1527,11 @@ static bool patch_hidden_is_offset()
         patch_memory(hiddencommitoptionaddr+placeholder_offset+1, eax_to_offset, 5);
 
         /* find option commit function (unilab) */
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8)
-        uint8_t shift = 6;
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+		uint8_t shift = 6;
+        int64_t pattern_offset = search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
         if (pattern_offset == -1) {
             /* wasn't found, look for older function */
-            fuzzy_search_task fallbacktask;
-
-            FUZZY_START(fallbacktask, 1)
-            FUZZY_CODE(fallbacktask, 0, "\x0F\xB6\xC3\x03\xCF\x8D", 6)
-            pattern_offset = find_block(data, dllSize, &fallbacktask, 0);
+            pattern_offset = search(data, dllSize, "\x0F\xB6\xC3\x03\xCF\x8D", 6, 0);
             shift = 14;
 
             if (pattern_offset == -1) {
@@ -1673,12 +1554,7 @@ static bool patch_hidden_is_offset()
         uint32_t *cast_code = (uint32_t*) &set_offset_fun[1];
         *cast_code = timing_addr;
 
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, set_offset_fun, 5)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, set_offset_fun, 5, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: hidden is offset: cannot find offset update function\n");
             return false;
@@ -1701,35 +1577,20 @@ static bool patch_show_hidden_adjust_result_screen() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = 0;
+    int64_t first_loc = search(data, dllSize, "\x6A\x00\x0F\xBE\xCB", 5, 0);
+	if (first_loc == -1)
+		return false;
 
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x6A\x00\x0F\xBE\xCB", 5)
-
-        first_loc = find_block(data, dllSize, &task, 0);
-        if (first_loc == -1) {
-            return false;
-        }
+    
+    int64_t pattern_offset = search(data, 0x200, "\x80\xBC\x24", 3, first_loc);
+    if (pattern_offset == -1) {
+        return false;
     }
-
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x80\xBC\x24", 3)
-
-        int64_t pattern_offset = find_block(data, 0x200, &task, first_loc);
-        if (pattern_offset == -1) {
-            return false;
-        }
-        g_show_hidden_addr = *((uint32_t *)((int64_t)data + pattern_offset + 0x03));
-        uint64_t hook_addr = (int64_t)data + pattern_offset;
-        MH_CreateHook((LPVOID)(hook_addr), (LPVOID)asm_show_hidden_result,
-                      (void **)&real_show_hidden_result);
-    }
+    g_show_hidden_addr = *((uint32_t *)((int64_t)data + pattern_offset + 0x03));
+    uint64_t hook_addr = (int64_t)data + pattern_offset;
+    MH_CreateHook((LPVOID)(hook_addr), (LPVOID)asm_show_hidden_result,
+                  (void **)&real_show_hidden_result);
+    
 
     LOG("popnhax: show hidden/adjust value on result screen\n");
 
@@ -1740,27 +1601,13 @@ static bool force_show_fast_slow() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = 0;
-
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x6A\x00\x0F\xBE\xCB", 5)
-
-        first_loc = find_block(data, dllSize, &task, 0);
-        if (first_loc == -1) {
-            return false;
-        }
+    int64_t first_loc = search(data, dllSize, "\x6A\x00\x0F\xBE\xCB", 5, 0);
+    if (first_loc == -1) {
+        return false;
     }
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x0F\x85", 2)
-
-        int64_t pattern_offset = find_block(data, 0x50, &task, first_loc);
+        int64_t pattern_offset = search(data, 0x50, "\x0F\x85", 2, first_loc);
         if (pattern_offset == -1) {
             return false;
         }
@@ -1780,11 +1627,7 @@ static bool patch_pfree() {
 
     /* stop stage counter (2 matches, 1st one is the good one) */
     {
-        fuzzy_search_task task;
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x83\xF8\x04\x77\x3E", 5)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x04\x77\x3E", 5, 0);
         if (pattern_offset == -1) {
             LOG("couldn't find stop stage counter\n");
             return false;
@@ -1804,14 +1647,7 @@ static bool patch_pfree() {
     char offset_from_stage1[2] = {0x00, 0x00};
     int64_t child_fun_loc = 0;
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\x8D\x46\xFF\x83\xF8\x0A\x0F",
-                   7)
-
-        int64_t offset = find_block(data, dllSize, &task, 0);
+        int64_t offset = search(data, dllSize, "\x8D\x46\xFF\x83\xF8\x0A\x0F", 7, 0);
         if (offset == -1) {
         #if DEBUG == 1
             LOG("popnhax: pfree: failed to retrieve struct size and offset\n");
@@ -1827,14 +1663,7 @@ static bool patch_pfree() {
     }
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\xCB\x69",
-                   2)
-
-        int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
+        int64_t pattern_offset = search(data, 0x40, "\xCB\x69", 2, child_fun_loc);
         if (pattern_offset == -1) {
             LOG("popnhax: pfree: failed to retrieve offset from stage1 (child_fun_loc = %llx\n",child_fun_loc);
             return false;
@@ -1848,14 +1677,7 @@ static bool patch_pfree() {
     }
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\x8d\x74\x01",
-                   3)
-
-        int64_t pattern_offset = find_block(data, 0x40, &task, child_fun_loc);
+        int64_t pattern_offset = search(data, 0x40, "\x8d\x74\x01", 3, child_fun_loc);
         if (pattern_offset == -1) {
             LOG("popnhax: pfree: failed to retrieve offset from base\n");
             return false;
@@ -1871,14 +1693,7 @@ pfree_apply:
     int64_t first_loc = 0;
     /* cleanup score and stats part1 */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\xFE\x46\x0E\x80",
-                   4)
-
-        first_loc = find_block(data, dllSize, &task, 0);
+        first_loc = search(data, dllSize, "\xFE\x46\x0E\x80", 4, 0);
         if (first_loc == -1) {
         LOG("popnhax: pfree: cannot find stage update function\n");
             return false;
@@ -1890,14 +1705,7 @@ pfree_apply:
 
     /* cleanup score and stats part2 */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\x83\xC4\x08\x8A",
-                   4)
-
-        int64_t pattern_offset = find_block(data, 0x40, &task, first_loc);
+        int64_t pattern_offset = search(data, 0x40, "\x83\xC4\x08\x8A", 4, first_loc);
         if (pattern_offset == -1) {
         LOG("popnhax: pfree: cannot find stage update function\n");
             return false;
@@ -1931,11 +1739,7 @@ static bool patch_quick_retire(bool pfree)
         /* pfree already installs this hook
          */
         {
-            fuzzy_search_task task;
-            FUZZY_START(task, 1)
-            FUZZY_CODE(task, 0, "\x83\xF8\x04\x77\x3E", 5)
-
-            int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+            int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x04\x77\x3E", 5, 0);
             if (pattern_offset == -1) {
                 LOG("couldn't find stop stage counter\n");
                 return false;
@@ -1953,12 +1757,7 @@ static bool patch_quick_retire(bool pfree)
 
     /* instant retire with numpad 9 in song */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x55\x8B\xEC\x83\xE4\xF8\x83\xEC\x08\x0F\xBF\x05", 12)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x55\x8B\xEC\x83\xE4\xF8\x83\xEC\x08\x0F\xBF\x05", 12, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: cannot retrieve song loop\n");
@@ -1982,12 +1781,7 @@ static bool patch_quick_retire(bool pfree)
 
     /* instant exit with numpad 9 on result screen */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xF8\x53\x55\x56\x57\x8B\xE9\x8B\x75\x00\x8B\x85", 12)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xF8\x53\x55\x56\x57\x8B\xE9\x8B\x75\x00\x8B\x85", 12, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: cannot retrieve result screen loop\n");
@@ -2013,12 +1807,7 @@ static bool patch_quick_retire(bool pfree)
 
     /* retrieve songstart function pointer for quick retry */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xE9\x0C\x01\x00\x00\x8B\x85\x10\x0A\x00\x00", 11)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xE9\x0C\x01\x00\x00\x8B\x85\x10\x0A\x00\x00", 11, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve song start function\n");
@@ -2031,12 +1820,7 @@ static bool patch_quick_retire(bool pfree)
     /* instant retry (go back to option select) with numpad 7 */
     {
         /* retrieve current stage score addr for cleanup (also used to fix quick retire medal) */
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xF3\xA5\x5F\x5E\x5B\xC2\x04\x00", 8)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xF3\xA5\x5F\x5E\x5B\xC2\x04\x00", 8, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve score addr\n");
@@ -2049,12 +1833,7 @@ static bool patch_quick_retire(bool pfree)
     }
     {
         /* hook quick retire transition to go back to option select instead */
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x6A\x01\x8B\xCE\xFF\xD0\xE8", 7)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x6A\x01\x8B\xCE\xFF\xD0\xE8", 7, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve screen transition function\n");
@@ -2068,12 +1847,7 @@ static bool patch_quick_retire(bool pfree)
 
     /* instant launch song with numpad 7 on option select (hold 7 during song for quick retry) */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x51\x50\x8B\x83\x0C\x0A\x00\x00\xEB\x09\x33\xD2", 12)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x51\x50\x8B\x83\x0C\x0A\x00\x00\xEB\x09\x33\xD2", 12, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve option screen loop\n");
@@ -2155,12 +1929,7 @@ static bool patch_keysound_offset(int8_t value)
     patch_add_to_base_offset(value);
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x51\x53\x56\x57\x0f\xb7\xf8\x8b\x34\xfd", 10)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x51\x53\x56\x57\x0f\xb7\xf8\x8b\x34\xfd", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: keysound offset: cannot prepatch\n");
             return false;
@@ -2304,12 +2073,8 @@ static bool patch_score_challenge()
 
     /* Part1: retrieve course id and song id, useful and will simplify a little */
     {
-        fuzzy_search_task task;
 
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x81\xC6\xCC\x08\x00\x00\xC7\x44\x24", 9)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+		int64_t pattern_offset = search(data, dllSize, "\x81\xC6\xCC\x08\x00\x00\xC7\x44\x24", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find course/song address\n");
             return false;
@@ -2323,12 +2088,7 @@ static bool patch_score_challenge()
 
     /* Part2: retrieve subfunctions which used to be called by the now stubbed function */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x66\x89\x08\x88\x50\x02", 6)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x66\x89\x08\x88\x50\x02", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find song data prep function\n");
             return false;
@@ -2339,12 +2099,7 @@ static bool patch_score_challenge()
         score_challenge_prep_songdata = (void(*)())patch_addr;
     }
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x8B\x4F\x0C\x83\xEC\x10\x56\x85\xC9\x75\x04\x33\xC0\xEB\x08\x8B\x47\x14\x2B\xC1\xC1\xF8\x02\x8B\x77\x10\x8B\xD6\x2B\xD1\xC1\xFA\x02\x3B\xD0\x73\x2B", 37)
-
-        int64_t pattern_offset = find_block(data, dllSize-0x60000, &task, 0x60000);
+        int64_t pattern_offset = search(data, dllSize-0x60000, "\x8B\x4F\x0C\x83\xEC\x10\x56\x85\xC9\x75\x04\x33\xC0\xEB\x08\x8B\x47\x14\x2B\xC1\xC1\xF8\x02\x8B\x77\x10\x8B\xD6\x2B\xD1\xC1\xFA\x02\x3B\xD0\x73\x2B", 37, 0x60000);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find category song inject function\n");
             return false;
@@ -2355,12 +2110,7 @@ static bool patch_score_challenge()
         score_challenge_song_inject = (void(*)())patch_addr;
     }
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find check if logged function\n");
             return false;
@@ -2371,12 +2121,7 @@ static bool patch_score_challenge()
         score_challenge_test_if_logged1 = (void(*)())patch_addr;
     }
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xF7\xD8\x1B\xC0\x40\xC3\xE8", 7)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xF7\xD8\x1B\xC0\x40\xC3\xE8", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find check if logged function\n");
             return false;
@@ -2389,12 +2134,7 @@ static bool patch_score_challenge()
 
     /* Part3: "unstub" the score challenge category creation */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find category building loop\n");
             return false;
@@ -2526,12 +2266,7 @@ static bool patch_options()
     char *data = getDllData(g_game_dll_fn, &dllSize);
     /* starting value */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xFF\xD0\xB8\x01\x00\x00\x00\x01\x46\x34\x01\x46\x38\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x04\x8B\x54\x24\x08\x89\x48\x20\x89\x50\x24\xC7\x40\x2C\x00\x00\x00\x00\xC6\x40\x30\x01\xC2\x08\x00\xCC\xCC\xCC\xCC\x83\xEC\x18\x33\xC0", 60)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xFF\xD0\xB8\x01\x00\x00\x00\x01\x46\x34\x01\x46\x38\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x04\x8B\x54\x24\x08\x89\x48\x20\x89\x50\x24\xC7\x40\x2C\x00\x00\x00\x00\xC6\x40\x30\x01\xC2\x08\x00\xCC\xCC\xCC\xCC\x83\xEC\x18\x33\xC0", 60, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: always full options: cannot find function call\n");
             return false;
@@ -2545,12 +2280,7 @@ static bool patch_options()
     }
     /* prevent switching with numpad 0 */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xC6\x85\x1F\x0A\x00\x00\x00\xC6\x85\x20\x0A\x00\x00\x00\xE9\x3E\x01\x00\x00\x33\xC9", 21)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xC6\x85\x1F\x0A\x00\x00\x00\xC6\x85\x20\x0A\x00\x00\x00\xE9\x3E\x01\x00\x00\x33\xC9", 21, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: always full options: cannot find numpad0 check\n");
             return false;
@@ -2586,11 +2316,7 @@ static bool get_addr_pldata(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, "\x14\xFF\xE2\xC3\xCC\xCC", 6) // +10hからポインタ群がある
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    int64_t pattern_offset = search(data, dllSize, "\x14\xFF\xE2\xC3\xCC\xCC", 6, 0); // +10hからポインタ群がある
     if (pattern_offset == -1) {
         return false;
     }
@@ -2611,12 +2337,7 @@ static bool unilab_check()
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8)
-
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    int64_t pattern_offset = search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
     if (pattern_offset == -1) {
             return false;
         }
@@ -2631,11 +2352,7 @@ static bool get_addr_numkey()
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, "\x85\xC9\x74\x08\x8B\x01\x8B\x40\x24\x52\xFF\xD0", 12)
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    int64_t pattern_offset = search(data, dllSize, "\x85\xC9\x74\x08\x8B\x01\x8B\x40\x24\x52\xFF\xD0", 12, 0);
     if (pattern_offset == -1) {
         return false;
     }
@@ -2657,12 +2374,7 @@ static bool get_addr_random()
     char *data = getDllData(g_game_dll_fn, &dllSize); // hook \x83\xC4\x04\xB9\x02\x00\x00\x00 button \x03\xC5\x83\xF8\x09\x7C\xDE
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x83\xC4\x04\xB9\x02\x00\x00\x00", 8)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\xB9\x02\x00\x00\x00", 8, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -2671,24 +2383,14 @@ static bool get_addr_random()
 
     }
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x51\x55\x56\xC7\x44\x24\x08\x00\x00\x00", 10)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x51\x55\x56\xC7\x44\x24\x08\x00\x00\x00", 10, 0);
         if (pattern_offset == -1) {
             return false;
         }
         ran_func = (uint32_t *) ((int64_t)data + pattern_offset);
     }
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x03\xC5\x83\xF8\x09\x7C\xDE", 7)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x03\xC5\x83\xF8\x09\x7C\xDE", 7, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -2791,28 +2493,17 @@ static bool get_rendaddr()
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0,
-                   "\x3b\xC3\x74\x13\xC7\x00\x02\x00\x00\x00\x89\x58\x04\x89\x58\x08", 16)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        g_rend_addr = (uint32_t *)((int64_t)data + pattern_offset -4);
-        font_color = (uint32_t *)((int64_t)data + pattern_offset +36);
+	{
+        int64_t pattern_offset = search(data, dllSize, "\x3b\xC3\x74\x13\xC7\x00\x02\x00\x00\x00\x89\x58\x04\x89\x58\x08", 16, 0);	
+        if (pattern_offset == -1) {	
+            return false;	
+        }	
+        g_rend_addr = (uint32_t *)((int64_t)data + pattern_offset -4);	
+        font_color = (uint32_t *)((int64_t)data + pattern_offset +36);	
     }
+
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x0C\x8D\x44\x24\x10", 24)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x0C\x8D\x44\x24\x10", 24, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -2845,12 +2536,7 @@ static bool get_speedaddr()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x83\xC4\x0C\x8B\xC3\x8D\x7C\x24", 8)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x0C\x8B\xC3\x8D\x7C\x24", 8, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -2859,12 +2545,7 @@ static bool get_speedaddr()
 
     }
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x8B\x74\x24\x18\x8D\x0C\x5B\x8B\x54\x8E\xF4", 11)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x8B\x74\x24\x18\x8D\x0C\x5B\x8B\x54\x8E\xF4", 11, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -2873,12 +2554,7 @@ static bool get_speedaddr()
 
     }
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x0F\xBF\xC5\x83\xC4\x0C\x66\x89\x6E\x08", 10)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x0F\xBF\xC5\x83\xC4\x0C\x66\x89\x6E\x08", 10, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -3155,12 +2831,7 @@ static bool patch_practice_mode()
 
     /* AGING MODE to Practice Mode */
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x83\xEC\x40\x53\x56\x57", 6)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x83\xEC\x40\x53\x56\x57", 6, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: cannot retrieve aging loop\n");
@@ -3217,12 +2888,7 @@ static bool patch_practice_mode()
         (void **)&real_get_random);
     }
     {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, "\x5E\x8B\xE5\x5D\xC2\x04\x00\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x55\x8B\xEC\x83\xE4\xF8\x51\x56\x8B\xF1\x8B", 32)
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x5E\x8B\xE5\x5D\xC2\x04\x00\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x55\x8B\xEC\x83\xE4\xF8\x51\x56\x8B\xF1\x8B", 32, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find address for restore addr\n");
             return false;
@@ -3500,7 +3166,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         MH_EnableHook(MH_ALL_HOOKS);
 
-        LOG("popnhax: done patching game, enjoy!");
+        LOG("popnhax: done patching game, enjoy!\n");
 
         if (g_log_fp != stderr)
             fclose(g_log_fp);

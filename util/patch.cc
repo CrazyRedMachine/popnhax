@@ -3,7 +3,7 @@
 #include <psapi.h>
 // clang-format on
 
-#include "util/fuzzy_search.h"
+#include "util/search.h"
 #include "patch.h"
 
 void patch_memory(uint64_t patch_addr, char *data, size_t len) {
@@ -88,12 +88,7 @@ void find_and_patch_string(const char *dllFilename, const char *input_string, co
     char *data = getDllData(dllFilename, &dllSize);
 
     while (1) {
-        fuzzy_search_task task;
-
-        FUZZY_START(task, 1)
-        FUZZY_CODE(task, 0, input_string, strlen(input_string))
-
-        int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+        int64_t pattern_offset = search(data, dllSize, input_string, strlen(input_string), 0);
         if (pattern_offset == -1) {
             break;
         }
@@ -110,12 +105,7 @@ bool find_and_patch_hex(const char *dllFilename, const char *find, uint8_t find_
     DWORD dllSize = 0;
     char *data = getDllData(dllFilename, &dllSize);
 
-    fuzzy_search_task task;
-
-    FUZZY_START(task, 1)
-    FUZZY_CODE(task, 0, find, find_size)
-
-    int64_t pattern_offset = find_block(data, dllSize, &task, 0);
+    int64_t pattern_offset = search(data, dllSize, find, find_size, 0);
     if (pattern_offset == -1) {
         return false;
     }
