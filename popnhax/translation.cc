@@ -81,23 +81,6 @@ bool patch_sjis(const char *dllFilename, const char *find, uint8_t find_size, in
     return true;
 }
 
-FILE* _translation_open_dict(char *foldername, bool *ips)
-{
-	*ips = true;
-    char dict_filepath[64];
-    sprintf(dict_filepath, "%s%s%s", "data_mods\\", foldername, "\\popn22.ips");
-	FILE *file = fopen(dict_filepath, "rb");
-	if (file != NULL)
-	{
-		return file;
-	}
-
-	*ips = false;
-    sprintf(dict_filepath, "%s%s%s", "data_mods\\", foldername, "\\popn22.dict");
-	file = fopen(dict_filepath, "rb");
-    return file;
-}
-
 #define RELOC_HIGHLOW 0x3
 static void perform_reloc(char *data, int32_t delta, uint32_t ext_base, uint32_t ext_delta)
 {	
@@ -105,14 +88,14 @@ static void perform_reloc(char *data, int32_t delta, uint32_t ext_base, uint32_t
 	PIMAGE_DATA_DIRECTORY datadir = &headers->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_BASERELOC];
 	PIMAGE_BASE_RELOCATION reloc = (PIMAGE_BASE_RELOCATION)(data + datadir->VirtualAddress);
 
-	while(reloc->VirtualAddress != 0) 
+	while(reloc->VirtualAddress != 0)
 	{
-		if (reloc->SizeOfBlock >= sizeof(IMAGE_BASE_RELOCATION)) 
+		if (reloc->SizeOfBlock >= sizeof(IMAGE_BASE_RELOCATION))
 		{
 			DWORD relocDescNb = (reloc->SizeOfBlock - sizeof(IMAGE_BASE_RELOCATION)) / sizeof(WORD);
 			LPWORD relocDescList = (LPWORD)((LPBYTE)reloc + sizeof(IMAGE_BASE_RELOCATION));
 
-			for (DWORD i = 0; i < relocDescNb; i++) 
+			for (DWORD i = 0; i < relocDescNb; i++)
 			{
 				if ( ((relocDescList[i])>>12) == RELOC_HIGHLOW )
 				{
@@ -449,11 +432,6 @@ static bool patch_translation_dict(const char *dllFilename, const char *folderna
 #undef STATE_ORIGINAL
 #undef STATE_TRANSLATION
 }
-
-
-/*
-
-*/
 
 bool patch_translate(const char *dllFilename, const char *folder, bool debug)
 {

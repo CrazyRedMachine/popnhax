@@ -111,7 +111,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, audio_source_f
                  "/popnhax/audio_source_fix")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, unset_volume,
                  "/popnhax/unset_volume")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, event_mode, "/popnhax/event_mode")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, event_mode,
+                 "/popnhax/event_mode")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, remove_timer,
                  "/popnhax/remove_timer")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, freeze_timer,
@@ -1106,9 +1107,9 @@ static bool patch_unset_volume() {
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     int64_t first_loc = search(data, dllSize, "\x04\x00\x81\xC4\x00\x01\x00\x00\xC3\xCC", 10, 0);
-	if (first_loc == -1) {
-			return false;
-	}
+    if (first_loc == -1) {
+            return false;
+    }
 
     int64_t pattern_offset = search(data, 0x10, "\x83", 1, first_loc);
     if (pattern_offset == -1) {
@@ -1148,10 +1149,10 @@ static bool patch_remove_timer() {
     if (pattern_offset == -1) {
         return false;
     }
-    
+
     uint64_t patch_addr = (int64_t)data + pattern_offset;
     patch_memory(patch_addr, (char *)"\x90\xE9", 2);
-    
+
     LOG("popnhax: timer removed\n");
 
     return true;
@@ -1172,17 +1173,17 @@ static bool patch_skip_tutorials() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-	{
+    {
         int64_t first_loc = search(data, dllSize, "\xFD\xFF\x5E\xC2\x04\x00\xE8", 7, 0);
         if (first_loc == -1) {
             return false;
         }
-    
+
         int64_t pattern_offset = search(data, 0x10, "\x74", 1, first_loc);
         if (pattern_offset == -1) {
             return false;
         }
-        
+
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         patch_memory(patch_addr, (char *)"\xEB", 1);
     }
@@ -1231,7 +1232,7 @@ bool force_unlock_songs() {
     int music_unlocks = 0, chart_unlocks = 0;
 
     {
-		// 0xac here is the size of music_entry. May change in the future
+        // 0xac here is the size of music_entry. May change in the future
         int64_t pattern_offset = search(data, dllSize, "\x69\xC0\xAC\x00\x00\x00\x8B\x80", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: couldn't unlock songs and charts\n");
@@ -1281,7 +1282,7 @@ bool force_unlock_charas() {
     int chara_unlocks = 0;
 
     {
-		// 0x4c here is the size of character_entry. May change in the future
+        // 0x4c here is the size of character_entry. May change in the future
         int64_t pattern_offset = search(data, dllSize, "\x98\x6B\xC0\x4C\x8B\x80", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: couldn't unlock characters\n");
@@ -1527,7 +1528,7 @@ static bool patch_hidden_is_offset()
         patch_memory(hiddencommitoptionaddr+placeholder_offset+1, eax_to_offset, 5);
 
         /* find option commit function (unilab) */
-		uint8_t shift = 6;
+        uint8_t shift = 6;
         int64_t pattern_offset = search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
         if (pattern_offset == -1) {
             /* wasn't found, look for older function */
@@ -1578,10 +1579,10 @@ static bool patch_show_hidden_adjust_result_screen() {
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     int64_t first_loc = search(data, dllSize, "\x6A\x00\x0F\xBE\xCB", 5, 0);
-	if (first_loc == -1)
-		return false;
+    if (first_loc == -1)
+        return false;
 
-    
+
     int64_t pattern_offset = search(data, 0x200, "\x80\xBC\x24", 3, first_loc);
     if (pattern_offset == -1) {
         return false;
@@ -1590,7 +1591,7 @@ static bool patch_show_hidden_adjust_result_screen() {
     uint64_t hook_addr = (int64_t)data + pattern_offset;
     MH_CreateHook((LPVOID)(hook_addr), (LPVOID)asm_show_hidden_result,
                   (void **)&real_show_hidden_result);
-    
+
 
     LOG("popnhax: show hidden/adjust value on result screen\n");
 
@@ -2074,7 +2075,7 @@ static bool patch_score_challenge()
     /* Part1: retrieve course id and song id, useful and will simplify a little */
     {
 
-		int64_t pattern_offset = search(data, dllSize, "\x81\xC6\xCC\x08\x00\x00\xC7\x44\x24", 9, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x81\xC6\xCC\x08\x00\x00\xC7\x44\x24", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find course/song address\n");
             return false;
@@ -2493,13 +2494,13 @@ static bool get_rendaddr()
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-	{
-        int64_t pattern_offset = search(data, dllSize, "\x3b\xC3\x74\x13\xC7\x00\x02\x00\x00\x00\x89\x58\x04\x89\x58\x08", 16, 0);	
-        if (pattern_offset == -1) {	
-            return false;	
-        }	
-        g_rend_addr = (uint32_t *)((int64_t)data + pattern_offset -4);	
-        font_color = (uint32_t *)((int64_t)data + pattern_offset +36);	
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x3b\xC3\x74\x13\xC7\x00\x02\x00\x00\x00\x89\x58\x04\x89\x58\x08", 16, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+        g_rend_addr = (uint32_t *)((int64_t)data + pattern_offset -4);
+        font_color = (uint32_t *)((int64_t)data + pattern_offset +36);
     }
 
     {
@@ -2911,16 +2912,13 @@ static bool patch_practice_mode()
     return true;
 }
 
-
-
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
         g_log_fp = fopen("popnhax.log", "w");
         if (g_log_fp == NULL)
         {
-            g_log_fp = stderr;
-            LOG("cannot open popnhax.log for write, output to stderr\n");
+            LOG("cannot open popnhax.log for write, output to stderr only\n");
         }
         LOG("popnhax: Initializing\n");
         if (MH_Initialize() != MH_OK) {
@@ -2929,7 +2927,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             return TRUE;
         }
 
-		bool force_trans_debug = false;
+        bool force_trans_debug = false;
+        bool force_no_omni     = false;
 
         LPWSTR *szArglist;
         int nArgs;
@@ -2957,8 +2956,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             }
             else if ( wcscmp(szArglist[i], L"--translation-debug") == 0 )
             {
-				LOG("--translation-debug: turning on translation-related dumps\n");
+                LOG("--translation-debug: turning on translation-related dumps\n");
                 force_trans_debug = true;
+            }
+            else if ( wcscmp(szArglist[i], L"--no-omni") == 0 )
+            {
+                LOG("--no-omni: force disable patch_db\n");
+                force_no_omni = true;
             }
         }
         LocalFree(szArglist);
@@ -2983,8 +2987,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         _load_config(g_config_fn, &config, config_psmap);
 
-		if (force_trans_debug)
-			config.translation_debug = true;
+        if (force_trans_debug)
+            config.translation_debug = true;
+
+        if (force_no_omni)
+            config.patch_db = false;
 
         if (!config.disable_multiboot)
         {
@@ -2992,7 +2999,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             if ( (strlen(g_game_dll_fn) == 21)
               && (config.force_datecode[0] == '\0') )
             {
-                LOG("popnhax: multiboot autotune activated (custom game dll, default xml, force_datecode off)\n");
+                LOG("popnhax: multiboot autotune activated (custom game dll, force_datecode off)\n");
                 memcpy(config.force_datecode, g_game_dll_fn+7, 10);
                 LOG("popnhax: multiboot: auto set datecode to %s\n", config.force_datecode);
                 if (config.force_unlock_deco && ( strcmp(config.force_datecode, "2022061300") > 0) )
@@ -3030,39 +3037,39 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             /* parse */
             if (config.force_datecode[0] != '\0')
             {
-					
+
                 sprintf(translation_folder, "_%s%s", config.force_datecode, "_tr");
-				sprintf(translation_path, "%s%s", "data_mods\\", translation_folder);
-				if (access(translation_path, F_OK) != 0)
-				{
-					translation_folder[0] = '\0';
-				}
+                sprintf(translation_path, "%s%s", "data_mods\\", translation_folder);
+                if (access(translation_path, F_OK) != 0)
+                {
+                    translation_folder[0] = '\0';
+                }
             }
 
             if (translation_folder[0] == '\0')
             {
                 sprintf(translation_folder, "%s", "_translation");
-				sprintf(translation_path, "%s%s", "data_mods\\", translation_folder);
-				if (access(translation_path, F_OK) != 0)
-				{
-					translation_folder[0] = '\0';
-				}
+                sprintf(translation_path, "%s%s", "data_mods\\", translation_folder);
+                if (access(translation_path, F_OK) != 0)
+                {
+                    translation_folder[0] = '\0';
+                }
             }
 
             if (translation_folder[0] != '\0')
             {
                 LOG("popnhax: translation: using folder \"%s\"\n", translation_folder);
-				patch_translate(g_game_dll_fn, translation_folder, config.translation_debug);
+                patch_translate(g_game_dll_fn, translation_folder, config.translation_debug);
             }
-			else if ( config.translation_debug )
-			{
-				DWORD dllSize = 0;
-				char *data = getDllData(g_game_dll_fn, &dllSize);
-				LOG("popnhax: translation debug: no translation applied, dump prepatched dll\n");
-				FILE* dllrtp = fopen("dllruntime_prepatched.dll", "wb");
-				fwrite(data, 1, dllSize, dllrtp);
-				fclose(dllrtp);
-			}
+            else if ( config.translation_debug )
+            {
+                DWORD dllSize = 0;
+                char *data = getDllData(g_game_dll_fn, &dllSize);
+                LOG("popnhax: translation debug: no translation applied, dump prepatched dll\n");
+                FILE* dllrtp = fopen("dllruntime_prepatched.dll", "wb");
+                fwrite(data, 1, dllSize, dllrtp);
+                fclose(dllrtp);
+            }
         }
 
         if (config.practice_mode) {

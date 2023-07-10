@@ -9,7 +9,7 @@
 extern FILE *g_log_fp;
 
 #define LOG(...) do { \
-if (g_log_fp != stderr) { \
+if (g_log_fp != NULL) { \
 fprintf(g_log_fp, __VA_ARGS__); \
 fflush(g_log_fp);\
  }\

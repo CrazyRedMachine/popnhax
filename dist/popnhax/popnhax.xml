@@ -79,9 +79,9 @@
   <disable_redirection __type="bool">0</disable_redirection>
 
   <!-- Translation -->
-  <!-- Disable string replacements from .dict file -->
+  <!-- Disable .dict string replacements and .ips patches -->
   <disable_translation __type="bool">0</disable_translation>
-  <!-- Dump applied translations in dict_applied.txt (requires translation) -->
-  <dump_dict __type="bool">0</dump_dict>
+  <!-- Dump applied translations and dll runtime data to help debug translation -->
+  <translation_debug __type="bool">0</translation_debug>
 
 </popnhax>
