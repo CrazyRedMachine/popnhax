@@ -305,13 +305,19 @@ void quickexit_option_screen_cleanup()
     }
 }
 
+uint32_t g_addr_icca;
 void (*real_option_screen)();
 void quickexit_option_screen()
 {
     quickexit_option_screen_cleanup();
 
     __asm("push ebx\n");
-    __asm("mov ebx, dword ptr [0x12345678]\n"); /* placeholder value, will be set to addr_icca afterwards */
+
+    __asm("push ecx\n");
+    __asm("mov ecx, %0\n": :"m"(g_addr_icca));
+    __asm("mov ebx, [ecx]\n");
+    __asm("pop ecx\n");
+
     __asm("add ebx, 0xAC\n");
     __asm("mov ebx, [ebx]\n");
 
@@ -364,7 +370,12 @@ void (*real_game_loop)();
 void quickexit_game_loop()
 {
     __asm("push ebx\n");
-    __asm("mov ebx, dword ptr [0x12345678]\n"); /* placeholder value, will be set to addr_icca afterwards */
+
+    __asm("push ecx\n");
+    __asm("mov ecx, %0\n": :"m"(g_addr_icca));
+    __asm("mov ebx, [ecx]\n");
+    __asm("pop ecx\n");
+
     __asm("add ebx, 0xAC\n");
     __asm("mov ebx, [ebx]\n");
 
@@ -415,7 +426,11 @@ void (*real_result_loop)();
 void quickexit_result_loop()
 {
     //__asm("push ebx\n"); //handled by :"b"
-    __asm("mov ebx, dword ptr [0x12345678]\n"); /* placeholder value, will be set to addr_icca afterwards */
+    __asm("push ecx\n");
+    __asm("mov ecx, %0\n": :"m"(g_addr_icca));
+    __asm("mov ebx, [ecx]\n");
+    __asm("pop ecx\n");
+
     __asm("add ebx, 0xAC\n");
     __asm("mov ebx, [ebx]\n");
     __asm("shr ebx, 16\n");
@@ -459,9 +474,9 @@ void modded_set_timing_func()
 
     /* timing contains offset, add to it instead of replace */
     __asm("push ebx\n");
-	__asm("mov ebx, %0\n"::"m"(g_timing_addr));
-	__asm("add [ebx], eax\n");
-	__asm("pop ebx\n");
+    __asm("mov ebx, %0\n"::"m"(g_timing_addr));
+    __asm("add [ebx], eax\n");
+    __asm("pop ebx\n");
 
     g_timing_require_update = false;
     return;
@@ -1498,9 +1513,9 @@ void hidden_is_offset_commit_options()
     __asm("push ebx\n");
     __asm("movsx eax, word ptr [esi+4]\n");
     __asm("neg eax\n");
-	__asm("mov ebx, %0\n"::"m"(g_timing_addr));
-	__asm("mov [ebx], eax\n");
-	__asm("pop ebx\n");
+    __asm("mov ebx, %0\n"::"m"(g_timing_addr));
+    __asm("mov [ebx], eax\n");
+    __asm("pop ebx\n");
 
     /* quit */
     __asm("call_real_commit:\n");
@@ -1755,15 +1770,11 @@ static bool patch_quick_retire(bool pfree)
             return false;
         }
 
-        uint32_t addr_icca;
-        if (!get_addr_icca(&addr_icca))
+        if (!get_addr_icca(&g_addr_icca))
         {
             LOG("popnhax: cannot retrieve ICCA address for numpad hook\n");
             return false;
         }
-
-        int64_t quickexitaddr = (int64_t)&quickexit_game_loop;
-        patch_memory(quickexitaddr+3, (char *)&addr_icca, 4);
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_game_loop,
@@ -1779,15 +1790,11 @@ static bool patch_quick_retire(bool pfree)
             return false;
         }
 
-        uint32_t addr_icca;
-        if (!get_addr_icca(&addr_icca))
+        if (!get_addr_icca(&g_addr_icca))
         {
             LOG("popnhax: cannot retrieve ICCA address for numpad hook\n");
             return false;
         }
-
-        int64_t quickexitaddr = (int64_t)&quickexit_result_loop;
-        patch_memory(quickexitaddr+4, (char *)&addr_icca, 4);// +3 -> +4
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_loop,
@@ -1845,23 +1852,11 @@ static bool patch_quick_retire(bool pfree)
             return false;
         }
 
-        uint32_t addr_icca;
-        if (!get_addr_icca(&addr_icca))
+        if (!get_addr_icca(&g_addr_icca))
         {
             LOG("popnhax: quick retry: cannot retrieve ICCA address for numpad hook\n");
             return false;
         }
-        int64_t quickexitaddr = (int64_t)&quickexit_option_screen;
-        uint8_t *patch_str = (uint8_t*) quickexitaddr;
-
-        uint8_t placeholder_offset = 0;
-        while (patch_str[placeholder_offset+0] != 0x78
-            || patch_str[placeholder_offset+1] != 0x56
-            || patch_str[placeholder_offset+2] != 0x34
-            || patch_str[placeholder_offset+3] != 0x12)
-            placeholder_offset++;
-
-        patch_memory(quickexitaddr+placeholder_offset, (char *)&addr_icca, 4);
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 12 + 5 + 2;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen,
@@ -1918,85 +1913,85 @@ uint32_t g_last_button_state = 0;
 int32_t g_button_state[9] = {0};
 static unsigned int __stdcall enhanced_polling_proc(void *ctx)
 {
-	HMODULE hinstLib = GetModuleHandleA("ezusb.dll");
+    HMODULE hinstLib = GetModuleHandleA("ezusb.dll");
     usbPadRead = (int(*)(uint32_t*))GetProcAddress(hinstLib, "?usbPadRead@@YAHPAK@Z");
 
-	for (int i=0; i<9; i++)
-	{
-		g_button_state[i] = -1;
-	}
+    for (int i=0; i<9; i++)
+    {
+        g_button_state[i] = -1;
+    }
 
-	while (!g_enhanced_poll_ready)
-	{
-		Sleep(2000);
-	}
-	
-	while (g_enhanced_poll_ready)
-	{
-		uint32_t pad_bits;
-		usbPadRead(&pad_bits);
-		g_last_button_state = pad_bits;
-		unsigned int buttonState = 0;
-		buttonState |= (pad_bits >> 8) & 0x1FF;
-		for (int i = 0; i < 9; i++)
-		{
-			if ( ((buttonState >> i)&1) )
-			{
-				if (g_button_state[i] == -1)
-				{
-					g_button_state[i] = timeGetTime();
-				}
-			}
-			else
-				g_button_state[i] = -1;
-		}
-	}
-	return 0;
+    while (!g_enhanced_poll_ready)
+    {
+        Sleep(2000);
+    }
+
+    while (g_enhanced_poll_ready)
+    {
+        uint32_t pad_bits;
+        usbPadRead(&pad_bits);
+        g_last_button_state = pad_bits;
+        unsigned int buttonState = 0;
+        buttonState |= (pad_bits >> 8) & 0x1FF;
+        for (int i = 0; i < 9; i++)
+        {
+            if ( ((buttonState >> i)&1) )
+            {
+                if (g_button_state[i] == -1)
+                {
+                    g_button_state[i] = timeGetTime();
+                }
+            }
+            else
+                g_button_state[i] = -1;
+        }
+    }
+    return 0;
 }
 
 uint32_t buttonGetMillis(uint8_t button)
 {
-	if (g_button_state[button] == -1)
-		return 0;
+    if (g_button_state[button] == -1)
+        return 0;
 
-	uint32_t but = g_button_state[button]; //prevent race
-	uint32_t curr = timeGetTime();
-	
-	if (but <= curr)
-		return curr - but;
+    uint32_t but = g_button_state[button]; //prevent race
+    uint32_t curr = timeGetTime();
 
-	return 0;
+    if (but <= curr)
+        return curr - but;
+
+    return 0;
 }
 
 uint32_t usbPadReadHook_addr = 0;
 int usbPadReadHook(uint32_t *pad_bits)
 {
-	__asm("nop\n");
     __asm("nop\n");
-	/* thread is not running, return real call */
-	if (!g_enhanced_poll_ready)
-		return usbPadRead(pad_bits);
+    __asm("nop\n");
+    /* thread is not running, return real call */
+    if (!g_enhanced_poll_ready)
+        return usbPadRead(pad_bits);
 
-	/* return last known input */
-	*pad_bits = g_last_button_state;
+    /* return last known input */
+    *pad_bits = g_last_button_state;
 
-	return 0;
+    return 0;
 }
 
 uint8_t g_poll_index = 0;
 uint32_t g_poll_offset = 0;
 void (*real_enhanced_poll)();
 void patch_enhanced_poll() {
-	g_enhanced_poll_ready = true; //thread can now start polling inputs like crazy
-	/* eax contains button being checked [0-8] */
-	/* esi contains delta about to be evaluated */
-	/* we need to do esi -= pressed_since[%eax]; to fix the offset accurately */
-	__asm("nop\n");
+    g_enhanced_poll_ready = true; //thread can now start polling inputs like crazy
+    /* eax contains button being checked [0-8] */
+    /* esi contains delta about to be evaluated */
+    /* we need to do esi -= pressed_since[%eax]; to fix the offset accurately */
+    __asm("nop\n");
     __asm("nop\n");
     __asm("mov %0, al\n":"=m"(g_poll_index): :);
-	g_poll_offset = buttonGetMillis(g_poll_index);
-	__asm("sub esi, %0\n": :"b"(g_poll_offset));
-    
+    g_poll_offset = buttonGetMillis(g_poll_index);
+    __asm("sub esi, %0\n": :"b"(g_poll_offset));
+
     real_enhanced_poll();
 }
 
@@ -2004,17 +1999,17 @@ static HANDLE enhanced_polling_thread;
 
 static bool patch_enhanced_polling()
 {
-	if (enhanced_polling_thread == NULL) {
-		enhanced_polling_thread = (HANDLE) _beginthreadex(
-		NULL,
-		0,
-		enhanced_polling_proc,
-		NULL,
-		0,
-		NULL);
-	} // thread will remain dormant while g_enhanced_poll_ready == false
+    if (enhanced_polling_thread == NULL) {
+        enhanced_polling_thread = (HANDLE) _beginthreadex(
+        NULL,
+        0,
+        enhanced_polling_proc,
+        NULL,
+        0,
+        NULL);
+    } // thread will remain dormant while g_enhanced_poll_ready == false
 
-	/* patch eval timing function to fix offset depending on how long ago the button was pressed */
+    /* patch eval timing function to fix offset depending on how long ago the button was pressed */
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
@@ -2028,26 +2023,26 @@ static bool patch_enhanced_polling()
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05;
 
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_enhanced_poll,
-                      (void **)&real_enhanced_poll); // substract 
+                      (void **)&real_enhanced_poll); // substract
 
     }
-	
-	/* patch call to usbPadRead to redirect to our own usbPadReadHook() */
-	{
+
+    /* patch call to usbPadRead to redirect to our own usbPadReadHook() */
+    {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: enhanced polling: cannot find usbPadRead call (1st occ)\n");
             return false;
         }
-		pattern_offset = search(data, dllSize-pattern_offset-1, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, pattern_offset+1);
-		if (pattern_offset == -1) {
+        pattern_offset = search(data, dllSize-pattern_offset-1, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, pattern_offset+1);
+        if (pattern_offset == -1) {
             LOG("popnhax: enhanced polling: cannot find usbPadRead call (2nd occ)\n");
             return false;
         }
-		usbPadReadHook_addr = (uint32_t)&usbPadReadHook;
-		void *addr = (void *)&usbPadReadHook_addr;
-		uint32_t as_int = (uint32_t)addr;
-		LOG("usbPadReadHook address is %x (and pointer to it at %p, %x)\n", usbPadReadHook_addr, &usbPadReadHook_addr, as_int);
+        usbPadReadHook_addr = (uint32_t)&usbPadReadHook;
+        void *addr = (void *)&usbPadReadHook_addr;
+        uint32_t as_int = (uint32_t)addr;
+        LOG("usbPadReadHook address is %x (and pointer to it at %p, %x)\n", usbPadReadHook_addr, &usbPadReadHook_addr, as_int);
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x04; //-06 to be at call, -03 is address
 
@@ -2068,7 +2063,7 @@ static bool patch_keysound_offset(int8_t value)
     patch_add_to_base_offset(value);
 
     {
-		/* ou first occ of C6 44 24 0C 00 E8 , - 0x07 au lieu de +, so it works on eclale too? */
+        /* ou first occ of C6 44 24 0C 00 E8 , - 0x07 au lieu de +, so it works on eclale too? */
         //int64_t pattern_offset = search(data, dllSize, "\x51\x53\x56\x57\x0f\xb7\xf8\x8b\x34\xfd", 10, 0);
         int64_t pattern_offset = search(data, dllSize, "\xC6\x44\x24\x0C\x00\xE8", 6, 0);
         if (pattern_offset == -1) {
