@@ -36,6 +36,7 @@ struct popnhax_config {
     bool fps_uncap;
     bool disable_translation;
     bool translation_debug;
+    bool enhanced_polling;
 };
 
 #endif

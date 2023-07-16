@@ -71,6 +71,8 @@
   <beam_brightness __type="s8">0</beam_brightness>
   <!-- Disable the builtin frame limiter (faster/smoother animations at 120fps+) -->
   <fps_uncap __type="bool">0</fps_uncap>
+  <!-- 1000Hz polling rate (no more shifting timing windows/magic bpm, consistent scoring independently of framerate) -->
+  <enhanced_polling __type="bool">0</enhanced_polling>
 
   <!-- Song db patches -->
   <!-- Force the newly created buffers to be the same size as the original buffers -->

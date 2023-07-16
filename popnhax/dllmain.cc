@@ -149,6 +149,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_transl
                  "/popnhax/disable_translation")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, translation_debug,
                  "/popnhax/translation_debug")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, enhanced_polling,
+                 "/popnhax/enhanced_polling")
 PSMAP_END
 
 enum BufferIndexes {
@@ -443,6 +445,7 @@ void quickexit_result_loop()
 
 }
 
+uint32_t g_timing_addr = 0;
 bool g_timing_require_update = false;
 
 void (*real_set_timing_func)();
@@ -453,47 +456,18 @@ void modded_set_timing_func()
         real_set_timing_func();
         return;
     }
-    __asm("add [0x12345678], eax\n"); /* placeholder value, updated later */
+
+    /* timing contains offset, add to it instead of replace */
+    __asm("push ebx\n");
+	__asm("mov ebx, %0\n"::"m"(g_timing_addr));
+	__asm("add [ebx], eax\n");
+	__asm("pop ebx\n");
+
     g_timing_require_update = false;
     return;
 }
 
-uint32_t g_masked_hidden = 0;
-void (*real_commit_options)();
-void hidden_is_offset_commit_options()
-{
-    __asm("push eax\n");
-    /* check if hidden active */
-    __asm("xor eax, eax\n");
-    __asm("mov eax, [esi]\n");
-    __asm("shr eax, 0x18\n");
-    __asm("or %0, eax\n":"=m"(g_masked_hidden):); /* save to restore display when using result_screen_show_offset patch */
-    __asm("cmp eax, 1\n");
-    __asm("jne call_real_commit\n");
-
-    /* disable hidden ingame */
-    __asm("and ecx, 0x00FFFFFF\n"); // -kaimei
-    __asm("and edx, 0x00FFFFFF\n"); //  unilab
-
-    /* flag timing for update */
-    g_timing_require_update = true;
-
-    /* write into timing offset */
-    __asm("movsx eax, word ptr [esi+4]\n");
-    __asm("neg eax\n");
-
-    /* leave room for rewriting (done in patch_hidden_is_offset()) */
-    __asm("nop\n");
-    __asm("nop\n");
-    __asm("nop\n");
-    __asm("nop\n");
-    __asm("nop\n");
-
-    /* quit */
-    __asm("call_real_commit:\n");
-    __asm("pop eax\n");
-    real_commit_options();
-}
+volatile uint32_t g_masked_hidden = 0;
 
 uint32_t g_show_hidden_addr = 0; /* offset from ESP at which hidden setting value is */
 void (*real_show_hidden_result)();
@@ -1500,12 +1474,45 @@ static bool get_addr_hd_timing(uint32_t *res)
     return true;
 }
 
+void (*real_commit_options)();
+void hidden_is_offset_commit_options()
+{
+    __asm("push eax\n");
+    /* check if hidden active */
+    __asm("xor eax, eax\n");
+    __asm("mov eax, [esi]\n");
+    __asm("shr eax, 0x18\n");
+    __asm("or %0, eax\n":"=m"(g_masked_hidden):); /* save to restore display when using result_screen_show_offset patch */
+    __asm("cmp eax, 1\n");
+    __asm("jne call_real_commit\n");
+
+    /* disable hidden ingame */
+    __asm("and ecx, 0x00FFFFFF\n"); // -kaimei
+    __asm("and edx, 0x00FFFFFF\n"); //  unilab
+
+    /* flag timing for update */
+    __asm("mov %0, 1\n":"=m"(g_timing_require_update):);
+    //g_timing_require_update = true;
+
+    /* write into timing offset */
+    __asm("push ebx\n");
+    __asm("movsx eax, word ptr [esi+4]\n");
+    __asm("neg eax\n");
+	__asm("mov ebx, %0\n"::"m"(g_timing_addr));
+	__asm("mov [ebx], eax\n");
+	__asm("pop ebx\n");
+
+    /* quit */
+    __asm("call_real_commit:\n");
+    __asm("pop eax\n");
+    real_commit_options();
+}
+
 static bool patch_hidden_is_offset()
 {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
-    uint32_t timing_addr = 0;
-    if (!get_addr_timing_offset(&timing_addr))
+    if (!get_addr_timing_offset(&g_timing_addr))
     {
         LOG("popnhax: hidden is offset: cannot find timing offset address\n");
         return false;
@@ -1513,20 +1520,6 @@ static bool patch_hidden_is_offset()
 
     /* patch option commit to store hidden value directly as offset */
     {
-        /* add correct address to hook function */
-        char eax_to_offset[6] = "\xA3\x00\x00\x00\x00";
-        uint32_t *cast_code = (uint32_t*) &eax_to_offset[1];
-        *cast_code = timing_addr;
-
-        int64_t hiddencommitoptionaddr = (int64_t)&hidden_is_offset_commit_options;
-        uint8_t *patch_str = (uint8_t*) hiddencommitoptionaddr;
-
-        uint8_t placeholder_offset = 0;
-        while (patch_str[placeholder_offset] != 0x90 && patch_str[placeholder_offset+1] != 0x90)
-            placeholder_offset++;
-
-        patch_memory(hiddencommitoptionaddr+placeholder_offset+1, eax_to_offset, 5);
-
         /* find option commit function (unilab) */
         uint8_t shift = 6;
         int64_t pattern_offset = search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
@@ -1553,16 +1546,13 @@ static bool patch_hidden_is_offset()
     {
         char set_offset_fun[6] = "\xA3\x00\x00\x00\x00";
         uint32_t *cast_code = (uint32_t*) &set_offset_fun[1];
-        *cast_code = timing_addr;
+        *cast_code = g_timing_addr;
 
         int64_t pattern_offset = search(data, dllSize, set_offset_fun, 5, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: hidden is offset: cannot find offset update function\n");
             return false;
         }
-
-        int64_t modded_set_timing_func_addr = (int64_t)&modded_set_timing_func;
-        patch_memory(modded_set_timing_func_addr+11, (char*)&timing_addr, 4);
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)modded_set_timing_func,
@@ -1921,6 +1911,154 @@ static bool patch_add_to_base_offset(int8_t delta) {
     return true;
 }
 
+bool g_enhanced_poll_ready = false;
+int (*usbPadRead)(uint32_t*);
+
+uint32_t g_last_button_state = 0;
+int32_t g_button_state[9] = {0};
+static unsigned int __stdcall enhanced_polling_proc(void *ctx)
+{
+	HMODULE hinstLib = GetModuleHandleA("ezusb.dll");
+    usbPadRead = (int(*)(uint32_t*))GetProcAddress(hinstLib, "?usbPadRead@@YAHPAK@Z");
+
+	for (int i=0; i<9; i++)
+	{
+		g_button_state[i] = -1;
+	}
+
+	while (!g_enhanced_poll_ready)
+	{
+		Sleep(2000);
+	}
+	
+	while (g_enhanced_poll_ready)
+	{
+		uint32_t pad_bits;
+		usbPadRead(&pad_bits);
+		g_last_button_state = pad_bits;
+		unsigned int buttonState = 0;
+		buttonState |= (pad_bits >> 8) & 0x1FF;
+		for (int i = 0; i < 9; i++)
+		{
+			if ( ((buttonState >> i)&1) )
+			{
+				if (g_button_state[i] == -1)
+				{
+					g_button_state[i] = timeGetTime();
+				}
+			}
+			else
+				g_button_state[i] = -1;
+		}
+	}
+	return 0;
+}
+
+uint32_t buttonGetMillis(uint8_t button)
+{
+	if (g_button_state[button] == -1)
+		return 0;
+
+	uint32_t but = g_button_state[button]; //prevent race
+	uint32_t curr = timeGetTime();
+	
+	if (but <= curr)
+		return curr - but;
+
+	return 0;
+}
+
+uint32_t usbPadReadHook_addr = 0;
+int usbPadReadHook(uint32_t *pad_bits)
+{
+	__asm("nop\n");
+    __asm("nop\n");
+	/* thread is not running, return real call */
+	if (!g_enhanced_poll_ready)
+		return usbPadRead(pad_bits);
+
+	/* return last known input */
+	*pad_bits = g_last_button_state;
+
+	return 0;
+}
+
+uint8_t g_poll_index = 0;
+uint32_t g_poll_offset = 0;
+void (*real_enhanced_poll)();
+void patch_enhanced_poll() {
+	g_enhanced_poll_ready = true; //thread can now start polling inputs like crazy
+	/* eax contains button being checked [0-8] */
+	/* esi contains delta about to be evaluated */
+	/* we need to do esi -= pressed_since[%eax]; to fix the offset accurately */
+	__asm("nop\n");
+    __asm("nop\n");
+    __asm("mov %0, al\n":"=m"(g_poll_index): :);
+	g_poll_offset = buttonGetMillis(g_poll_index);
+	__asm("sub esi, %0\n": :"b"(g_poll_offset));
+    
+    real_enhanced_poll();
+}
+
+static HANDLE enhanced_polling_thread;
+
+static bool patch_enhanced_polling()
+{
+	if (enhanced_polling_thread == NULL) {
+		enhanced_polling_thread = (HANDLE) _beginthreadex(
+		NULL,
+		0,
+		enhanced_polling_proc,
+		NULL,
+		0,
+		NULL);
+	} // thread will remain dormant while g_enhanced_poll_ready == false
+
+	/* patch eval timing function to fix offset depending on how long ago the button was pressed */
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\xC6\x44\x24\x0C\x00\xE8", 6, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: enhanced polling: cannot find eval timing function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_enhanced_poll,
+                      (void **)&real_enhanced_poll); // substract 
+
+    }
+	
+	/* patch call to usbPadRead to redirect to our own usbPadReadHook() */
+	{
+        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: enhanced polling: cannot find usbPadRead call (1st occ)\n");
+            return false;
+        }
+		pattern_offset = search(data, dllSize-pattern_offset-1, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, pattern_offset+1);
+		if (pattern_offset == -1) {
+            LOG("popnhax: enhanced polling: cannot find usbPadRead call (2nd occ)\n");
+            return false;
+        }
+		usbPadReadHook_addr = (uint32_t)&usbPadReadHook;
+		void *addr = (void *)&usbPadReadHook_addr;
+		uint32_t as_int = (uint32_t)addr;
+		LOG("usbPadReadHook address is %x (and pointer to it at %p, %x)\n", usbPadReadHook_addr, &usbPadReadHook_addr, as_int);
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x04; //-06 to be at call, -03 is address
+
+        patch_memory(patch_addr, (char*)&as_int, 4); // game will call usbPadReadHook instead of real usbPadRead
+
+    }
+
+    LOG("popnhax: enhanced polling enabled\n");
+    return true;
+}
+
 static bool patch_keysound_offset(int8_t value)
 {
     DWORD dllSize = 0;
@@ -1930,17 +2068,19 @@ static bool patch_keysound_offset(int8_t value)
     patch_add_to_base_offset(value);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x51\x53\x56\x57\x0f\xb7\xf8\x8b\x34\xfd", 10, 0);
+		/* ou first occ of C6 44 24 0C 00 E8 , - 0x07 au lieu de +, so it works on eclale too? */
+        //int64_t pattern_offset = search(data, dllSize, "\x51\x53\x56\x57\x0f\xb7\xf8\x8b\x34\xfd", 10, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xC6\x44\x24\x0C\x00\xE8", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: keysound offset: cannot prepatch\n");
             return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x07;
-        patch_memory(patch_addr, (char *)"\x03", 1);
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
+        patch_memory(patch_addr, (char *)"\x03", 1); // change "mov esi" into "add esi"
 
         MH_CreateHook((LPVOID)(patch_addr-0x03), (LPVOID)patch_eval_timing,
-                      (void **)&real_eval_timing);
+                      (void **)&real_eval_timing); // preload esi with g_keysound_offset
 
         LOG("popnhax: keysound offset: timing offset by %d ms\n", value);
     }
@@ -2360,7 +2500,7 @@ static bool get_addr_numkey()
 
     input_func = (uint32_t *) ((int64_t)data + pattern_offset + 26);
 #if DEBUG == 1
-    LOG("INPUT num addr %x\n", input_func);
+    LOG("INPUT num addr %p\n", input_func);
 #endif
     return true;
 }
@@ -2400,8 +2540,8 @@ static bool get_addr_random()
 
     }
 #if DEBUG == 1
-    LOG("popnhax: get_addr_random: g_ran_addr is %x\n", g_ran_addr);
-    LOG("popnhax: get_addr_random: ran_func is %x\n", ran_func);
+    LOG("popnhax: get_addr_random: g_ran_addr is %p\n", g_ran_addr);
+    LOG("popnhax: get_addr_random: ran_func is %p\n", ran_func);
     LOG("popnhax: get_addr_random: btaddr is %x\n", *btaddr);
 #endif
     return true;
@@ -2515,7 +2655,7 @@ static bool get_rendaddr()
     #if DEBUG == 1
         LOG("popnhax: get_rendaddr: g_rend_addr is %x\n", *g_rend_addr);
         LOG("popnhax: get_rendaddr: font_color is %x\n", *font_color);
-        LOG("popnhax: get_rendaddr: font_rend_func is %x\n", font_rend_func);
+        LOG("popnhax: get_rendaddr: font_rend_func is %p\n", font_rend_func);
     #endif
 
     return true;
@@ -2564,9 +2704,9 @@ static bool get_speedaddr()
 
     }
     #if DEBUG == 1
-        LOG("popnhax: get_speedaddr: g_2dx_addr is %x\n", g_2dx_addr);
-        LOG("popnhax: get_speedaddr: g_humen_addr is %x\n", g_humen_addr);
-        LOG("popnhax: get_speedaddr: g_soflan_addr is %x\n", g_soflan_addr);
+        LOG("popnhax: get_speedaddr: g_2dx_addr is %p\n", g_2dx_addr);
+        LOG("popnhax: get_speedaddr: g_humen_addr is %p\n", g_humen_addr);
+        LOG("popnhax: get_speedaddr: g_soflan_addr is %p\n", g_soflan_addr);
     #endif
     return true;
 }
@@ -3166,6 +3306,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.fps_uncap)
             patch_fps_uncap();
+
+        if (config.enhanced_polling)
+            patch_enhanced_polling();
 
     #if DEBUG == 1
         patch_get_time();
