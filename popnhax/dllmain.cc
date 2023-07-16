@@ -1923,11 +1923,23 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
 
     while (!g_enhanced_poll_ready)
     {
-        Sleep(2000);
+        Sleep(500);
     }
+
+	
+#if DEBUG == 1
+	uint16_t count = 0;
+	uint32_t currtime = timeGetTime();
+#endif
 
     while (g_enhanced_poll_ready)
     {
+#if DEBUG == 1
+		if (count == 0)
+		{
+			currtime = timeGetTime();
+		}
+#endif
         uint32_t pad_bits;
         usbPadRead(&pad_bits);
         g_last_button_state = pad_bits;
@@ -1945,6 +1957,15 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
             else
                 g_button_state[i] = -1;
         }
+#if DEBUG == 1		
+		count++;
+		if (count == 100)
+		{
+			fprintf(stderr, "did 100 iterations in %ld milliseconds\n", timeGetTime() - currtime);
+			count = 0;
+		}
+#endif
+		Sleep(1);
     }
     return 0;
 }
@@ -1958,7 +1979,12 @@ uint32_t buttonGetMillis(uint8_t button)
     uint32_t curr = timeGetTime();
 
     if (but <= curr)
+	{
+#if DEBUG == 1
+		fprintf(stderr, "button %d has been pressed for %d millis already, adjust!\n", button, curr-but);
+#endif
         return curr - but;
+	}
 
     return 0;
 }
