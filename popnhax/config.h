@@ -37,6 +37,7 @@ struct popnhax_config {
     bool disable_translation;
     bool translation_debug;
     bool enhanced_polling;
+    uint8_t debounce;
 };
 
 #endif

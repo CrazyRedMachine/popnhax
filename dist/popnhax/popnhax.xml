@@ -73,6 +73,8 @@
   <fps_uncap __type="bool">0</fps_uncap>
   <!-- 1000Hz polling rate (no more shifting timing windows/magic bpm, consistent scoring independently of framerate) -->
   <enhanced_polling __type="bool">0</enhanced_polling>
+  <!-- button release debounce time in ms (for enhanced_polling only) -->
+  <debounce __type="u8">5</debounce>
 
   <!-- Song db patches -->
   <!-- Force the newly created buffers to be the same size as the original buffers -->

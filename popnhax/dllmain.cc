@@ -151,6 +151,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, translation_de
                  "/popnhax/translation_debug")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, enhanced_polling,
                  "/popnhax/enhanced_polling")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, debounce,
+                 "/popnhax/debounce")
 PSMAP_END
 
 enum BufferIndexes {
@@ -1915,6 +1917,7 @@ FILE *debug_fp;
 #endif
 
 uint32_t g_last_button_state = 0;
+uint8_t g_debounce = 0;
 int32_t g_button_state[9] = {0};
 static unsigned int __stdcall enhanced_polling_proc(void *ctx)
 {
@@ -1978,7 +1981,7 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
                 {
                     g_button_state[i] = curr_time;
                 }
-				button_debounce[i] = 5; // 5ms of debounce on release (since we're forced to stub usbPadReadLast)
+				button_debounce[i] = g_debounce; //debounce on release (since we're forced to stub usbPadReadLast)
             }
             else
 			{
@@ -1988,7 +1991,13 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
 				}
 				
 				if (button_debounce[i] == 0)
+				{
 					g_button_state[i] = -1;
+				}
+				else
+				{
+					g_last_button_state |= 1<<(8+i); //debounce period still running: button is still pressed
+				}
 			}
         }
 #if DEBUG >= 1
@@ -2058,8 +2067,10 @@ void patch_enhanced_poll() {
 
 static HANDLE enhanced_polling_thread;
 
-static bool patch_enhanced_polling()
+static bool patch_enhanced_polling(uint8_t debounce)
 {
+	g_debounce = debounce;
+
     if (enhanced_polling_thread == NULL) {
         enhanced_polling_thread = (HANDLE) _beginthreadex(
         NULL,
@@ -2092,18 +2103,17 @@ static bool patch_enhanced_polling()
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: enhanced polling: cannot find usbPadRead call (1st occ)\n");
+            LOG("popnhax: enhanced polling: cannot find usbPadRead call (1)\n");
             return false;
         }
         pattern_offset = search(data, dllSize-pattern_offset-1, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, pattern_offset+1);
         if (pattern_offset == -1) {
-            LOG("popnhax: enhanced polling: cannot find usbPadRead call (2nd occ)\n");
+            LOG("popnhax: enhanced polling: cannot find usbPadRead call (2)\n");
             return false;
         }
         usbPadReadHook_addr = (uint32_t)&usbPadReadHook;
         void *addr = (void *)&usbPadReadHook_addr;
         uint32_t as_int = (uint32_t)addr;
-        LOG("usbPadReadHook address is %x (and pointer to it at %p, %x)\n", usbPadReadHook_addr, &usbPadReadHook_addr, as_int);
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x04; // usbPadRead function address
         patch_memory(patch_addr, (char*)&as_int, 4); // game will call usbPadReadHook instead of real usbPadRead
@@ -2113,7 +2123,11 @@ static bool patch_enhanced_polling()
 
     }
 
-    LOG("popnhax: enhanced polling enabled\n");
+    LOG("popnhax: enhanced polling enabled");
+	if (g_debounce != 0)
+		LOG(" (%u ms debounce)", g_debounce);
+	LOG("\n");
+
     return true;
 }
 
@@ -3366,7 +3380,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_fps_uncap();
 
         if (config.enhanced_polling)
-            patch_enhanced_polling();
+            patch_enhanced_polling(config.debounce);
 
     #if DEBUG == 1
         patch_get_time();
