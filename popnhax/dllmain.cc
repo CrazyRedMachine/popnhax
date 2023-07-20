@@ -1912,7 +1912,6 @@ static bool patch_add_to_base_offset(int8_t delta) {
 
 bool g_enhanced_poll_ready = false;
 int (*usbPadRead)(uint32_t*);
-int (*usbPadReadLast)(unsigned char*);
 
 #if POLLING_DEBUG >=1
 FILE *debug_fp;
@@ -1924,16 +1923,12 @@ int32_t g_button_state[9] = {0};
 static unsigned int __stdcall enhanced_polling_proc(void *ctx)
 {
 #if POLLING_DEBUG >=1
-	debug_fp = fopen("polling.log", "w");
+    debug_fp = fopen("polling.log", "w");
 #endif
     HMODULE hinstLib = GetModuleHandleA("ezusb.dll");
     usbPadRead = (int(*)(uint32_t*))GetProcAddress(hinstLib, "?usbPadRead@@YAHPAK@Z");
-	static uint8_t button_debounce[9] = {0};
-	/*
-	usbPadReadLast = (int(*)(unsigned char*)) GetProcAddress(hinstLib, "?usbPadReadLast@@YAHPAE@Z");
-	
-	uint8_t history[40] = {0};
-*/
+    static uint8_t button_debounce[9] = {0};
+
     for (int i=0; i<9; i++)
     {
         g_button_state[i] = -1;
@@ -1944,37 +1939,39 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
         Sleep(500);
     }
 
-	uint32_t curr_time = 0;
-	uint32_t end_time = 0;
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
 #if POLLING_DEBUG >= 1
-	uint32_t count = 0;
-	uint32_t count_time = timeGetTime();
+    fprintf(debug_fp, "Thread priority is 0x%x\n", GetThreadPriority(GetCurrentThread()));
+    uint32_t count = 0;
+    uint32_t count_time = 0;
 #endif
 
+    uint32_t curr_poll_time = 0;
+    uint32_t prev_poll_time = 0;
     while (g_enhanced_poll_ready)
     {
-		curr_time = timeGetTime();
 #if POLLING_DEBUG >= 1
-		if (count == 0)
-		{
-			count_time = curr_time;
-		}
+        if (count == 0)
+        {
+            count_time = timeGetTime();
+        }
 #endif
         uint32_t pad_bits;
-		//usbPadReadLast(history);
-#if POLLING_DEBUG == 2
-		fprintf(stderr, "history : ");
-		for (int i = 0; i<40; i++)
-		{
-			fprintf(stderr, "%02x ", history[i]);
-			if (!((i+1)%16)) fprintf(stderr, "\n");
-		}
-		fprintf(stderr, "--------------\n");
-#endif
-        int ret = usbPadRead(&pad_bits);
-		if (ret == 0)
-			g_last_button_state = pad_bits;
-		
+        /* ensure at least 1ms has elapsed between polls 
+         * (beware of SD cab hardware compatibility)
+         */
+        curr_poll_time = timeGetTime();
+        if (curr_poll_time == prev_poll_time)
+        {
+            curr_poll_time++;
+            Sleep(1);
+        }
+        prev_poll_time = curr_poll_time;
+
+        usbPadRead(&pad_bits);
+        g_last_button_state = pad_bits;
+        
         unsigned int buttonState = (g_last_button_state >> 8) & 0x1FF;
         for (int i = 0; i < 9; i++)
         {
@@ -1982,43 +1979,38 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
             {
                 if (g_button_state[i] == -1)
                 {
-                    g_button_state[i] = curr_time;
+                    g_button_state[i] = curr_poll_time;
                 }
-				button_debounce[i] = g_debounce; //debounce on release (since we're forced to stub usbPadReadLast)
+                //debounce on release (since we're forced to stub usbPadReadLast)
+                button_debounce[i] = g_debounce;
             }
             else
-			{
-				if (button_debounce[i]>0)
-				{
-					button_debounce[i]--;
-				}
-				
-				if (button_debounce[i] == 0)
-				{
-					g_button_state[i] = -1;
-				}
-				else
-				{
-					g_last_button_state |= 1<<(8+i); //debounce period still running: button is still pressed
-				}
-			}
+            {
+                if (button_debounce[i]>0)
+                {
+                    button_debounce[i]--;
+                }
+                
+                if (button_debounce[i] == 0)
+                {
+                    g_button_state[i] = -1;
+                }
+                else
+                {
+                    //debounce ongoing: flag button as still pressed
+                    g_last_button_state |= 1<<(8+i);
+                }
+            }
         }
-		end_time = timeGetTime();
 #if POLLING_DEBUG >= 1
-		count++;
-		if (count == 100000)
-		{
-			fprintf(debug_fp, "did 100000 iterations in %u milliseconds\n", end_time - count_time);
-			count = 0;
-		}
-		fflush(debug_fp);
+        count++;
+        if (count == 100000)
+        {
+            fprintf(debug_fp, "did 100000 iterations in %ld milliseconds\n", timeGetTime() - count_time);
+            count = 0;
+        }
+        fflush(debug_fp);
 #endif
-		/* wait until a millisecond has elapsed */
-		while(end_time == curr_time) {
-			Sleep(0);
-			end_time = timeGetTime();
-		}
-
     }
     return 0;
 }
@@ -2031,15 +2023,15 @@ uint32_t buttonGetMillis(uint8_t button)
     uint32_t but = g_button_state[button];
     uint32_t curr = timeGetTime();
     if (but <= curr)
-	{
-		uint32_t res = curr - but;
-#if DEBUG >= 2
-		/*enabling debug here will mess up timing eval */
-		fprintf(debug_fp, "%ld: buttonGetMillis: button %d : %d millis\n", timeGetTime(), button, res);
-		fflush(debug_fp);
+    {
+        uint32_t res = curr - but;
+#if POLLING_DEBUG >= 2
+        /* these fprintf will mess up timing eval */
+        fprintf(debug_fp, "%ld: buttonGetMillis: button %d : %d millis\n", timeGetTime(), button, res);
+        fflush(debug_fp);
 #endif
         return res;
-	}
+    }
 
     return 0;
 }
@@ -2047,13 +2039,14 @@ uint32_t buttonGetMillis(uint8_t button)
 uint32_t usbPadReadHook_addr = 0;
 int usbPadReadHook(uint32_t *pad_bits)
 {
-	g_enhanced_poll_ready = true; // ioboard is ready, game can now poll inputs like crazy
+    // if we're here then ioboard is ready
+    g_enhanced_poll_ready = true;
 
-    /* return last known input */
+    // return last known input
     *pad_bits = g_last_button_state;
-#if DEBUG >= 2
-	fprintf(debug_fp, "%ld: usbPadReadHook: %x\n", timeGetTime(), *pad_bits);
-	fflush(debug_fp);
+#if POLLING_DEBUG >= 2
+    fprintf(debug_fp, "%ld: usbPadReadHook: %x\n", timeGetTime(), *pad_bits);
+    fflush(debug_fp);
 #endif
     return 0;
 }
@@ -2064,7 +2057,7 @@ void (*real_enhanced_poll)();
 void patch_enhanced_poll() {
     /* eax contains button being checked [0-8]
      * esi contains delta about to be evaluated
-     * we need to do esi -= pressed_since[%eax]; to fix the offset accurately */
+     * we need to do esi -= buttonGetMillis([%eax]); to fix the offset accurately */
     __asm("nop\n");
     __asm("nop\n");
     __asm("mov %0, al\n":"=m"(g_poll_index): :);
@@ -2078,7 +2071,7 @@ static HANDLE enhanced_polling_thread;
 
 static bool patch_enhanced_polling(uint8_t debounce)
 {
-	g_debounce = debounce;
+    g_debounce = debounce;
 
     if (enhanced_polling_thread == NULL) {
         enhanced_polling_thread = (HANDLE) _beginthreadex(
@@ -2124,20 +2117,20 @@ static bool patch_enhanced_polling(uint8_t debounce)
         void *addr = (void *)&usbPadReadHook_addr;
         uint32_t as_int = (uint32_t)addr;
 
-		// game will call usbPadReadHook instead of real usbPadRead (function call hook in order not to interfere with tools)
+        // game will call usbPadReadHook instead of real usbPadRead (function call hook in order not to interfere with tools)
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x04; // usbPadRead function address
         patch_memory(patch_addr, (char*)&as_int, 4);
 
-		// don't call usbPadReadLast as it messes with the 1000Hz polling, we're running our own debouncing instead now
-		patch_addr = (int64_t)data + pattern_offset - 20;
+        // don't call usbPadReadLast as it messes with the 1000Hz polling, we'll be running our own debouncing instead
+        patch_addr = (int64_t)data + pattern_offset - 20;
         patch_memory(patch_addr, (char*)"\x90\x90\x90\x90\x90\x90", 6);
 
     }
 
     LOG("popnhax: enhanced polling enabled");
-	if (g_debounce != 0)
-		LOG(" (%u ms debounce)", g_debounce);
-	LOG("\n");
+    if (g_debounce != 0)
+        LOG(" (%u ms debounce)", g_debounce);
+    LOG("\n");
 
     return true;
 }
@@ -2151,8 +2144,6 @@ static bool patch_keysound_offset(int8_t value)
     patch_add_to_base_offset(value);
 
     {
-        /* ou first occ of C6 44 24 0C 00 E8 , - 0x07 au lieu de +, so it works on eclale too? */
-        //int64_t pattern_offset = search(data, dllSize, "\x51\x53\x56\x57\x0f\xb7\xf8\x8b\x34\xfd", 10, 0);
         int64_t pattern_offset = search(data, dllSize, "\xC6\x44\x24\x0C\x00\xE8", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: keysound offset: cannot prepatch\n");
