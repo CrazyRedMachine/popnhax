@@ -21,6 +21,8 @@ $(zipdir)/:
 $(BUILDDIR)/popnhax.zip: \
 		build/bin/avs2_1508-32/popnhax.dll \
 		dist/popnhax/popnhax.xml \
+		dist/popnhax/D3d9.dll \
+		dist/popnhax/ifs_hook.dll \
 		| $(zipdir)/
 	echo ... $@
 	zip -j $@ $^
