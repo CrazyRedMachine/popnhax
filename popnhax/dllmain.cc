@@ -1945,12 +1945,16 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
 
 	uint32_t curr_time = 0;
 #if DEBUG >= 1
-	uint16_t count = 0;
+	uint32_t count = 0;
 	uint32_t count_time = timeGetTime();
 #endif
 
     while (g_enhanced_poll_ready)
     {
+		__int64 time1 = 0, time2 = 0, freq = 0;
+		QueryPerformanceCounter((LARGE_INTEGER *) &time1);
+		QueryPerformanceFrequency((LARGE_INTEGER *)&freq);
+
 		curr_time = timeGetTime();
 #if DEBUG >= 1
 		if (count == 0)
@@ -2003,14 +2007,18 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
         }
 #if DEBUG >= 1
 		count++;
-		if (count == 1000)
+		if (count == 100000)
 		{
-			fprintf(debug_fp, "did 1000 iterations in %ld milliseconds\n", timeGetTime() - count_time);
+			fprintf(debug_fp, "did 100000 iterations in %ld milliseconds\n", timeGetTime() - count_time);
 			count = 0;
 		}
 		fflush(debug_fp);
 #endif
-		Sleep(1);
+		/* wait until a millisecond has elapsed */
+		do {
+			QueryPerformanceCounter((LARGE_INTEGER *) &time2);
+		} while((time2-time1) < 1000*freq/1000000);
+
     }
     return 0;
 }
