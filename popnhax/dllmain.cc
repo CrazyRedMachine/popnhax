@@ -35,7 +35,7 @@ const char *g_config_fn   = NULL;
 FILE *g_log_fp = NULL;
 
 
-#define DEBUG 0
+#define DEBUG 1
 
 #if DEBUG == 1
 double g_multiplier = 1.;
@@ -1912,7 +1912,7 @@ bool g_enhanced_poll_ready = false;
 int (*usbPadRead)(uint32_t*);
 int (*usbPadReadLast)(unsigned char*);
 
-#if DEBUG >=2
+#if DEBUG >=1
 FILE *debug_fp;
 #endif
 
@@ -1921,7 +1921,7 @@ uint8_t g_debounce = 0;
 int32_t g_button_state[9] = {0};
 static unsigned int __stdcall enhanced_polling_proc(void *ctx)
 {
-#if DEBUG >=2
+#if DEBUG >=1
 	debug_fp = fopen("polling.log", "w");
 #endif
     HMODULE hinstLib = GetModuleHandleA("ezusb.dll");
@@ -2053,9 +2053,9 @@ uint8_t g_poll_index = 0;
 uint32_t g_poll_offset = 0;
 void (*real_enhanced_poll)();
 void patch_enhanced_poll() {
-    /* eax contains button being checked [0-8] */
-    /* esi contains delta about to be evaluated */
-    /* we need to do esi -= pressed_since[%eax]; to fix the offset accurately */
+    /* eax contains button being checked [0-8]
+     * esi contains delta about to be evaluated
+     * we need to do esi -= pressed_since[%eax]; to fix the offset accurately */
     __asm("nop\n");
     __asm("nop\n");
     __asm("mov %0, al\n":"=m"(g_poll_index): :);
@@ -2099,7 +2099,7 @@ static bool patch_enhanced_polling(uint8_t debounce)
 
     }
 
-    /* patch call to usbPadRead to redirect to our own usbPadReadHook() */
+    /* patch calls to usbPadRead and usbPadReadLast */
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
         if (pattern_offset == -1) {
@@ -2115,11 +2115,13 @@ static bool patch_enhanced_polling(uint8_t debounce)
         void *addr = (void *)&usbPadReadHook_addr;
         uint32_t as_int = (uint32_t)addr;
 
+		// game will call usbPadReadHook instead of real usbPadRead (function call hook in order not to interfere with tools)
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x04; // usbPadRead function address
-        patch_memory(patch_addr, (char*)&as_int, 4); // game will call usbPadReadHook instead of real usbPadRead
-		
+        patch_memory(patch_addr, (char*)&as_int, 4);
+
+		// don't call usbPadReadLast as it messes with the 1000Hz polling, we're running our own debouncing instead now
 		patch_addr = (int64_t)data + pattern_offset - 20;
-        patch_memory(patch_addr, (char*)"\x90\x90\x90\x90\x90\x90", 6); // don't call usbPadReadLast
+        patch_memory(patch_addr, (char*)"\x90\x90\x90\x90\x90\x90", 6);
 
     }
 
