@@ -2151,44 +2151,70 @@ void patch_chart_load() {
 
     /* keysound event has been found, we need to convert timestamp */
     __asm("mov word ptr [eax+4], 0x745\n"); // we'll undo it if we cannot apply it
-	__asm("push eax\n"); // chunk pointer (keysound timestamp at beginning)
-	__asm("push ecx\n"); // remaining chunks (add eax, C, sub ecx, 1, jne next_iter, end of file there
-	__asm("push ebx\n"); // we'll store a copy of our chunk pointer there 
-	__asm("push edx\n"); // we'll store the button info there
-	/* check button associated with keysound, then look for next note event for this button */
-	__asm("mov dl, byte ptr [eax+7]\n");
-	__asm("shr edx, 4\n"); //dl now contains button value ( 00-08 )
+    __asm("push eax\n"); // chunk pointer (keysound timestamp at beginning)
+    __asm("push ecx\n"); // remaining chunks (add eax, C, sub ecx, 1, jne next_iter, end of file there
+    __asm("push ebx\n"); // we'll store a copy of our chunk pointer there 
+    __asm("push edx\n"); // we'll store the button info there
+    /* check button associated with keysound, then look for next note event for this button */
+    __asm("mov dl, byte ptr [eax+7]\n");
+    __asm("shr edx, 4\n"); //dl now contains button value ( 00-08 )
 
-	__asm("mov ebx, eax\n"); //write timestamp into ebx when a match is found
-	__asm("look_for_note_event:\n");
-	__asm("add eax, 0xC\n");
-	__asm("sub ecx, 1\n");
-	__asm("jz end_of_chart\n");
-	
+    __asm("mov ebx, eax\n"); //save timestamp pointer into ebx for when a match is found
+    __asm("next_chart_chunk:\n");
+    __asm("add eax, 0xC\n");
+    __asm("sub ecx, 1\n");
+    __asm("jz end_of_chart\n");
+    
     __asm("cmp word ptr [eax+4], 0x145\n");
-    __asm("jne look_for_note_event\n");
-	/* note event */
-	__asm("cmp dl, byte ptr [eax+6]\n");
-    __asm("jne look_for_note_event\n");
-	/* note event with corresponding button! */
-	__asm("mov edx, dword ptr [eax]\n"); 
-	__asm("mov dword ptr [ebx], edx\n"); 
-    __asm("jmp keysound_handled\n");
-	
-	__asm("end_of_chart:\n");
-	__asm("pop edx\n");
-	__asm("pop ebx\n");
-	__asm("pop ecx\n");
-	__asm("pop eax\n");
-	__asm("mov word ptr [eax+4], 0x245\n"); // no match found (ad-lib keysound?), restore opcode
+    __asm("jne next_chart_chunk\n");
+    /* found note event */
+    __asm("cmp dl, byte ptr [eax+6]\n");
+    __asm("jne next_chart_chunk\n");
+    /* found MATCHING note event */
+    __asm("mov edx, dword ptr [ebx+4]\n"); //save operation (we need to shift the whole block first)
+    
+    /* move the whole block just before the note event to preserve timestamp ordering */
+
+    /* !!! TODO: look for other matching 0x145 since a keysound can be triggered multiple times */
+
+    __asm("push ecx\n");
+    __asm("push esi\n");
+    __asm("push edi\n");
+    __asm("mov edi, ebx\n");
+    __asm("mov esi, ebx\n");
+    __asm("add esi, 0x0C\n");
+    __asm("mov ecx, eax\n");
+    __asm("sub ecx, 0x0C\n");
+    __asm("sub ecx, ebx\n");
+    __asm("shr ecx, 2\n"); //div by 4 (sizeof dword)
+    __asm("rep movsd\n");
+    __asm("pop edi\n");
+    __asm("pop esi\n");
+    __asm("pop ecx\n");
+
+    /* write the 0x745 event just before our matching 0x145 which eax points to */
+    __asm("mov dword ptr [eax-0x0C+0x04], edx\n"); // operation
+    __asm("mov edx, dword ptr [eax]\n"); 
+    __asm("mov dword ptr [eax-0x0C], edx\n"); // timestamp
+    __asm("mov dword ptr [eax-0x0C+0x08], 0x0\n"); // cleanup possible longnote duration leftover
+
+    __asm("pop edx\n");
+    __asm("pop ebx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+
+    /* next iteration should revisit the same block since we shifted... anticipate the +0xC/-1/+0x64 that will be done by real_chart_load() */
+    __asm("sub eax, 0xC\n");
+    __asm("add ecx, 1\n");
+    __asm("sub dword ptr [eax], 0x64\n");
     __asm("jmp patch_chart_load_end\n");
-
-    __asm("keysound_handled:\n");
-	__asm("pop edx\n");
-	__asm("pop ebx\n");
-	__asm("pop ecx\n");
-	__asm("pop eax\n");
-
+    
+    __asm("end_of_chart:\n");
+    __asm("pop edx\n");
+    __asm("pop ebx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+    __asm("mov word ptr [eax+4], 0x245\n"); // no match found (ad-lib keysound?), restore opcode
     __asm("patch_chart_load_end:\n");
     real_chart_load();
 }
