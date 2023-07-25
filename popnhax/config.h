@@ -31,6 +31,7 @@ struct popnhax_config {
     char patch_xml_filename[MAX_PATH];
     char force_datecode[11];
     bool network_datecode;
+    bool disable_keysounds;
     int8_t keysound_offset;
     int8_t beam_brightness;
     bool fps_uncap;

@@ -65,7 +65,9 @@
   <disable_multiboot __type="bool">0</disable_multiboot>
 
   <!-- Timing and lanes -->
-  <!-- Offset the keysounds by x ms (negative is earlier) -->
+  <!-- Disable keysounds -->
+  <disable_keysounds __type="bool">0</disable_keysounds>
+  <!-- Offset the keysounds by x ms (negative is earlier). With disable_keysounds, becomes an audio offset -->
   <keysound_offset __type="s8">0</keysound_offset>
   <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
   <beam_brightness __type="s8">0</beam_brightness>

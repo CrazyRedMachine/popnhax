@@ -141,6 +141,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, force_datecode,
                  "/popnhax/force_datecode")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, network_datecode,
                  "/popnhax/network_datecode")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_keysounds,
+                 "/popnhax/disable_keysounds")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, keysound_offset,
                  "/popnhax/keysound_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, beam_brightness,
@@ -2135,6 +2137,96 @@ static bool patch_enhanced_polling(uint8_t debounce)
     return true;
 }
 
+void (*real_chart_load)();
+void patch_chart_load_old() {
+    __asm("cmp word ptr [edi+eax*8+4], 0x245\n");
+    __asm("jne not_keysound_old\n");
+    __asm("mov word ptr [edi+eax*8+4], 0x745\n");
+    __asm("not_keysound_old:\n");
+    real_chart_load();
+}
+void patch_chart_load() {
+    __asm("cmp word ptr [eax+4], 0x245\n");
+    __asm("jne patch_chart_load_end\n");
+
+    /* keysound event has been found, we need to convert timestamp */
+    __asm("mov word ptr [eax+4], 0x745\n"); // we'll undo it if we cannot apply it
+	__asm("push eax\n"); // chunk pointer (keysound timestamp at beginning)
+	__asm("push ecx\n"); // remaining chunks (add eax, C, sub ecx, 1, jne next_iter, end of file there
+	__asm("push ebx\n"); // we'll store a copy of our chunk pointer there 
+	__asm("push edx\n"); // we'll store the button info there
+	/* check button associated with keysound, then look for next note event for this button */
+	__asm("mov dl, byte ptr [eax+7]\n");
+	__asm("shr edx, 4\n"); //dl now contains button value ( 00-08 )
+
+	__asm("mov ebx, eax\n"); //write timestamp into ebx when a match is found
+	__asm("look_for_note_event:\n");
+	__asm("add eax, 0xC\n");
+	__asm("sub ecx, 1\n");
+	__asm("jz end_of_chart\n");
+	
+    __asm("cmp word ptr [eax+4], 0x145\n");
+    __asm("jne look_for_note_event\n");
+	/* note event */
+	__asm("cmp dl, byte ptr [eax+6]\n");
+    __asm("jne look_for_note_event\n");
+	/* note event with corresponding button! */
+	__asm("mov edx, dword ptr [eax]\n"); 
+	__asm("mov dword ptr [ebx], edx\n"); 
+    __asm("jmp keysound_handled\n");
+	
+	__asm("end_of_chart:\n");
+	__asm("pop edx\n");
+	__asm("pop ebx\n");
+	__asm("pop ecx\n");
+	__asm("pop eax\n");
+	__asm("mov word ptr [eax+4], 0x245\n"); // no match found (ad-lib keysound?), restore opcode
+    __asm("jmp patch_chart_load_end\n");
+
+    __asm("keysound_handled:\n");
+	__asm("pop edx\n");
+	__asm("pop ebx\n");
+	__asm("pop ecx\n");
+	__asm("pop eax\n");
+
+    __asm("patch_chart_load_end:\n");
+    real_chart_load();
+}
+
+static bool patch_disable_keysound()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\xB9\xFF\x1C\x00\x00", 5, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: keysound disable: cannot find offset\n");
+            return false;
+        }
+
+        /* detect if usaneko+ */
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0B;
+        uint8_t check_byte = *((uint8_t *)(patch_addr + 1));
+
+        if (check_byte == 0x04)
+        {
+            LOG("popnhax: keysound disable: old game version\n");
+            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_chart_load_old,
+                          (void **)&real_chart_load); //turn 0x0245 opcodes into 0x0745
+        }
+        else
+        {
+            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_chart_load,
+                          (void **)&real_chart_load); //turn 0x0245 opcodes into 0x0745
+        }
+
+        LOG("popnhax: no more keysounds\n");
+    }
+
+    return true;
+}
+
 static bool patch_keysound_offset(int8_t value)
 {
     DWORD dllSize = 0;
@@ -3328,6 +3420,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.show_fast_slow){
             force_show_fast_slow();
+        }
+
+        if (config.disable_keysounds){
+            patch_disable_keysound();
         }
 
         if (config.keysound_offset){
