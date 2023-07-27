@@ -2154,7 +2154,7 @@ void patch_chart_load() {
     __asm("push eax\n"); // chunk pointer (keysound timestamp at beginning)
     __asm("push ebx\n"); // we'll store a copy of our chunk pointer there 
     __asm("push edx\n"); // we'll store the button info there
-    __asm("push esi\n"); // we'll store chart growth for subroutine there
+    __asm("push esi\n"); // we'll store chart growth for part2 subroutine there
     __asm("push ecx\n"); // remaining chunks
 
     /* PART1: check button associated with keysound, then look for next note event for this button */
@@ -2237,7 +2237,9 @@ void patch_chart_load() {
     __asm("imul ecx, 0x0C\n"); //ecx is number of chunks left, we want number of bytes for now, dword later
     __asm("std\n");
     __asm("add esi, ecx\n");
+    __asm("sub esi, 0x04\n"); //must be on very last dword from chart
     __asm("add edi, ecx\n");
+    __asm("sub edi, 0x04\n");
     __asm("shr ecx, 2\n"); //div by 4 (sizeof dword)
     __asm("rep movsd\n");
     __asm("cld\n");
