@@ -2139,12 +2139,154 @@ static bool patch_enhanced_polling(uint8_t debounce)
 
 void (*real_chart_load)();
 void patch_chart_load_old() {
+    /* This is mostly the same patch as the new version, except :
+     * - eax and ecx have a different interpretation 
+     * - a chart chunk is only 2 dwords
+     */
     __asm("cmp word ptr [edi+eax*8+4], 0x245\n");
-    __asm("jne not_keysound_old\n");
-    __asm("mov word ptr [edi+eax*8+4], 0x745\n");
-    __asm("not_keysound_old:\n");
+    __asm("jne old_patch_chart_load_end\n");
+
+    /* keysound event has been found, we need to convert timestamp */
+    __asm("mov word ptr [edi+eax*8+4], 0x745\n"); // we'll undo it if we cannot apply it
+    __asm("push eax\n"); // we'll convert to store chunk pointer (keysound timestamp at beginning)
+    __asm("push ebx\n"); // we'll store a copy of our chunk pointer there 
+    __asm("push edx\n"); // we'll store the button info there
+    __asm("push esi\n"); // we'll store chart growth for part2 subroutine there
+    __asm("push ecx\n"); // we'll convert to store remaining chunks
+
+    /* Convert eax,ecx registers to same format as later games so the rest of the patch is similar
+     * TODO: factorize
+     */
+    __asm("sub ecx, eax\n"); // ecx is now remaining chunks rather than chart size
+    __asm("imul eax, 8\n");
+    __asm("add eax, edi\n"); //now eax is chunk pointer
+
+    /* PART1: check button associated with keysound, then look for next note event for this button */
+    __asm("xor dx, dx\n");
+    __asm("mov dl, byte ptr [eax+7]\n");
+    __asm("shr edx, 4\n"); //dl now contains button value ( 00-08 )
+
+    __asm("mov ebx, eax\n"); //save chunk pointer into ebx for our rep movsd when a match is found 
+    __asm("old_next_chart_chunk:\n");
+    __asm("add eax, 0x8\n"); // +0x08 in old chart format
+    __asm("sub ecx, 1\n");
+    __asm("jz old_end_of_chart\n");
+    
+    __asm("cmp word ptr [eax+4], 0x145\n");
+    __asm("jne old_next_chart_chunk\n");
+    /* found note event */
+    __asm("cmp dl, byte ptr [eax+6]\n");
+    __asm("jne old_next_chart_chunk\n");
+    /* found MATCHING note event */
+    __asm("mov edx, dword ptr [ebx+4]\n"); //save operation (we need to shift the whole block first)
+    
+    /* move the whole block just before the note event to preserve timestamp ordering */
+    __asm("push ecx\n");
+    __asm("push esi\n");
+    __asm("push edi\n");
+    __asm("mov edi, ebx\n");
+    __asm("mov esi, ebx\n");
+    __asm("add esi, 0x08\n");
+    __asm("mov ecx, eax\n");
+    __asm("sub ecx, 0x08\n");
+    __asm("sub ecx, ebx\n");
+    __asm("shr ecx, 2\n"); //div by 4 (sizeof dword)
+    __asm("rep movsd\n");
+    __asm("pop edi\n");
+    __asm("pop esi\n");
+    __asm("pop ecx\n");
+
+    /* write the 0x745 event just before our matching 0x145 which eax points to */
+    __asm("mov dword ptr [eax-0x08+0x04], edx\n"); // operation
+    __asm("mov edx, dword ptr [eax]\n"); 
+    __asm("mov dword ptr [eax-0x08], edx\n"); // timestamp
+
+    /* PART2: Look for other instances of same button key events (0x0145) before the keysound is detached */
+    __asm("xor esi, esi\n"); //init chart growth counter
+
+    /* look for next note event for same button */
+    __asm("mov ebx, dword ptr [eax-0x08+0x04]\n"); //operation copy
+    __asm("mov dl, byte ptr [eax+6]\n"); //dl now contains button value ( 00-08 )
+
+    __asm("old_next_same_note_chunk:\n");
+    __asm("add eax, 0x8\n");
+    __asm("sub ecx, 1\n");
+    __asm("jz old_end_of_same_note_search\n"); //end of chart reached
+    
+    __asm("cmp word ptr [eax+4], 0x245\n");
+    __asm("jne old_check_if_note_event\n"); //still need to check 0x145..
+    
+    __asm("push ecx\n");
+    __asm("xor cx, cx\n");
+    __asm("mov cl, byte ptr [eax+7]\n");
+    __asm("shr ecx, 4\n"); //cl now contains button value ( 00-08 )
+    __asm("cmp cl, dl\n");
+    __asm("pop ecx");
+    __asm("jne old_check_if_note_event\n"); // 0x245 but not our button, still need to check 0x145..
+    __asm("jmp old_end_of_same_note_search\n"); // found matching 0x245 (keysound change for this button), we can stop search
+
+    __asm("old_check_if_note_event:\n");
+    __asm("cmp word ptr [eax+4], 0x145\n");
+    __asm("jne old_next_same_note_chunk\n");
+    __asm("cmp dl, byte ptr [eax+6]\n");
+    __asm("jne old_next_same_note_chunk\n");
+
+    //found a match! time to grow the chart..
+    __asm("push ecx\n");
+    __asm("push esi\n");
+    __asm("push edi\n");
+    __asm("mov esi, eax\n");
+    __asm("mov edi, eax\n");
+    __asm("add edi, 0x08\n");
+    __asm("imul ecx, 0x08\n"); //ecx is number of chunks left, we want number of bytes for now, dword later
+    __asm("std\n");
+    __asm("add esi, ecx\n");
+    __asm("sub esi, 0x04\n"); //must be on very last dword from chart
+    __asm("add edi, ecx\n");
+    __asm("sub edi, 0x04\n");
+    __asm("shr ecx, 2\n"); //div by 4 (sizeof dword)
+    __asm("rep movsd\n");
+    __asm("cld\n");
+    __asm("pop edi\n");
+    __asm("pop esi\n");
+    __asm("pop ecx\n");
+
+    /* write the 0x745 event copy */
+    // timestamp is already correct as it's leftover from the 0x145
+    __asm("mov dword ptr [eax+0x04], ebx\n"); // operation
+    __asm("add esi, 1\n"); //increase growth counter
+
+    /* ebx still contains the 0x745 operation, dl still contains button, but eax points to 0x745 rather than the 0x145 so let's fix */
+    /* note that remaining chunks is still correct due to growth, so no need to decrement ecx */
+    __asm("add eax, 0x8\n");
+    __asm("jmp old_next_same_note_chunk\n"); //look for next occurrence
+
+    /* KEYSOUND PROCESS END */
+    __asm("old_end_of_same_note_search:\n");
+    /* restore before next timestamp */
+    __asm("pop ecx\n");
+    __asm("add ecx, esi\n"); // take chart growth into account 
+    __asm("pop esi\n");
+    __asm("pop edx\n");
+    __asm("pop ebx\n");
+    __asm("pop eax\n");
+
+    /* next iteration should revisit the same block since we shifted... anticipate the +0xC/-1/+0x64 that will be done by real_chart_load() */
+    __asm("sub eax, 1\n");
+    __asm("sub dword ptr [edi+eax*8], 0x64\n");
+    __asm("jmp old_patch_chart_load_end\n");
+    
+    __asm("old_end_of_chart:\n");
+    __asm("pop ecx\n");
+    __asm("pop esi\n");
+    __asm("pop edx\n");
+    __asm("pop ebx\n");
+    __asm("pop eax\n");
+    __asm("mov word ptr [edi+eax*8+4], 0x245\n"); // no match found (ad-lib keysound?), restore opcode
+    __asm("old_patch_chart_load_end:\n");
     real_chart_load();
 }
+
 void patch_chart_load() {
     __asm("cmp word ptr [eax+4], 0x245\n");
     __asm("jne patch_chart_load_end\n");
@@ -2158,6 +2300,7 @@ void patch_chart_load() {
     __asm("push ecx\n"); // remaining chunks
 
     /* PART1: check button associated with keysound, then look for next note event for this button */
+    __asm("xor dx, dx\n");
     __asm("mov dl, byte ptr [eax+7]\n");
     __asm("shr edx, 4\n"); //dl now contains button value ( 00-08 )
 
@@ -2291,26 +2434,27 @@ static bool patch_disable_keysound()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\xB9\xFF\x1C\x00\x00", 5, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x00\x00\x72\x05\xB9\xFF", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: keysound disable: cannot find offset\n");
             return false;
         }
 
         /* detect if usaneko+ */
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0B;
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0F;
         uint8_t check_byte = *((uint8_t *)(patch_addr + 1));
 
         if (check_byte == 0x04)
         {
             LOG("popnhax: keysound disable: old game version\n");
+            //return false;
             MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_chart_load_old,
-                          (void **)&real_chart_load); //turn 0x0245 opcodes into 0x0745
+                          (void **)&real_chart_load);
         }
         else
         {
             MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_chart_load,
-                          (void **)&real_chart_load); //turn 0x0245 opcodes into 0x0745
+                          (void **)&real_chart_load); //rewrite chart to get rid of keysounds
         }
 
         LOG("popnhax: no more keysounds\n");
