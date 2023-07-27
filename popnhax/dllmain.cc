@@ -2171,7 +2171,28 @@ void patch_chart_load_old() {
     __asm("add eax, 0x8\n"); // +0x08 in old chart format
     __asm("sub ecx, 1\n");
     __asm("jz old_end_of_chart\n");
+
+    /* check where the keysound is used */
+    __asm("cmp word ptr [eax+4], 0x245\n");
+    __asm("jne old_check_first_note_event\n"); //still need to check 0x145..
     
+    __asm("push ecx\n");
+    __asm("xor cx, cx\n");
+    __asm("mov cl, byte ptr [eax+7]\n");
+    __asm("shr ecx, 4\n"); //cl now contains button value ( 00-08 )
+    __asm("cmp cl, dl\n");
+    __asm("pop ecx");
+    __asm("jne old_check_first_note_event\n"); // 0x245 but not our button, still need to check 0x145..
+    //keysound change for this button before we found a key using it :(
+    __asm("pop ecx\n");
+    __asm("pop esi\n");
+    __asm("pop edx\n");
+    __asm("pop ebx\n");
+    __asm("pop eax\n");
+    __asm("mov word ptr [edi+eax*8+4], 0x0\n"); // disable operation, cannot be converted to a 0x745, and should not apply
+    __asm("jmp old_patch_chart_load_end\n");
+    
+    __asm("old_check_first_note_event:\n");
     __asm("cmp word ptr [eax+4], 0x145\n");
     __asm("jne old_next_chart_chunk\n");
     /* found note event */
@@ -2309,7 +2330,28 @@ void patch_chart_load() {
     __asm("add eax, 0xC\n");
     __asm("sub ecx, 1\n");
     __asm("jz end_of_chart\n");
+
+    /* check where the keysound is used */
+    __asm("cmp word ptr [eax+4], 0x245\n");
+    __asm("jne check_first_note_event\n"); //still need to check 0x145..
     
+    __asm("push ecx\n");
+    __asm("xor cx, cx\n");
+    __asm("mov cl, byte ptr [eax+7]\n");
+    __asm("shr ecx, 4\n"); //cl now contains button value ( 00-08 )
+    __asm("cmp cl, dl\n");
+    __asm("pop ecx");
+    __asm("jne check_first_note_event\n"); // 0x245 but not our button, still need to check 0x145..
+    //keysound change for this button before we found a key using it :(
+    __asm("pop ecx\n");
+    __asm("pop esi\n");
+    __asm("pop edx\n");
+    __asm("pop ebx\n");
+    __asm("pop eax\n");
+    __asm("mov word ptr [eax+4], 0x0\n"); // disable operation, cannot be converted to a 0x745, and should not apply
+    __asm("jmp patch_chart_load_end\n");
+
+    __asm("check_first_note_event:\n");
     __asm("cmp word ptr [eax+4], 0x145\n");
     __asm("jne next_chart_chunk\n");
     /* found note event */
@@ -2416,7 +2458,7 @@ void patch_chart_load() {
     __asm("add ecx, 1\n");
     __asm("sub dword ptr [eax], 0x64\n");
     __asm("jmp patch_chart_load_end\n");
-    
+
     __asm("end_of_chart:\n");
     __asm("pop ecx\n");
     __asm("pop esi\n");
