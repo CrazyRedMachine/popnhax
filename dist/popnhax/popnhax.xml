@@ -26,7 +26,7 @@
     <!-- Premium free (unlimited stages per credit) -->
     <pfree __type="bool">0</pfree>
     <!-- Press numpad 9 in song to retire instantly, or on result screen to leave game session (thank you for playing) -->
-    <!-- quick_retire with pfree also enables quick retry: hold numpad 7 to retry -->
+    <!-- quick_retire with pfree also enables quick retry: press numpad 8 during song or on result screen to retry (keep holding during option select to skip it) -->
     <quick_retire __type="bool">0</quick_retire>
 
   <!-- Network features -->
@@ -61,9 +61,13 @@
 
   <!-- END OF USER SETTINGS -->
 
-  <!-- EXPERIMENTAL PATCHES (USE AT OWN RISK, PREFERABLY OFFLINE, MIGHT INTERFERE WITH OTHER OPTIONS) -->
-    <!-- Enable practice mode menu (r-ran, constant chart speed, slow motion, etc...) -->
+  <!-- EXPERIMENTAL PATCHES -->
+    <!-- Enable practice mode menu, (r-ran, constant chart speed, slow motion, etc...) -->
+    <!-- PLEASE USE OFFLINE ONLY -->
     <practice_mode __type="bool">0</practice_mode>
+    <!-- Press 9 on option select screen to go back to song selection (requires pfree and quick_retire) -->
+    <!-- Note: causes issues with sounds on song select -->
+    <back_to_song_select __type="bool">0</back_to_song_select>
 
   <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED UNLESS YOU KNOW WHAT YOU'RE DOING) -->
 
@@ -91,7 +95,7 @@
                 THREAD_PRIORITY_ABOVE_NORMAL   1
                 THREAD_PRIORITY_HIGHEST        2
                 THREAD_PRIORITY_TIME_CRITICAL  15                             -->
-    <enhanced_polling_priority __type="s8">0</enhanced_polling_priority>
+    <enhanced_polling_priority __type="s8">1</enhanced_polling_priority>
 
   <!-- Song db patches -->
     <!-- Auto select patch file from data_mods folder (will detect datecode from ea3-config or force_datecode option) -->

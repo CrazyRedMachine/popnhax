@@ -98,6 +98,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, pfree,
                  "/popnhax/pfree")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, quick_retire,
                  "/popnhax/quick_retire")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, back_to_song_select,
+                 "/popnhax/back_to_song_select")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, score_challenge,
                  "/popnhax/score_challenge")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_hd_timing,
@@ -263,19 +265,29 @@ void omnimix_patch_jbx() {
     real_omnimix_patch_jbx();
 }
 
+uint32_t g_startsong_addr = 0;
+uint32_t g_transition_addr = 0;
+uint32_t g_stage_addr = 0;
+uint32_t g_score_addr = 0;
+bool g_pfree_mode = false;
 bool g_return_to_options = false;
+bool g_return_to_song_select = false;
 void (*real_screen_transition)();
 void quickexit_screen_transition()
 {
     if (g_return_to_options)
     {
-        __asm("mov dword ptr [esi+0x30], 0x1C\n");
+        __asm("mov dword ptr [edi+0x30], 0x1C\n");
         //flag is set back to false in the option select screen after score cleanup
+    }
+    else if (g_return_to_song_select)
+    {
+        __asm("mov dword ptr [edi+0x30], 0x17\n");
+        g_return_to_song_select = false;
     }
     real_screen_transition();
 }
 
-uint32_t g_score_addr = 0;
 void (*real_retrieve_score)();
 void quickretry_retrieve_score()
 {
@@ -293,7 +305,6 @@ void quickretry_retrieve_score()
     real_retrieve_score();
 }
 
-uint32_t g_startsong_addr = 0;
 void quickexit_option_screen_cleanup()
 {
     if (g_return_to_options)
@@ -330,12 +341,12 @@ void quickexit_option_screen()
     __asm("add ebx, 0xAC\n");
     __asm("mov ebx, [ebx]\n");
 
-    __asm("shr ebx, 24\n");
+    __asm("shr ebx, 28\n"); // numpad8: 80 00 00 00
     __asm("cmp bl, 8\n");
     __asm("pop ebx\n");
     __asm("jne real_option_screen\n");
 
-    /* numpad 7 is held, rewrite transition pointer */
+    /* numpad 8 is held, rewrite transition pointer */
     __asm("pop edi\n");
     __asm("pop ecx\n");
     __asm("pop edx\n");
@@ -349,6 +360,52 @@ void quickexit_option_screen()
     real_option_screen();
 }
 
+void (*real_option_screen_later)();
+void backtosongselect_option_screen()
+{
+    __asm("push ecx\n");
+    __asm("mov ecx, %0\n": :"m"(g_addr_icca));
+    __asm("mov ebx, [ecx]\n");
+    __asm("pop ecx\n");
+
+    __asm("add ebx, 0xAC\n");
+    __asm("mov ebx, [ebx]\n");
+
+    __asm("shr ebx, 16\n"); // numpad9: 00 08 00 00
+    __asm("cmp bl, 8\n");
+    __asm("jne exit_back_select\n");
+    if (g_pfree_mode)
+    {
+        g_return_to_song_select = true;
+    }
+
+    __asm("exit_back_select:\n");
+
+    real_option_screen_later();
+}
+
+void (*real_option_screen_yellow)();
+void backtosongselect_option_yellow()
+{
+    __asm("push ecx\n");
+    __asm("mov ecx, %0\n": :"m"(g_addr_icca));
+    __asm("mov ebx, [ecx]\n");
+    __asm("pop ecx\n");
+
+    __asm("add ebx, 0xAC\n");
+    __asm("mov ebx, [ebx]\n");
+
+    __asm("shr ebx, 16\n"); // numpad9: 00 08 00 00
+    __asm("cmp bl, 8\n");
+    __asm("jne exit_back_select_yellow\n");
+    if (g_pfree_mode)
+    {
+        g_return_to_song_select = true;
+    }
+
+    __asm("exit_back_select_yellow:\n");
+    real_option_screen_yellow();
+}
 
 static bool r_ran;
 static bool regul_flg;
@@ -373,8 +430,19 @@ void restore_plop()
 }
 
 
+/*
+numpad values:
 
-bool g_pfree_mode = false;
+   | <<24 <<28 <<16
+---+---------------
+ 8 |   7    8    9
+ 4 |   4    5    6
+ 2 |   1    2    3
+ 1 |   0    00
+ 
+ e.g. numpad 9 = 8<<16 = 00 08 00 00
+      numpad 2 = 2<<28 = 20 00 00 00
+*/
 void (*real_game_loop)();
 void quickexit_game_loop()
 {
@@ -392,11 +460,11 @@ void quickexit_game_loop()
     __asm("cmp bl, 8\n");
     __asm("je leave_song\n");
 
-    __asm("shr ebx, 8\n"); // numpad7: 08 00 00 00
+    __asm("shr ebx, 12\n"); // (adds to the previous shr 16) numpad8: 08 00 00 00
     __asm("cmp bl, 8\n");
     __asm("jne call_real\n");
-    /* numpad 7 is pressed: quick retry if pfree is active */
 
+    /* numpad 8 is pressed: quick retry if pfree is active */
     use_sp_flg = 0;
 
     if (!g_pfree_mode)
@@ -429,12 +497,9 @@ void patch_eval_timing() {
     real_eval_timing();
 }
 
-uint32_t g_transition_addr = 0;
-uint32_t g_stage_addr = 0;
 void (*real_result_loop)();
 void quickexit_result_loop()
 {
-    //__asm("push ebx\n"); //handled by :"b"
     __asm("push ecx\n");
     __asm("mov ecx, %0\n": :"m"(g_addr_icca));
     __asm("mov ebx, [ecx]\n");
@@ -442,31 +507,34 @@ void quickexit_result_loop()
 
     __asm("add ebx, 0xAC\n");
     __asm("mov ebx, [ebx]\n");
-    __asm("shr ebx, 16\n");
+    __asm("shr ebx, 16\n"); // numpad9: 00 08 00 00
+    __asm("cmp bl, 8\n");
+    __asm("je quit_session\n");
+
+    __asm("shr ebx, 12\n"); // (adds to the previous shr 16) numpad8: 08 00 00 00
     __asm("cmp bl, 8\n");
     __asm("jne call_real_result\n");
 
-    /* set value 5 in g_stage_addr and -4 in g_transition_addr */
+    if (!g_pfree_mode)
+        __asm("jmp call_real_result\n");
+
+    g_return_to_options = true; //transition screen hook will catch it
+    __asm("jmp call_real_result\n");
+
+    __asm("quit_session:\n");
+    g_return_to_options = false;
+    /* set value 5 in g_stage_addr and -4 in g_transition_addr (to get fade to black transition) */
     __asm("mov ebx, %0\n": :"b"(g_stage_addr));
     __asm("mov dword ptr[ebx], 5\n");
     __asm("mov ebx, %0\n": :"b"(g_transition_addr));
-    __asm("mov dword ptr[ebx], 0xFFFFFFFC\n");
+    __asm("mov dword ptr[ebx], 0xFFFFFFFC\n"); //quit session
 
-        disp = 0;// 7.9 message off
-        use_sp_flg = 0;
+    disp = 0;// 7.9 message off
 
     __asm("call_real_result:\n");
-    //__asm("pop ebx\n"); //handled by :"b"
-
-
 // r2nk226#1109 ついかテスト
-    if (use_sp_flg){
-        g_return_to_options = 1;
-        quickexit_option_screen_cleanup();
-    }
     ex_res_flg = 1;
     real_result_loop();
-
 }
 
 uint32_t g_timing_addr = 0;
@@ -1824,7 +1892,7 @@ static bool patch_quick_retire(bool pfree)
         g_startsong_addr = *(uint32_t*)(patch_addr);
     }
 
-    /* instant retry (go back to option select) with numpad 7 */
+    /* instant retry (go back to option select) with numpad 8 */
     {
         /* retrieve current stage score addr for cleanup (also used to fix quick retire medal) */
         int64_t pattern_offset = search(data, dllSize, "\xF3\xA5\x5F\x5E\x5B\xC2\x04\x00", 8, 0);
@@ -1840,7 +1908,7 @@ static bool patch_quick_retire(bool pfree)
     }
     {
         /* hook quick retire transition to go back to option select instead */
-        int64_t pattern_offset = search(data, dllSize, "\x6A\x01\x8B\xCE\xFF\xD0\xE8", 7, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x8B\xE8\x8B\x47\x30\x83\xF8\x17", 8, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve screen transition function\n");
@@ -1852,7 +1920,7 @@ static bool patch_quick_retire(bool pfree)
                       (void **)&real_screen_transition);
     }
 
-    /* instant launch song with numpad 7 on option select (hold 7 during song for quick retry) */
+    /* instant launch song with numpad 8 on option select (hold 8 during song for quick retry) */
     {
         int64_t pattern_offset = search(data, dllSize, "\x51\x50\x8B\x83\x0C\x0A\x00\x00\xEB\x09\x33\xD2", 12, 0);
 
@@ -1870,6 +1938,38 @@ static bool patch_quick_retire(bool pfree)
         uint64_t patch_addr = (int64_t)data + pattern_offset + 12 + 5 + 2;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen,
                       (void **)&real_option_screen);
+    }
+
+    if (config.back_to_song_select)
+    {
+        /* go back to song select with numpad 9 on song option screen (before pressing yellow) */
+        {
+            int64_t pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
+
+            if (pattern_offset == -1) {
+                LOG("popnhax: quick retry: cannot retrieve option screen loop function\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen,
+                          (void **)&real_option_screen_later);
+        }
+
+        /* go back to song select with numpad 9 on song option screen (after pressing yellow) */
+        {
+            int64_t pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x38\x00\x75", 11, 0);
+
+            if (pattern_offset == -1) {
+                LOG("popnhax: quick retry: cannot retrieve option screen loop function\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_yellow,
+                          (void **)&real_option_screen_yellow);
+        }
+        LOG("popnhax: quick retry: return to song select enabled\n");
     }
 
     if (pfree)

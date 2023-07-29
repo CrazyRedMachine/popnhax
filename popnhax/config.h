@@ -10,6 +10,7 @@ struct popnhax_config {
     bool show_fast_slow;
     bool pfree;
     bool quick_retire;
+    bool back_to_song_select;
     bool score_challenge;
     bool force_hd_timing;
     uint8_t force_hd_resolution;
