@@ -3348,6 +3348,17 @@ void clear_flg(){
     add_stage_ext();
 }
 */
+#define COLOR_WHITE        0x00
+#define COLOR_GREEN        0x10
+#define COLOR_DARK_GREY    0x20
+#define COLOR_YELLOW       0x30
+#define COLOR_RED          0x40
+#define COLOR_BLUE         0x50
+#define COLOR_LIGHT_GREY   0x60
+#define COLOR_LIGHT_PURPLE 0x70
+#define COLOR_BLACK        0xA0
+#define COLOR_ORANGE       0xC0
+void enhanced_polling_stats_disp_sub();
 const char menu_1[] = "--- Practice Mode ---";
 //const char menu_2[] = "DJAUTO (numpad5) >> %s";
 const char menu_2[] = "Scores are not recorded."; //NO CONTEST 表現がわからん
@@ -3412,7 +3423,7 @@ void new_menu()
     __asm("push %0\n"::"a"(menu_1));
     __asm("push 0x150\n");
     __asm("push 0x2C0\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+0x50)); //Blue
+    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_BLUE));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x0C\n");
 
@@ -3421,7 +3432,7 @@ if (use_sp_flg){
     __asm("push %0\n"::"a"(menu_2));
     __asm("push 0x164\n");
     __asm("push 0x2C0\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+0x30)); //Yellow
+    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_YELLOW));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x0C\n");
 }
@@ -3431,7 +3442,7 @@ if (use_sp_flg){
     __asm("push %0\n"::"a"(menu_3));
     __asm("push 0x178\n");
     __asm("push 0x2C0\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
 
@@ -3440,7 +3451,7 @@ if (use_sp_flg){
     __asm("push %0\n"::"a"(menu_4));
     __asm("push 0x18C\n");
     __asm("push 0x2C0\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
 
@@ -3457,7 +3468,7 @@ if (use_sp_flg){
     __asm("push %0\n"::"a"(menu_5));
     __asm("push 0x1A0\n");
     __asm("push 0x2C0\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
 
@@ -3468,7 +3479,7 @@ if (use_sp_flg){
         __asm("push %0\n"::"a"(menu_7));
         __asm("push 0x1B4\n");
         __asm("push 0x2C0\n");
-        __asm("mov esi, %0\n"::"a"(*font_color+0x10)); //Green
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
         __asm("call %0\n"::"a"(font_rend_func));
         __asm("add esp, 0x0C\n");
 
@@ -3480,10 +3491,14 @@ if (use_sp_flg){
         __asm("push eax\n");
         __asm("push 0x1C8\n");
         __asm("push 0x2C0\n");
-    //    __asm("mov esi, %0\n"::"a"(*font_color+0x10)); //Green
+    //    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
         __asm("call %0\n"::"a"(font_rend_func));
         __asm("add esp, 0x0C\n");
     }
+
+    if (config.enhanced_polling_stats)
+        enhanced_polling_stats_disp_sub();
+
     real_aging_loop();
 }
 
@@ -3574,15 +3589,6 @@ static bool patch_practice_mode()
     return true;
 }
 
-/* enhanced_polling_stats */
-const char stats_disp_header[] = "--- 1000Hz Polling ---";
-const char stats_disp_lastpoll[] = "last input: 0x%06x";
-const char stats_disp_avgpoll[] = "100 polls in %dms";
-const char stats_disp_offset_header[] = "--Latest correction--";
-const char stats_disp_offset_top[] = "%s";
-char stats_disp_offset_top_str[15] = "";
-const char stats_disp_offset_bottom[] = "%s";
-char stats_disp_offset_bottom_str[19] = "";
 void (*real_render_loop)();
 void enhanced_polling_stats_disp()
 {
@@ -3595,21 +3601,36 @@ void enhanced_polling_stats_disp()
     __asm("mov dword ptr [eax+0x34], 1\n");
 
     __asm("call_stat_menu:\n");
+    enhanced_polling_stats_disp_sub();
+    real_render_loop();
+}
+
+/* enhanced_polling_stats */
+const char stats_disp_header[] = " - 1000Hz Polling - ";
+const char stats_disp_lastpoll[] = "last input: 0x%06x";
+const char stats_disp_avgpoll[] = "100 polls in %dms";
+const char stats_disp_offset_header[] = "- Latest correction -";
+const char stats_disp_offset_top[] = "%s";
+char stats_disp_offset_top_str[15] = "";
+const char stats_disp_offset_bottom[] = "%s";
+char stats_disp_offset_bottom_str[19] = "";
+void enhanced_polling_stats_disp_sub()
+{
     __asm("push %0\n"::"a"(stats_disp_header));
-    __asm("push 0x2A\n");
-    __asm("push 0x160\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+0x60)); //0x50 Blue 0x30 yellow 0x40 red 0x10 green 0x20 grey
+    __asm("push 0x2A\n"); //Y coord
+    __asm("push 0x160\n"); //X coord
+    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_LIGHT_GREY));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x0C\n");
 
-    uint8_t color = 0x10;
+    uint8_t color = COLOR_GREEN;
     if (g_poll_rate_avg > 100)
-        color = 0x40;
+        color = COLOR_RED;
     __asm("push %0\n"::"D"(g_poll_rate_avg));
     __asm("push %0\n"::"a"(stats_disp_avgpoll));
     __asm("push 0x5C\n");
     __asm("push 0x160\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+color)); //0x50 Blue 0x30 yellow 0x40 red 0x10 green
+    __asm("mov esi, %0\n"::"a"(*font_color+color));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
 
@@ -3617,43 +3638,41 @@ void enhanced_polling_stats_disp()
     __asm("push %0\n"::"a"(stats_disp_lastpoll));
     __asm("push 0x48\n");
     __asm("push 0x160\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+0x60)); //0x50 Blue 0x30 yellow 0x40 red 0x10 green
+    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_LIGHT_PURPLE));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
 
     __asm("push %0\n"::"a"(stats_disp_offset_header));
     __asm("push 0x2A\n");
     __asm("push 0x200\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+0x60)); //0x50 Blue 0x30 yellow 0x40 red 0x10 green
+    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_LIGHT_GREY));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x0C\n");
 
     sprintf(stats_disp_offset_top_str, "%02u  %02u  %02u  %02u", g_offset_fix[1], g_offset_fix[3], g_offset_fix[5], g_offset_fix[7]);
     __asm("push %0\n"::"D"(stats_disp_offset_top_str));
     __asm("push %0\n"::"a"(stats_disp_offset_top));
-    __asm("push 0x48\n"); //y coord
-    __asm("push 0x200\n"); //x coord
-    __asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    __asm("push 0x48\n");
+    __asm("push 0x200\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_ORANGE));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
 
     sprintf(stats_disp_offset_bottom_str, "%02u  %02u  %02u  %02u  %02u", g_offset_fix[0], g_offset_fix[2], g_offset_fix[4], g_offset_fix[6], g_offset_fix[8]);
     __asm("push %0\n"::"D"(stats_disp_offset_bottom_str));
     __asm("push %0\n"::"a"(stats_disp_offset_top));
-    __asm("push 0x5C\n"); //y coord
-    __asm("push 0x1FD\n"); //x coord
-    __asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    __asm("push 0x5C\n");
+    __asm("push 0x1FD\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_ORANGE));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
-
-    real_render_loop();
 }
 
 static bool patch_enhanced_polling_stats()
 {
     if (config.practice_mode)
     {
-        LOG("popnhax: enhanced_polling_stats: cannot display stats when practice mode is enabled.\n");
+        LOG("popnhax: enhanced polling stats displayed\n");
         return false;
     }
     DWORD dllSize = 0;
