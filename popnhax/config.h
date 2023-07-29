@@ -14,7 +14,6 @@ struct popnhax_config {
     bool force_hd_timing;
     uint8_t force_hd_resolution;
     bool force_unlocks;
-    bool force_unlock_deco;
     bool audio_source_fix;
     bool unset_volume;
     bool event_mode;

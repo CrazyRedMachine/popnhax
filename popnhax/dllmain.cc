@@ -106,8 +106,6 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, force_hd_resolut
                  "/popnhax/force_hd_resolution")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlocks,
                  "/popnhax/force_unlocks")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_unlock_deco,
-                 "/popnhax/force_unlock_deco")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, audio_source_fix,
                  "/popnhax/audio_source_fix")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, unset_volume,
@@ -1216,7 +1214,7 @@ static bool patch_skip_tutorials() {
 bool force_unlock_deco_parts() {
     if (!find_and_patch_hex(g_game_dll_fn, "\x83\xC4\x04\x83\x38\x00\x75\x22", 8, 6, "\x90\x90", 2))
     {
-        LOG("popnhax: couldn't unlock deco parts\n");
+        LOG("popnhax: no deco parts to unlock\n");
         return false;
     }
 
@@ -3776,11 +3774,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 LOG("popnhax: multiboot autotune activated (custom game dll, force_datecode off)\n");
                 memcpy(config.force_datecode, g_game_dll_fn+7, 10);
                 LOG("popnhax: multiboot: auto set datecode to %s\n", config.force_datecode);
-                if (config.force_unlock_deco && ( strcmp(config.force_datecode, "2022061300") > 0) )
-                {
-                    LOG("popnhax: multiboot: auto disable force_unlock_deco patch (no more deco)\n");
-                    config.force_unlock_deco = false;
-                }
                 if (config.score_challenge && ( strcmp(config.force_datecode,"2020092800") <= 0 ) )
                 {
                     LOG("popnhax: multiboot: auto disable score challenge patch (already ingame)\n");
@@ -3945,12 +3938,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 force_unlock_songs();
                 force_unlock_charas();
             }
-
             patch_unlocks_offline();
-        }
-
-        if (config.force_unlock_deco)
             force_unlock_deco_parts();
+        }
 
         if (config.force_full_opt)
             patch_options();

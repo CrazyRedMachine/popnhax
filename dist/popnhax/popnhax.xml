@@ -3,11 +3,8 @@
   <!-- Databases -->
     <!-- Enable database modifications (omnimix, custom tracks) -->
     <patch_db __type="bool">0</patch_db>
-
-    <!-- Force unlock music, charts, and characters -->
+    <!-- Force unlock music, charts, characters, and deco parts when applicable -->
     <force_unlocks __type="bool">0</force_unlocks>
-    <!-- Force unlock deco parts (avoid using this on later games without deco) -->
-    <force_unlock_deco __type="bool">0</force_unlock_deco>
 
   <!-- Classic patches -->
     <!-- Prevent crash on boot when using a different default audio source (aka HDMI audio patch) -->
