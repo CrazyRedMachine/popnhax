@@ -160,6 +160,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, debounce,
                  "/popnhax/debounce")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, enhanced_polling_stats,
                  "/popnhax/enhanced_polling_stats")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, enhanced_polling_priority,
+                 "/popnhax/enhanced_polling_priority")
 PSMAP_END
 
 enum BufferIndexes {
@@ -1938,7 +1940,11 @@ static unsigned int __stdcall enhanced_polling_stats_proc(void *ctx)
         Sleep(500);
     }
 
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    if (config.enhanced_polling_priority)
+    {
+        SetThreadPriority(GetCurrentThread(), config.enhanced_polling_priority);
+        fprintf(stderr, "[Enhanced polling] Thread priority set to %d\n", GetThreadPriority(GetCurrentThread()));
+    }
 
     uint32_t count = 0;
     uint32_t count_time = 0;
@@ -2023,7 +2029,11 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
         Sleep(500);
     }
 
-    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+    if (config.enhanced_polling_priority)
+    {
+        SetThreadPriority(GetCurrentThread(), config.enhanced_polling_priority);
+        fprintf(stderr, "[Enhanced polling] Thread priority set to %d\n", GetThreadPriority(GetCurrentThread()));
+    }
 
     uint32_t curr_poll_time = 0;
     uint32_t prev_poll_time = 0;

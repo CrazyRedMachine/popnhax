@@ -41,6 +41,7 @@ struct popnhax_config {
     bool enhanced_polling;
     uint8_t debounce;
     bool enhanced_polling_stats;
+    int8_t enhanced_polling_priority;
 };
 
 #endif
