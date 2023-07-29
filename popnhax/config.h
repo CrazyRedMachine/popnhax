@@ -31,6 +31,7 @@ struct popnhax_config {
     char patch_xml_filename[MAX_PATH];
     char force_datecode[11];
     bool network_datecode;
+    int8_t audio_offset;
     bool disable_keysounds;
     int8_t keysound_offset;
     int8_t beam_brightness;
@@ -39,6 +40,7 @@ struct popnhax_config {
     bool translation_debug;
     bool enhanced_polling;
     uint8_t debounce;
+    bool enhanced_polling_stats;
 };
 
 #endif

@@ -37,7 +37,6 @@ FILE *g_log_fp = NULL;
 
 
 #define DEBUG 0
-#define POLLING_DEBUG 1
 
 #if DEBUG == 1
 double g_multiplier = 1.;
@@ -145,6 +144,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_keysou
                  "/popnhax/disable_keysounds")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, keysound_offset,
                  "/popnhax/keysound_offset")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, audio_offset,
+                 "/popnhax/audio_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, beam_brightness,
                  "/popnhax/beam_brightness")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, fps_uncap,
@@ -157,6 +158,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, enhanced_polli
                  "/popnhax/enhanced_polling")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, debounce,
                  "/popnhax/debounce")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, enhanced_polling_stats,
+                 "/popnhax/enhanced_polling_stats")
 PSMAP_END
 
 enum BufferIndexes {
@@ -1915,18 +1918,12 @@ static bool patch_add_to_base_offset(int8_t delta) {
 bool g_enhanced_poll_ready = false;
 int (*usbPadRead)(uint32_t*);
 
-#if POLLING_DEBUG >=1
-FILE *debug_fp;
-#endif
-
+uint32_t g_poll_rate_avg = 0;
 uint32_t g_last_button_state = 0;
 uint8_t g_debounce = 0;
 int32_t g_button_state[9] = {0};
-static unsigned int __stdcall enhanced_polling_proc(void *ctx)
+static unsigned int __stdcall enhanced_polling_stats_proc(void *ctx)
 {
-#if POLLING_DEBUG >=1
-    debug_fp = fopen("polling.log", "w");
-#endif
     HMODULE hinstLib = GetModuleHandleA("ezusb.dll");
     usbPadRead = (int(*)(uint32_t*))GetProcAddress(hinstLib, "?usbPadRead@@YAHPAK@Z");
     static uint8_t button_debounce[9] = {0};
@@ -1943,22 +1940,95 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
 
     SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
 
-#if POLLING_DEBUG >= 1
-    fprintf(debug_fp, "Thread priority is 0x%x\n", GetThreadPriority(GetCurrentThread()));
     uint32_t count = 0;
     uint32_t count_time = 0;
-#endif
 
     uint32_t curr_poll_time = 0;
     uint32_t prev_poll_time = 0;
     while (g_enhanced_poll_ready)
     {
-#if POLLING_DEBUG >= 1
+        uint32_t pad_bits;
+        /* ensure at least 1ms has elapsed between polls 
+         * (beware of SD cab hardware compatibility)
+         */
+        curr_poll_time = timeGetTime();
+        if (curr_poll_time == prev_poll_time)
+        {
+            curr_poll_time++;
+            Sleep(1);
+        }
+        prev_poll_time = curr_poll_time;
+
         if (count == 0)
         {
-            count_time = timeGetTime();
+            count_time = curr_poll_time;
         }
-#endif
+
+        usbPadRead(&pad_bits);
+        g_last_button_state = pad_bits;
+        
+        unsigned int buttonState = (g_last_button_state >> 8) & 0x1FF;
+        for (int i = 0; i < 9; i++)
+        {
+            if ( ((buttonState >> i)&1) )
+            {
+                if (g_button_state[i] == -1)
+                {
+                    g_button_state[i] = curr_poll_time;
+                }
+                //debounce on release (since we're forced to stub usbPadReadLast)
+                button_debounce[i] = g_debounce;
+            }
+            else
+            {
+                if (button_debounce[i]>0)
+                {
+                    button_debounce[i]--;
+                }
+                
+                if (button_debounce[i] == 0)
+                {
+                    g_button_state[i] = -1;
+                }
+                else
+                {
+                    //debounce ongoing: flag button as still pressed
+                    g_last_button_state |= 1<<(8+i);
+                }
+            }
+        }
+        count++;
+        if (count == 100)
+        {
+            g_poll_rate_avg = timeGetTime() - count_time;
+            count = 0;
+        }
+    }
+    return 0;
+}
+
+static unsigned int __stdcall enhanced_polling_proc(void *ctx)
+{
+    HMODULE hinstLib = GetModuleHandleA("ezusb.dll");
+    usbPadRead = (int(*)(uint32_t*))GetProcAddress(hinstLib, "?usbPadRead@@YAHPAK@Z");
+    static uint8_t button_debounce[9] = {0};
+
+    for (int i=0; i<9; i++)
+    {
+        g_button_state[i] = -1;
+    }
+
+    while (!g_enhanced_poll_ready)
+    {
+        Sleep(500);
+    }
+
+    SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_TIME_CRITICAL);
+
+    uint32_t curr_poll_time = 0;
+    uint32_t prev_poll_time = 0;
+    while (g_enhanced_poll_ready)
+    {
         uint32_t pad_bits;
         /* ensure at least 1ms has elapsed between polls 
          * (beware of SD cab hardware compatibility)
@@ -2004,15 +2074,6 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
                 }
             }
         }
-#if POLLING_DEBUG >= 1
-        count++;
-        if (count == 100000)
-        {
-            fprintf(debug_fp, "did 100000 iterations in %ld milliseconds\n", timeGetTime() - count_time);
-            count = 0;
-        }
-        fflush(debug_fp);
-#endif
     }
     return 0;
 }
@@ -2027,11 +2088,6 @@ uint32_t buttonGetMillis(uint8_t button)
     if (but <= curr)
     {
         uint32_t res = curr - but;
-#if POLLING_DEBUG >= 2
-        /* these fprintf will mess up timing eval */
-        fprintf(debug_fp, "%ld: buttonGetMillis: button %d : %d millis\n", timeGetTime(), button, res);
-        fflush(debug_fp);
-#endif
         return res;
     }
 
@@ -2046,13 +2102,10 @@ int usbPadReadHook(uint32_t *pad_bits)
 
     // return last known input
     *pad_bits = g_last_button_state;
-#if POLLING_DEBUG >= 2
-    fprintf(debug_fp, "%ld: usbPadReadHook: %x\n", timeGetTime(), *pad_bits);
-    fflush(debug_fp);
-#endif
     return 0;
 }
 
+uint32_t g_offset_fix[9] = {0};
 uint8_t g_poll_index = 0;
 uint32_t g_poll_offset = 0;
 void (*real_enhanced_poll)();
@@ -2065,24 +2118,38 @@ void patch_enhanced_poll() {
     __asm("mov %0, al\n":"=m"(g_poll_index): :);
     g_poll_offset = buttonGetMillis(g_poll_index);
     __asm("sub esi, %0\n": :"b"(g_poll_offset));
-
+    g_offset_fix[g_poll_index] = g_poll_offset;
     real_enhanced_poll();
 }
 
 static HANDLE enhanced_polling_thread;
 
-static bool patch_enhanced_polling(uint8_t debounce)
+static bool patch_enhanced_polling(uint8_t debounce, bool stats)
 {
     g_debounce = debounce;
 
     if (enhanced_polling_thread == NULL) {
-        enhanced_polling_thread = (HANDLE) _beginthreadex(
-        NULL,
-        0,
-        enhanced_polling_proc,
-        NULL,
-        0,
-        NULL);
+        if (stats)
+        {
+            enhanced_polling_thread = (HANDLE) _beginthreadex(
+            NULL,
+            0,
+            enhanced_polling_stats_proc,
+            NULL,
+            0,
+            NULL);
+        }
+        else
+        {
+            enhanced_polling_thread = (HANDLE) _beginthreadex(
+            NULL,
+            0,
+            enhanced_polling_proc,
+            NULL,
+            0,
+            NULL);
+        }
+
     } // thread will remain dormant while g_enhanced_poll_ready == false
 
     /* patch eval timing function to fix offset depending on how long ago the button was pressed */
@@ -2526,7 +2593,10 @@ static bool patch_keysound_offset(int8_t value)
         MH_CreateHook((LPVOID)(patch_addr-0x03), (LPVOID)patch_eval_timing,
                       (void **)&real_eval_timing); // preload esi with g_keysound_offset
 
-        LOG("popnhax: keysound offset: timing offset by %d ms\n", value);
+        if (!config.audio_offset)
+            LOG("popnhax: keysound offset: timing offset by %d ms\n", value);
+        else
+            LOG("popnhax: audio offset: audio offset by %d ms\n", -1*value);
     }
 
     return true;
@@ -3496,6 +3566,116 @@ static bool patch_practice_mode()
     return true;
 }
 
+/* enhanced_polling_stats */
+const char stats_disp_header[] = "--- 1000Hz Polling ---";
+const char stats_disp_lastpoll[] = "last input: 0x%06x";
+const char stats_disp_avgpoll[] = "100 polls in %dms";
+const char stats_disp_offset_header[] = "--Latest correction--";
+const char stats_disp_offset_top[] = "%s";
+char stats_disp_offset_top_str[15] = "";
+const char stats_disp_offset_bottom[] = "%s";
+char stats_disp_offset_bottom_str[19] = "";
+void (*real_render_loop)();
+void enhanced_polling_stats_disp()
+{
+    __asm("mov eax, [%0]\n"::"a"(*g_rend_addr));
+    __asm("cmp eax, 0\n");
+    __asm("je call_stat_menu\n");
+    __asm("mov dword ptr [eax], 2\n");
+    __asm("mov dword ptr [eax+4], 1\n");
+    __asm("mov dword ptr [eax+8], 0\n");
+    __asm("mov dword ptr [eax+0x34], 1\n");
+
+    __asm("call_stat_menu:\n");
+    __asm("push %0\n"::"a"(stats_disp_header));
+    __asm("push 0x2A\n");
+    __asm("push 0x160\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+0x60)); //0x50 Blue 0x30 yellow 0x40 red 0x10 green 0x20 grey
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x0C\n");
+
+    uint8_t color = 0x10;
+    if (g_poll_rate_avg > 100)
+        color = 0x40;
+    __asm("push %0\n"::"D"(g_poll_rate_avg));
+    __asm("push %0\n"::"a"(stats_disp_avgpoll));
+    __asm("push 0x5C\n");
+    __asm("push 0x160\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+color)); //0x50 Blue 0x30 yellow 0x40 red 0x10 green
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("push %0\n"::"D"(g_last_button_state));
+    __asm("push %0\n"::"a"(stats_disp_lastpoll));
+    __asm("push 0x48\n");
+    __asm("push 0x160\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+0x60)); //0x50 Blue 0x30 yellow 0x40 red 0x10 green
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("push %0\n"::"a"(stats_disp_offset_header));
+    __asm("push 0x2A\n");
+    __asm("push 0x200\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+0x60)); //0x50 Blue 0x30 yellow 0x40 red 0x10 green
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x0C\n");
+
+    sprintf(stats_disp_offset_top_str, "%02u  %02u  %02u  %02u", g_offset_fix[1], g_offset_fix[3], g_offset_fix[5], g_offset_fix[7]);
+    __asm("push %0\n"::"D"(stats_disp_offset_top_str));
+    __asm("push %0\n"::"a"(stats_disp_offset_top));
+    __asm("push 0x48\n"); //y coord
+    __asm("push 0x200\n"); //x coord
+    __asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    sprintf(stats_disp_offset_bottom_str, "%02u  %02u  %02u  %02u  %02u", g_offset_fix[0], g_offset_fix[2], g_offset_fix[4], g_offset_fix[6], g_offset_fix[8]);
+    __asm("push %0\n"::"D"(stats_disp_offset_bottom_str));
+    __asm("push %0\n"::"a"(stats_disp_offset_top));
+    __asm("push 0x5C\n"); //y coord
+    __asm("push 0x1FD\n"); //x coord
+    __asm("mov esi, %0\n"::"a"(*font_color+0x40)); //Red
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    real_render_loop();
+}
+
+static bool patch_enhanced_polling_stats()
+{
+    if (config.practice_mode)
+    {
+        LOG("popnhax: enhanced_polling_stats: cannot display stats when practice mode is enabled.\n");
+        return false;
+    }
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x83\xEC\x40\x53\x56\x57", 6, 0);
+
+        if (pattern_offset == -1) {
+            LOG("popnhax: enhanced_polling_stats: cannot retrieve aging loop\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 6;
+        if (!get_rendaddr())
+        {
+            LOG("popnhax: enhanced_polling_stats: cannot find address for drawing\n");
+            return false;
+        }
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)enhanced_polling_stats_disp,
+                      (void **)&real_render_loop);
+
+    }
+
+    LOG("popnhax: enhanced polling stats displayed\n");
+    return true;
+}
+
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -3700,6 +3880,19 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             force_show_fast_slow();
         }
 
+        if (config.audio_offset){
+            if (config.keysound_offset)
+            {
+                LOG("popnhax: audio_offset cannot be used when keysound_offset is already set\n");
+            }
+            else
+            {
+                config.disable_keysounds = true;
+                config.keysound_offset = -1*config.audio_offset;
+                LOG("popnhax: audio_offset: disable keysounds then offset timing by %d ms\n", config.keysound_offset);
+            }
+        }
+
         if (config.disable_keysounds){
             patch_disable_keysound();
         }
@@ -3756,8 +3949,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_fps_uncap();
 
         if (config.enhanced_polling)
-            patch_enhanced_polling(config.debounce);
-
+        {
+            patch_enhanced_polling(config.debounce, config.enhanced_polling_stats);
+            if (config.enhanced_polling_stats)
+            {
+                patch_enhanced_polling_stats();
+            }
+        }
     #if DEBUG == 1
         patch_get_time();
     #endif

@@ -1,93 +1,108 @@
 <?xml version='1.0' encoding='shift-jis'?>
 <popnhax>
-  <!-- Hidden+ setting (press 0 for advanced options) is now an offset adjust (negative means you have to hit earlier) -->
-  <hidden_is_offset __type="bool">0</hidden_is_offset>
-  <!-- Display offset adjust on score result screen (requires hidden_is_offset, won't be sent over network) -->
-  <show_offset __type="bool">0</show_offset>
-  <!-- Display fast/slow counter on result screen even on judge+ off/lost/panic -->
-  <show_fast_slow __type="bool">0</show_fast_slow>
+  <!-- Classic patches -->
+    <!-- Prevent crash on boot when using a different default audio source (aka HDMI audio patch) -->
+    <audio_source_fix __type="bool">0</audio_source_fix>
+    <!-- Prevent Windows volume from being reset on boot -->
+    <unset_volume __type="bool">0</unset_volume>
+    <!-- Force booting directly into event mode -->
+    <event_mode __type="bool">0</event_mode>
+    <!-- Remove the timer completely without event mode -->
+    <remove_timer __type="bool">0</remove_timer>
+    <!-- or Freeze the timer at 10 seconds after counting down -->
+    <freeze_timer __type="bool">0</freeze_timer>
+    <!-- Force skip menu and long note tutorials without a card -->
+    <skip_tutorials __type="bool">0</skip_tutorials>
+    <!-- Force full options to display (useful when no numpad is available) -->
+    <force_full_opt __type="bool">0</force_full_opt>
 
-  <!-- Premium free (unlimited stages per credit) -->
-  <pfree __type="bool">0</pfree>
+  <!-- Stage management -->
+    <!-- Premium free (unlimited stages per credit) -->
+    <pfree __type="bool">0</pfree>
 
-  <!-- Press numpad 9 in song to retire instantly, or on result screen to leave game session (thank you for playing) -->
-  <!-- quick_retire with pfree also enables quick retry: hold numpad 7 to retry -->
-  <quick_retire __type="bool">0</quick_retire>
+    <!-- Press numpad 9 in song to retire instantly, or on result screen to leave game session (thank you for playing) -->
+    <!-- quick_retire with pfree also enables quick retry: hold numpad 7 to retry -->
+    <quick_retire __type="bool">0</quick_retire>
 
-  <!-- Bring back score challenge in the game for servers supporting it (only for kaimei onwards) -->
-  <score_challenge __type="bool">0</score_challenge>
+  <!-- Network features -->
+    <!-- Bring back score challenge in the game for servers supporting it (only for kaimei onwards) -->
+    <score_challenge __type="bool">0</score_challenge>
 
-  <!-- HD timing for pcb_type=0 -->
-  <force_hd_timing __type="bool">0</force_hd_timing>
-  <!-- HD resolution for pcb_type=0 (0: no, 1: keep texts as on HD cab (smaller LCD mod), 2: center texts (32" LCD mod) ) -->
-  <force_hd_resolution __type="u8">0</force_hd_resolution>
+  <!-- Visual offset -->
+    <!-- Hidden+ setting (press 0 for advanced options) is now a visual offset adjust (negative means you have to hit earlier) -->
+    <hidden_is_offset __type="bool">0</hidden_is_offset>
+    <!-- Display offset adjust on score result screen (requires hidden_is_offset, won't be sent over network) -->
+    <show_offset __type="bool">0</show_offset>
+    <!-- Display fast/slow counter on result screen even on judge+ off/lost/panic -->
+    <show_fast_slow __type="bool">0</show_fast_slow>
 
-  <!-- Force unlock music, charts, and characters -->
-  <force_unlocks __type="bool">0</force_unlocks>
-  <!-- Force unlock deco parts (avoid using this on later games without deco) -->
-  <force_unlock_deco __type="bool">0</force_unlock_deco>
+  <!-- Audio offset -->
+    <!-- Offset the audio by x ms (negative plays audio earlier). This will disable keysounds -->
+    <audio_offset __type="s8">0</audio_offset>
 
-  <!-- Prevent crash on boot when using a different default audio source (aka HDMI audio patch) -->
-  <audio_source_fix __type="bool">0</audio_source_fix>
-  <!-- Prevent Windows volume from being reset on boot -->
-  <unset_volume __type="bool">0</unset_volume>
-  <!-- Force booting directly into event mode -->
-  <event_mode __type="bool">0</event_mode>
-  <!-- Remove the timer completely without event mode -->
-  <remove_timer __type="bool">0</remove_timer>
-  <!-- or Freeze the timer at 10 seconds after counting down -->
-  <freeze_timer __type="bool">0</freeze_timer>
-  <!-- Force skip menu and long note tutorials without a card -->
-  <skip_tutorials __type="bool">0</skip_tutorials>
-  <!-- Force full options to display (useful when no numpad is available) -->
-  <force_full_opt __type="bool">0</force_full_opt>
+  <!-- Input polling -->
+    <!-- 1000Hz polling rate (no more shifting timing windows/magic bpm, consistent scoring independently of framerate) -->
+    <enhanced_polling __type="bool">0</enhanced_polling>
+    <!-- button release debounce time in ms (for enhanced_polling only) -->
+    <debounce __type="u8">5</debounce>
+    <!-- 1000Hz polling stats (display onscreen info to check performance on your system) -->
+    <enhanced_polling_stats __type="bool">0</enhanced_polling_stats>
 
-  <!-- Enable database modifications (omnimix, custom tracks) -->
-  <patch_db __type="bool">0</patch_db>
-  <!-- Auto select patch file from data_mods folder (will detect datecode from ea3-config or force_datecode option) -->
-  <patch_xml_auto __type="bool">1</patch_xml_auto>
-  <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
-  <patch_xml_filename __type="str"></patch_xml_filename>
+  <!-- Databases -->
+    <!-- Force unlock music, charts, and characters -->
+    <force_unlocks __type="bool">0</force_unlocks>
+    <!-- Force unlock deco parts (avoid using this on later games without deco) -->
+    <force_unlock_deco __type="bool">0</force_unlock_deco>
+
+    <!-- Enable database modifications (omnimix, custom tracks) -->
+    <patch_db __type="bool">0</patch_db>
+    <!-- Auto select patch file from data_mods folder (will detect datecode from ea3-config or force_datecode option) -->
+    <patch_xml_auto __type="bool">1</patch_xml_auto>
+    <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
+    <patch_xml_filename __type="str"></patch_xml_filename>
+
+  <!-- LCD mod on CRT cabs -->
+    <!-- HD timing for pcb_type=0 -->
+    <force_hd_timing __type="bool">0</force_hd_timing>
+    <!-- HD resolution for pcb_type=0 (0: no, 1: keep texts as on HD cab (smaller LCD mod), 2: center texts (32" LCD mod) ) -->
+    <force_hd_resolution __type="u8">0</force_hd_resolution>
+
   <!-- END OF USER SETTINGS -->
 
   <!-- EXPERIMENTAL PATCHES (USE AT OWN RISK, PREFERABLY OFFLINE, MIGHT INTERFERE WITH OTHER OPTIONS) -->
-  <!-- Enable practice mode menu (r-ran, constant chart speed, slow motion, etc...) -->
-  <practice_mode __type="bool">0</practice_mode>
+    <!-- Enable practice mode menu (r-ran, constant chart speed, slow motion, etc...) -->
+    <practice_mode __type="bool">0</practice_mode>
 
   <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED UNLESS YOU KNOW WHAT YOU'RE DOING) -->
 
   <!-- Datecode and Multiboot -->
-  <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00) -->
-  <force_datecode __type="str"></force_datecode>
-  <!-- Also apply force_datecode to network packets -->
-  <network_datecode __type="bool">1</network_datecode>
-  <!-- Disable multiboot auto conf tuning (which takes place when using popn22_yyyymmddrr.dll format and an xml without force_datecode option) -->
-  <disable_multiboot __type="bool">0</disable_multiboot>
+    <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00) -->
+    <force_datecode __type="str"></force_datecode>
+    <!-- Also apply force_datecode to network packets -->
+    <network_datecode __type="bool">1</network_datecode>
+    <!-- Disable multiboot auto conf tuning (which takes place when using popn22_yyyymmddrr.dll format and an xml without force_datecode option) -->
+    <disable_multiboot __type="bool">0</disable_multiboot>
 
   <!-- Timing and lanes -->
-  <!-- Disable keysounds -->
-  <disable_keysounds __type="bool">0</disable_keysounds>
-  <!-- Offset the keysounds by x ms (negative is earlier). With disable_keysounds, becomes an audio offset -->
-  <keysound_offset __type="s8">0</keysound_offset>
-  <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
-  <beam_brightness __type="s8">0</beam_brightness>
-  <!-- Disable the builtin frame limiter (faster/smoother animations at 120fps+) -->
-  <fps_uncap __type="bool">0</fps_uncap>
-  <!-- 1000Hz polling rate (no more shifting timing windows/magic bpm, consistent scoring independently of framerate) -->
-  <enhanced_polling __type="bool">0</enhanced_polling>
-  <!-- button release debounce time in ms (for enhanced_polling only) -->
-  <debounce __type="u8">5</debounce>
+    <!-- Automatically play keysounds during songs -->
+    <disable_keysounds __type="bool">0</disable_keysounds>
+    <!-- Offset the keysounds by x ms (negative is earlier). With disable_keysounds, becomes an audio offset -->
+    <keysound_offset __type="s8">0</keysound_offset>
+    <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
+    <beam_brightness __type="s8">0</beam_brightness>
+    <!-- Disable the builtin frame limiter (faster/smoother animations at 120fps+) -->
+    <fps_uncap __type="bool">0</fps_uncap>
 
   <!-- Song db patches -->
-  <!-- Force the newly created buffers to be the same size as the original buffers -->
-  <disable_expansions __type="bool">0</disable_expansions>
-  <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
-  <disable_redirection __type="bool">0</disable_redirection>
+    <!-- Force the newly created buffers to be the same size as the original buffers -->
+    <disable_expansions __type="bool">0</disable_expansions>
+    <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
+    <disable_redirection __type="bool">0</disable_redirection>
 
   <!-- Translation -->
-  <!-- Disable .dict string replacements and .ips patches -->
-  <disable_translation __type="bool">0</disable_translation>
-  <!-- Dump applied translations and dll runtime data to help debug translation -->
-  <translation_debug __type="bool">0</translation_debug>
+    <!-- Disable .dict string replacements and .ips patches -->
+    <disable_translation __type="bool">0</disable_translation>
+    <!-- Dump applied translations and dll runtime data to help debug translation -->
+    <translation_debug __type="bool">0</translation_debug>
 
 </popnhax>
