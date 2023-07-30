@@ -26,7 +26,7 @@
     <!-- Premium free (unlimited stages per credit) -->
     <pfree __type="bool">0</pfree>
     <!-- Press numpad 9 in song to retire instantly, or on result screen to leave game session (thank you for playing) -->
-    <!-- quick_retire with pfree also enables quick retry: press numpad 8 during song or on result screen to retry (keep holding during option select to skip it) -->
+    <!-- quick_retire with pfree also enables quick retry: press numpad 8 during song or on result screen to retry (keep holding to skip option select) -->
     <quick_retire __type="bool">0</quick_retire>
 
   <!-- Network features -->
@@ -59,17 +59,22 @@
     <!-- HD resolution for pcb_type=0 (0: no, 1: keep texts as on HD cab (smaller LCD mod), 2: center texts (32" LCD mod) ) -->
     <force_hd_resolution __type="u8">0</force_hd_resolution>
 
-  <!-- END OF USER SETTINGS -->
+  <!-- ====================
+       END OF USER SETTINGS
+       ==================== -->
 
   <!-- EXPERIMENTAL PATCHES -->
     <!-- Enable practice mode menu, (r-ran, constant chart speed, slow motion, etc...) -->
     <!-- PLEASE USE OFFLINE ONLY -->
     <practice_mode __type="bool">0</practice_mode>
-    <!-- Press 9 on option select screen to go back to song selection (requires pfree and quick_retire) -->
+    <!-- Press 9 on option select screen to go back to song selection (requires quick_retire) -->
     <!-- Note: causes issues with sounds on song select -->
     <back_to_song_select __type="bool">0</back_to_song_select>
 
-  <!-- DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED UNLESS YOU KNOW WHAT YOU'RE DOING) -->
+
+  <!-- ========================================================================================
+       DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED UNLESS YOU KNOW WHAT YOU'RE DOING)
+       ======================================================================================== -->
 
   <!-- Datecode and Multiboot -->
     <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00) -->

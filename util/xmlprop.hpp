@@ -84,17 +84,20 @@ struct property *load_prop_file(const char *filename) {
     return config_data;
 }
 
-void _load_config(const char *filename, void *dest, const struct property_psmap *psmap) {
+bool _load_config(const char *filename, void *dest, const struct property_psmap *psmap) {
     struct property *config_xml = load_prop_file(filename);
 
     if (!config_xml) {
         printf("Couldn't load xml file: %s\n", filename);
-        return;
+        return false;
     }
 
     if (!(property_psmap_import(config_xml, nullptr, dest, psmap))) {
         printf("Couldn't parse psmap\n");
+        return false;
     }
+
+    return true;
 }
 
 #endif

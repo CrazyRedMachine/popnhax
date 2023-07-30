@@ -3897,7 +3897,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         LOG("popnhax: game dll: %s\n",g_game_dll_fn);
         LOG("popnhax: config file: %s\n",g_config_fn);
 
-        _load_config(g_config_fn, &config, config_psmap);
+        if (!_load_config(g_config_fn, &config, config_psmap))
+        {
+            LOG("FATAL ERROR: Could not parse %s\n", g_config_fn);
+            return FALSE;
+        }
 
         if (force_trans_debug)
             config.translation_debug = true;
