@@ -283,7 +283,9 @@ void quickexit_screen_transition()
     else if (g_return_to_song_select)
     {
         __asm("mov dword ptr [edi+0x30], 0x17\n");
-        //flag is set back to false in hook_stage_increment
+        if (g_pfree_mode)
+            g_return_to_song_select = false;
+        //flag is set back to false in hook_stage_increment otherwise
     }
     real_screen_transition();
 }
