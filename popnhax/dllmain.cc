@@ -283,7 +283,7 @@ void quickexit_screen_transition()
     else if (g_return_to_song_select)
     {
         __asm("mov dword ptr [edi+0x30], 0x17\n");
-        g_return_to_song_select = false;
+        //flag is set back to false in hook_stage_increment
     }
     real_screen_transition();
 }
@@ -374,10 +374,7 @@ void backtosongselect_option_screen()
     __asm("shr ebx, 16\n"); // numpad9: 00 08 00 00
     __asm("cmp bl, 8\n");
     __asm("jne exit_back_select\n");
-    if (g_pfree_mode)
-    {
-        g_return_to_song_select = true;
-    }
+    g_return_to_song_select = true;
 
     __asm("exit_back_select:\n");
 
@@ -398,10 +395,8 @@ void backtosongselect_option_yellow()
     __asm("shr ebx, 16\n"); // numpad9: 00 08 00 00
     __asm("cmp bl, 8\n");
     __asm("jne exit_back_select_yellow\n");
-    if (g_pfree_mode)
-    {
-        g_return_to_song_select = true;
-    }
+
+    g_return_to_song_select = true;
 
     __asm("exit_back_select_yellow:\n");
     real_option_screen_yellow();
@@ -589,6 +584,16 @@ void hook_stage_update()
 
     if (!g_pfree_mode)
         real_stage_update();
+}
+
+/* this hook is installed only when back_to_song_select is enabled and pfree is not */
+void (*real_stage_increment)();
+void hook_stage_increment()
+{
+    if ( !g_return_to_song_select )
+        real_stage_increment();
+    else
+        g_return_to_song_select = false;
 }
 
 void (*real_check_music_idx)();
@@ -1836,6 +1841,22 @@ static bool patch_quick_retire(bool pfree)
                          (void **)&real_stage_update);
 
         }
+
+        /* prevent stage number increment when going back to song select without pfree */
+        if (config.back_to_song_select)
+        {
+            int64_t pattern_offset = search(data, dllSize, "\xFE\x46\x0E\x80", 4, 0);
+            if (pattern_offset == -1) {
+            LOG("popnhax: quick retire: cannot find stage update function\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            /* hook to retrieve address for exit to thank you for playing screen */
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_increment,
+                         (void **)&real_stage_increment);
+        }
+
     }
 
     /* instant retire with numpad 9 in song */
