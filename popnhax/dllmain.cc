@@ -270,6 +270,7 @@ uint32_t g_transition_addr = 0;
 uint32_t g_stage_addr = 0;
 uint32_t g_score_addr = 0;
 bool g_pfree_mode = false;
+bool g_end_session = false;
 bool g_return_to_options = false;
 bool g_return_to_song_select = false;
 void (*real_screen_transition)();
@@ -287,6 +288,7 @@ void quickexit_screen_transition()
             g_return_to_song_select = false;
         //flag is set back to false in hook_stage_increment otherwise
     }
+    g_end_session = false;
     real_screen_transition();
 }
 
@@ -436,7 +438,7 @@ numpad values:
  4 |   4    5    6
  2 |   1    2    3
  1 |   0    00
- 
+
  e.g. numpad 9 = 8<<16 = 00 08 00 00
       numpad 2 = 2<<28 = 20 00 00 00
 */
@@ -519,6 +521,7 @@ void quickexit_result_loop()
     __asm("jmp call_real_result\n");
 
     __asm("quit_session:\n");
+    g_end_session = true;
     g_return_to_options = false;
     /* set value 5 in g_stage_addr and -4 in g_transition_addr (to get fade to black transition) */
     __asm("mov ebx, %0\n": :"b"(g_stage_addr));
@@ -532,6 +535,17 @@ void quickexit_result_loop()
 // r2nk226#1109 ついかテスト
     ex_res_flg = 1;
     real_result_loop();
+}
+
+void (*real_result_button_loop)();
+void quickexit_result_button_loop()
+{
+    if ( g_end_session || g_return_to_options )
+    {
+        //g_return_to_options is reset in quickexit_option_screen_cleanup(), g_end_session is reset in quickexit_screen_transition()
+        __asm("mov al, 1\n");
+    }
+    real_result_button_loop();
 }
 
 uint32_t g_timing_addr = 0;
@@ -1901,6 +1915,21 @@ static bool patch_quick_retire(bool pfree)
                       (void **)&real_result_loop);
     }
 
+    /* no need to press red button when numpad 8 or 9 is pressed on result screen */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x75\x0F\x8B\x8D\x1C\x0A\x00\x00\xE8", 11, 0);
+
+        if (pattern_offset == -1) {
+            LOG("popnhax: cannot retrieve result screen button check\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x1D;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_button_loop,
+                      (void **)&real_result_button_loop);
+
+    }
+
     LOG("popnhax: quick retire enabled\n");
 
     /* retrieve songstart function pointer for quick retry */
@@ -2075,7 +2104,7 @@ static unsigned int __stdcall enhanced_polling_stats_proc(void *ctx)
     while (g_enhanced_poll_ready)
     {
         uint32_t pad_bits;
-        /* ensure at least 1ms has elapsed between polls 
+        /* ensure at least 1ms has elapsed between polls
          * (beware of SD cab hardware compatibility)
          */
         curr_poll_time = timeGetTime();
@@ -2093,7 +2122,7 @@ static unsigned int __stdcall enhanced_polling_stats_proc(void *ctx)
 
         usbPadRead(&pad_bits);
         g_last_button_state = pad_bits;
-        
+
         unsigned int buttonState = (g_last_button_state >> 8) & 0x1FF;
         for (int i = 0; i < 9; i++)
         {
@@ -2112,7 +2141,7 @@ static unsigned int __stdcall enhanced_polling_stats_proc(void *ctx)
                 {
                     button_debounce[i]--;
                 }
-                
+
                 if (button_debounce[i] == 0)
                 {
                     g_button_state[i] = -1;
@@ -2161,7 +2190,7 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
     while (g_enhanced_poll_ready)
     {
         uint32_t pad_bits;
-        /* ensure at least 1ms has elapsed between polls 
+        /* ensure at least 1ms has elapsed between polls
          * (beware of SD cab hardware compatibility)
          */
         curr_poll_time = timeGetTime();
@@ -2174,7 +2203,7 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
 
         usbPadRead(&pad_bits);
         g_last_button_state = pad_bits;
-        
+
         unsigned int buttonState = (g_last_button_state >> 8) & 0x1FF;
         for (int i = 0; i < 9; i++)
         {
@@ -2193,7 +2222,7 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
                 {
                     button_debounce[i]--;
                 }
-                
+
                 if (button_debounce[i] == 0)
                 {
                     g_button_state[i] = -1;
@@ -2338,7 +2367,7 @@ static bool patch_enhanced_polling(uint8_t debounce, bool stats)
 void (*real_chart_load)();
 void patch_chart_load_old() {
     /* This is mostly the same patch as the new version, except :
-     * - eax and ecx have a different interpretation 
+     * - eax and ecx have a different interpretation
      * - a chart chunk is only 2 dwords
      */
     __asm("cmp word ptr [edi+eax*8+4], 0x245\n");
@@ -2347,7 +2376,7 @@ void patch_chart_load_old() {
     /* keysound event has been found, we need to convert timestamp */
     __asm("mov word ptr [edi+eax*8+4], 0x745\n"); // we'll undo it if we cannot apply it
     __asm("push eax\n"); // we'll convert to store chunk pointer (keysound timestamp at beginning)
-    __asm("push ebx\n"); // we'll store a copy of our chunk pointer there 
+    __asm("push ebx\n"); // we'll store a copy of our chunk pointer there
     __asm("push edx\n"); // we'll store the button info there
     __asm("push esi\n"); // we'll store chart growth for part2 subroutine there
     __asm("push ecx\n"); // we'll convert to store remaining chunks
@@ -2364,7 +2393,7 @@ void patch_chart_load_old() {
     __asm("mov dl, byte ptr [eax+7]\n");
     __asm("shr edx, 4\n"); //dl now contains button value ( 00-08 )
 
-    __asm("mov ebx, eax\n"); //save chunk pointer into ebx for our rep movsd when a match is found 
+    __asm("mov ebx, eax\n"); //save chunk pointer into ebx for our rep movsd when a match is found
     __asm("old_next_chart_chunk:\n");
     __asm("add eax, 0x8\n"); // +0x08 in old chart format
     __asm("sub ecx, 1\n");
@@ -2373,7 +2402,7 @@ void patch_chart_load_old() {
     /* check where the keysound is used */
     __asm("cmp word ptr [eax+4], 0x245\n");
     __asm("jne old_check_first_note_event\n"); //still need to check 0x145..
-    
+
     __asm("push ecx\n");
     __asm("xor cx, cx\n");
     __asm("mov cl, byte ptr [eax+7]\n");
@@ -2389,7 +2418,7 @@ void patch_chart_load_old() {
     __asm("pop eax\n");
     __asm("mov word ptr [edi+eax*8+4], 0x0\n"); // disable operation, cannot be converted to a 0x745, and should not apply
     __asm("jmp old_patch_chart_load_end\n");
-    
+
     __asm("old_check_first_note_event:\n");
     __asm("cmp word ptr [eax+4], 0x145\n");
     __asm("jne old_next_chart_chunk\n");
@@ -2398,7 +2427,7 @@ void patch_chart_load_old() {
     __asm("jne old_next_chart_chunk\n");
     /* found MATCHING note event */
     __asm("mov edx, dword ptr [ebx+4]\n"); //save operation (we need to shift the whole block first)
-    
+
     /* move the whole block just before the note event to preserve timestamp ordering */
     __asm("push ecx\n");
     __asm("push esi\n");
@@ -2417,7 +2446,7 @@ void patch_chart_load_old() {
 
     /* write the 0x745 event just before our matching 0x145 which eax points to */
     __asm("mov dword ptr [eax-0x08+0x04], edx\n"); // operation
-    __asm("mov edx, dword ptr [eax]\n"); 
+    __asm("mov edx, dword ptr [eax]\n");
     __asm("mov dword ptr [eax-0x08], edx\n"); // timestamp
 
     /* PART2: Look for other instances of same button key events (0x0145) before the keysound is detached */
@@ -2431,10 +2460,10 @@ void patch_chart_load_old() {
     __asm("add eax, 0x8\n");
     __asm("sub ecx, 1\n");
     __asm("jz old_end_of_same_note_search\n"); //end of chart reached
-    
+
     __asm("cmp word ptr [eax+4], 0x245\n");
     __asm("jne old_check_if_note_event\n"); //still need to check 0x145..
-    
+
     __asm("push ecx\n");
     __asm("xor cx, cx\n");
     __asm("mov cl, byte ptr [eax+7]\n");
@@ -2484,7 +2513,7 @@ void patch_chart_load_old() {
     __asm("old_end_of_same_note_search:\n");
     /* restore before next timestamp */
     __asm("pop ecx\n");
-    __asm("add ecx, esi\n"); // take chart growth into account 
+    __asm("add ecx, esi\n"); // take chart growth into account
     __asm("pop esi\n");
     __asm("pop edx\n");
     __asm("pop ebx\n");
@@ -2494,7 +2523,7 @@ void patch_chart_load_old() {
     __asm("sub eax, 1\n");
     __asm("sub dword ptr [edi+eax*8], 0x64\n");
     __asm("jmp old_patch_chart_load_end\n");
-    
+
     __asm("old_end_of_chart:\n");
     __asm("pop ecx\n");
     __asm("pop esi\n");
@@ -2513,7 +2542,7 @@ void patch_chart_load() {
     /* keysound event has been found, we need to convert timestamp */
     __asm("mov word ptr [eax+4], 0x745\n"); // we'll undo it if we cannot apply it
     __asm("push eax\n"); // chunk pointer (keysound timestamp at beginning)
-    __asm("push ebx\n"); // we'll store a copy of our chunk pointer there 
+    __asm("push ebx\n"); // we'll store a copy of our chunk pointer there
     __asm("push edx\n"); // we'll store the button info there
     __asm("push esi\n"); // we'll store chart growth for part2 subroutine there
     __asm("push ecx\n"); // remaining chunks
@@ -2523,7 +2552,7 @@ void patch_chart_load() {
     __asm("mov dl, byte ptr [eax+7]\n");
     __asm("shr edx, 4\n"); //dl now contains button value ( 00-08 )
 
-    __asm("mov ebx, eax\n"); //save chunk pointer into ebx for our rep movsd when a match is found 
+    __asm("mov ebx, eax\n"); //save chunk pointer into ebx for our rep movsd when a match is found
     __asm("next_chart_chunk:\n");
     __asm("add eax, 0xC\n");
     __asm("sub ecx, 1\n");
@@ -2532,7 +2561,7 @@ void patch_chart_load() {
     /* check where the keysound is used */
     __asm("cmp word ptr [eax+4], 0x245\n");
     __asm("jne check_first_note_event\n"); //still need to check 0x145..
-    
+
     __asm("push ecx\n");
     __asm("xor cx, cx\n");
     __asm("mov cl, byte ptr [eax+7]\n");
@@ -2557,7 +2586,7 @@ void patch_chart_load() {
     __asm("jne next_chart_chunk\n");
     /* found MATCHING note event */
     __asm("mov edx, dword ptr [ebx+4]\n"); //save operation (we need to shift the whole block first)
-    
+
     /* move the whole block just before the note event to preserve timestamp ordering */
     __asm("push ecx\n");
     __asm("push esi\n");
@@ -2576,7 +2605,7 @@ void patch_chart_load() {
 
     /* write the 0x745 event just before our matching 0x145 which eax points to */
     __asm("mov dword ptr [eax-0x0C+0x04], edx\n"); // operation
-    __asm("mov edx, dword ptr [eax]\n"); 
+    __asm("mov edx, dword ptr [eax]\n");
     __asm("mov dword ptr [eax-0x0C], edx\n"); // timestamp
     __asm("mov dword ptr [eax-0x0C+0x08], 0x0\n"); // cleanup possible longnote duration leftover
 
@@ -2591,10 +2620,10 @@ void patch_chart_load() {
     __asm("add eax, 0xC\n");
     __asm("sub ecx, 1\n");
     __asm("jz end_of_same_note_search\n"); //end of chart reached
-    
+
     __asm("cmp word ptr [eax+4], 0x245\n");
     __asm("jne check_if_note_event\n"); //still need to check 0x145..
-    
+
     __asm("push ecx\n");
     __asm("xor cx, cx\n");
     __asm("mov cl, byte ptr [eax+7]\n");
@@ -2645,7 +2674,7 @@ void patch_chart_load() {
     __asm("end_of_same_note_search:\n");
     /* restore before next timestamp */
     __asm("pop ecx\n");
-    __asm("add ecx, esi\n"); // take chart growth into account 
+    __asm("add ecx, esi\n"); // take chart growth into account
     __asm("pop esi\n");
     __asm("pop edx\n");
     __asm("pop ebx\n");
