@@ -92,6 +92,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hidden_is_offs
                  "/popnhax/hidden_is_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_fast_slow,
                  "/popnhax/show_fast_slow")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_details,
+                 "/popnhax/show_details")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_offset,
                  "/popnhax/show_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, pfree,
@@ -1721,6 +1723,62 @@ static bool force_show_fast_slow() {
     }
 
     LOG("popnhax: always show fast/slow on result screen\n");
+
+    return true;
+}
+
+
+void (*real_show_detail_result)();
+void hook_show_detail_result()
+{
+    static uint32_t last_call = 0;
+
+    __asm("push eax\n");
+    __asm("push edx\n");
+
+    uint32_t curr_time = timeGetTime();    //will clobber eax
+    if ( curr_time - last_call > 10000 ) //will clobber edx
+    {
+        last_call = curr_time;
+        __asm("pop edx\n");
+        __asm("pop eax\n");
+        //force press yellow button
+        __asm("mov al, 1\n");
+    }
+    else
+    {
+        last_call = curr_time;
+        __asm("pop edx\n");
+        __asm("pop eax\n");
+    }
+
+    real_show_detail_result();
+}
+
+static bool force_show_details_result() {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    int64_t first_loc = search(data, dllSize, "\x8B\x45\x48\x8B\x58\x0C\x6A\x09\x68\x80\x00\x00\x00", 13, 0);
+    if (first_loc == -1) {
+        LOG("popnhax: show details: cannot find result screen button check (1)\n");
+        return false;
+    }
+//+0x26
+    {
+        int64_t pattern_offset = search(data, 0x50, "\x84\xC0", 2, first_loc);
+        if (pattern_offset == -1) {
+            LOG("popnhax: show details: cannot find result screen button check (2)\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_show_detail_result,
+                     (void **)&real_show_detail_result);
+    }
+
+    LOG("popnhax: force show details on result screen\n");
 
     return true;
 }
@@ -4056,6 +4114,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.show_fast_slow){
             force_show_fast_slow();
+        }
+
+        if (config.show_details){
+            force_show_details_result();
         }
 
         if (config.audio_offset){

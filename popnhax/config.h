@@ -8,6 +8,7 @@ struct popnhax_config {
     bool hidden_is_offset;
     bool show_offset;
     bool show_fast_slow;
+    bool show_details;
     bool pfree;
     bool quick_retire;
     bool back_to_song_select;
