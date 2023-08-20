@@ -275,6 +275,7 @@ bool g_pfree_mode = false;
 bool g_end_session = false;
 bool g_return_to_options = false;
 bool g_return_to_song_select = false;
+bool g_return_to_song_select_num9 = false;
 void (*real_screen_transition)();
 void quickexit_screen_transition()
 {
@@ -381,10 +382,22 @@ void backtosongselect_option_screen()
     __asm("cmp bl, 8\n");
     __asm("jne exit_back_select\n");
     g_return_to_song_select = true;
+    g_return_to_song_select_num9 = true;
 
     __asm("exit_back_select:\n");
 
     real_option_screen_later();
+}
+
+void (*real_backtosongselect_option_screen_auto_leave)();
+void backtosongselect_option_screen_auto_leave()
+{
+    if ( g_return_to_song_select_num9 )
+    {
+        g_return_to_song_select_num9 = false;
+        __asm("mov al, 1\n");
+    }
+    real_backtosongselect_option_screen_auto_leave();
 }
 
 void (*real_option_screen_yellow)();
@@ -403,9 +416,23 @@ void backtosongselect_option_yellow()
     __asm("jne exit_back_select_yellow\n");
 
     g_return_to_song_select = true;
+    g_return_to_song_select_num9 = true;
 
     __asm("exit_back_select_yellow:\n");
     real_option_screen_yellow();
+}
+
+uint32_t g_option_yellow_leave_addr = 0;
+void (*real_backtosongselect_option_screen_yellow_auto_leave)();
+void backtosongselect_option_screen_yellow_auto_leave()
+{
+    if ( g_return_to_song_select_num9 )
+    {
+        g_return_to_song_select_num9 = false;
+        __asm("push %0\n": :"m"(g_option_yellow_leave_addr));
+        __asm("ret\n");
+    }
+    real_backtosongselect_option_screen_yellow_auto_leave();
 }
 
 static bool r_ran;
@@ -2057,13 +2084,26 @@ static bool patch_quick_retire(bool pfree)
             int64_t pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
 
             if (pattern_offset == -1) {
-                LOG("popnhax: quick retry: cannot retrieve option screen loop function\n");
+                LOG("popnhax: back to song select: cannot retrieve option screen loop function\n");
                 return false;
             }
 
             uint64_t patch_addr = (int64_t)data + pattern_offset;
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen,
                           (void **)&real_option_screen_later);
+        }
+        /* automatically leave option screen after numpad 9 press */
+        {
+            int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x75\x63\x8B\x85\x10\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00", 18, 0);
+
+            if (pattern_offset == -1) {
+                LOG("popnhax: back to song select: cannot retrieve option screen loop function\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen_auto_leave,
+                          (void **)&real_backtosongselect_option_screen_auto_leave);
         }
 
         /* go back to song select with numpad 9 on song option screen (after pressing yellow) */
@@ -2079,7 +2119,29 @@ static bool patch_quick_retire(bool pfree)
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_yellow,
                           (void **)&real_option_screen_yellow);
         }
-        LOG("popnhax: quick retry: return to song select enabled\n");
+        /* automatically leave after numpad 9 press */
+        {
+            int64_t pattern_offset = search(data, dllSize, "\x8B\x55\x00\x8B\x82\x9C\x00\x00\x00\x6A\x01\x8B\xCD\xFF\xD0\x80\xBD", 17, 0);
+
+            if (pattern_offset == -1) {
+                LOG("popnhax: back to song select: cannot retrieve option screen yellow leave addr\n");
+                return false;
+            }
+
+            g_option_yellow_leave_addr = (int32_t)data + pattern_offset - 0x05;
+            pattern_offset = search(data, dllSize, "\x84\xC0\x0F\x84\xF1\x00\x00\x00\x8B\xC5", 10, 0);
+
+            if (pattern_offset == -1) {
+                LOG("popnhax: back to song select: cannot retrieve option screen yellow button check function\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen_yellow_auto_leave,
+                          (void **)&real_backtosongselect_option_screen_yellow_auto_leave);
+        }
+
+        LOG("popnhax: quick retire: return to song select enabled\n");
     }
 
     if (pfree)
