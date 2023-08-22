@@ -164,6 +164,10 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, enhanced_polli
                  "/popnhax/enhanced_polling_stats")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, enhanced_polling_priority,
                  "/popnhax/enhanced_polling_priority")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, hispeed_auto,
+                 "/popnhax/hispeed_auto")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, hispeed_default_bpm,
+                 "/popnhax/hispeed_default_bpm")
 PSMAP_END
 
 enum BufferIndexes {
@@ -3974,6 +3978,219 @@ static bool patch_enhanced_polling_stats()
     return true;
 }
 
+bool g_bypass_hispeed = false; //bypass target update for mystery bpm and soflan songs
+uint32_t g_hispeed_addr = 0;
+uint32_t g_target_bpm = 0;
+bool g_mystery_bpm = 0;
+uint16_t *g_base_bpm_ptr = 0; //will point to g_low_bpm or g_hi_bpm according to mode
+uint16_t g_low_bpm = 0;
+uint16_t g_hi_bpm = 0;
+uint32_t g_hispeed = 0;
+
+bool g_set_hispeed_addr = false;
+void (*real_set_hispeed)();
+void hook_set_hispeed()
+{
+    g_bypass_hispeed = false;
+    __asm("mov %0, eax\n":"=r"(g_hispeed_addr): :);
+    real_set_hispeed();
+}
+
+/*
+ * This is called a lot of times: when arriving on option select, and when changing/navigating *any* option
+ * I'm hooking here to set hi-speed to the target BPM
+ */
+double g_hispeed_double = 0;
+void (*real_read_hispeed)();
+void hook_read_hispeed()
+{
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+	
+    __asm("mov %0, word ptr [ebp+0xA1A]\n":"=a"(g_low_bpm): :);
+    __asm("mov %0, word ptr [ebp+0xA1C]\n":"=a"(g_hi_bpm): :);
+    __asm("mov %0, byte ptr [ebp+0xA1E]\n":"=a"(g_mystery_bpm): :);
+
+    if ( g_bypass_hispeed || g_target_bpm == 0 ) //bypass for mystery BPM and soflan songs (to avoid hi-speed being locked since target won't change)
+        __asm("jmp leave_read_hispeed\n");
+
+    g_hispeed_double = (double)g_target_bpm / (double)(*g_base_bpm_ptr/10.0);
+    g_hispeed = (uint32_t)(g_hispeed_double+0.5); //rounding to nearest
+    if (g_hispeed > 0x64) g_hispeed = 0x0A;
+    if (g_hispeed < 0x0A) g_hispeed = 0x64;
+
+    __asm("and edi, 0xFFFF0000\n");                   //keep existing popkun and hidden status values
+    __asm("or edi, dword ptr[%0]\n"::"m"(g_hispeed)); //fix hispeed initial display on option screen
+    __asm("mov eax, dword ptr[%0]\n"::"m"(g_hispeed_addr));
+    __asm("mov dword ptr[eax], edi\n");
+
+    __asm("leave_read_hispeed:\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+
+    real_read_hispeed();
+}
+
+void (*real_increase_hispeed)();
+void hook_increase_hispeed()
+{
+    __asm("push eax\n");
+    __asm("push edx\n");
+    __asm("push ecx\n");
+
+    if ( g_mystery_bpm || g_low_bpm != g_hi_bpm )
+    {
+        g_bypass_hispeed = true;
+        __asm("jmp leave_increase_hispeed\n");
+    }
+
+    //increase hispeed
+    __asm("mov ecx, dword ptr[edi]\n");
+    __asm("inc ecx\n");
+    __asm("cmp ecx, 0x65\n");
+    __asm("jb skip_hispeed_rollover_high\n");
+    __asm("mov ecx, 0x0A\n");
+    __asm("skip_hispeed_rollover_high:\n");
+
+    //compute resulting bpm using exact same formula as game (base bpm in eax, multiplier in ecx)
+    __asm("movsx eax, %0\n"::"m"(g_hi_bpm));
+    __asm("cwde\n");
+    __asm("movsx ecx,cx\n");
+    __asm("imul ecx,eax\n");
+    __asm("mov eax, 0x66666667\n");
+    __asm("imul ecx\n");
+    __asm("sar edx,2\n");
+    __asm("mov eax,edx\n");
+    __asm("shr eax,0x1F\n");
+    __asm("add eax,edx\n");
+
+    __asm("mov %0, eax\n":"=m"(g_target_bpm): :);
+
+    __asm("leave_increase_hispeed:\n");
+    __asm("pop ecx\n");
+    __asm("pop edx\n");
+    __asm("pop eax\n");
+    real_increase_hispeed();
+}
+
+void (*real_decrease_hispeed)();
+void hook_decrease_hispeed()
+{
+    __asm("push eax\n");
+    __asm("push edx\n");
+    __asm("push ecx\n");
+    if ( g_mystery_bpm || g_low_bpm != g_hi_bpm )
+    {
+        g_bypass_hispeed = true;
+        __asm("jmp leave_decrease_hispeed\n");
+    }
+
+    //decrease hispeed
+    __asm("mov ecx, dword ptr[edi]\n");
+    __asm("dec ecx\n");
+    __asm("cmp ecx, 0x0A\n");
+    __asm("jge skip_hispeed_rollover_low\n");
+    __asm("mov ecx, 0x64\n");
+    __asm("skip_hispeed_rollover_low:\n");
+
+    //compute resulting bpm using exact same formula as game (base bpm in eax, multiplier in ecx)
+    __asm("movsx eax, %0\n"::"m"(g_hi_bpm));
+    __asm("cwde\n");
+    __asm("movsx ecx,cx\n");
+    __asm("imul ecx,eax\n");
+    __asm("mov eax, 0x66666667\n");
+    __asm("imul ecx\n");
+    __asm("sar edx,2\n");
+    __asm("mov eax,edx\n");
+    __asm("shr eax,0x1F\n");
+    __asm("add eax,edx\n");
+
+    __asm("mov %0, eax\n":"=m"(g_target_bpm): :);
+
+    __asm("leave_decrease_hispeed:\n");
+    __asm("pop ecx\n");
+    __asm("pop edx\n");
+    __asm("pop eax\n");
+    real_decrease_hispeed();
+}
+
+bool patch_hispeed_auto(uint8_t mode, uint16_t default_bpm)
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    g_base_bpm_ptr = &g_hi_bpm;
+    if (mode == 2)
+        g_base_bpm_ptr = &g_low_bpm;
+
+    g_target_bpm = default_bpm;
+    /* retrieve hi-speed address */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x66\x89\x0C\x07\x0F\xB6\x45\x04", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find hi-speed address\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x04;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_set_hispeed,
+                      (void **)&real_set_hispeed);
+    }
+    /* write new hispeed according to target bpm */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x98\x50\x66\x8B\x85\x1A\x0A\x00\x00\x8B\xCF", 11, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find hi-speed apply address\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_read_hispeed,
+                      (void **)&real_read_hispeed);
+    }
+    /* update target bpm on hispeed increase */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x66\xFF\x07\x0F\xB7\x07\x66\x83\xF8\x64", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find hi-speed increase\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_increase_hispeed,
+                      (void **)&real_increase_hispeed);
+    }
+    /* update target bpm on hispeed decrease */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x66\xFF\x0F\x0F\xB7\x07\x66\x83\xF8\x0A", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find hi-speed decrease\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_decrease_hispeed,
+                      (void **)&real_decrease_hispeed);
+    }
+
+    LOG("popnhax: auto hi-speed enabled");
+    if (g_target_bpm != 0)
+        LOG(" with default %hubpm", g_target_bpm);
+    if (mode == 1)
+        LOG(" (higher bpm target)");
+    else if (mode == 2)
+        LOG(" (lower bpm target)");
+
+    LOG("\n");
+
+    return true;
+}
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
@@ -4255,6 +4472,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 patch_enhanced_polling_stats();
             }
         }
+
+        if (config.hispeed_auto)
+        {
+            patch_hispeed_auto(config.hispeed_auto, config.hispeed_default_bpm);
+        }
+
     #if DEBUG == 1
         patch_get_time();
     #endif

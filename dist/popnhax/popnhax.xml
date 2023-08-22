@@ -43,6 +43,13 @@
     <!-- Display offset adjust value on score result screen (requires hidden_is_offset, won't be sent over network) -->
     <show_offset __type="bool">0</show_offset>
 
+  <!-- Hi-speed -->
+    <!-- Auto set hi-speed to match previously set BPM (0: off, 1: target higher bpm for soflan, 2: target lower bpm for soflan) -->
+    <hispeed_auto __type="u8">0</hispeed_auto>
+    <!-- Default target BPM, 0 to disable (requires hispeed_auto) -->
+    <!-- Note: target is still updated when manually changing hi-speed (except soflan and "?" songs) -->
+    <hispeed_default_bpm __type="u16">0</hispeed_default_bpm>
+
   <!-- Result screen display patches -->
     <!-- Display details on result screen by default (no need to press yellow button) -->
     <show_details __type="bool">0</show_details>

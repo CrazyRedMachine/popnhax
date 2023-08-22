@@ -43,6 +43,8 @@ struct popnhax_config {
     uint8_t debounce;
     bool enhanced_polling_stats;
     int8_t enhanced_polling_priority;
+    uint8_t hispeed_auto;
+    uint16_t hispeed_default_bpm;
 };
 
 #endif
