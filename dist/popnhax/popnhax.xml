@@ -44,10 +44,10 @@
     <show_offset __type="bool">0</show_offset>
 
   <!-- Hi-speed -->
-    <!-- Auto set hi-speed to match previously set BPM (0: off, 1: target higher bpm for soflan, 2: target lower bpm for soflan) -->
+    <!-- Auto set hi-speed to match previously set BPM (0: off, 1: target higher bpm on soflan, 2: target lower bpm on soflan, 3: target longest bpm on soflan) -->
     <hispeed_auto __type="u8">0</hispeed_auto>
     <!-- Default target BPM, 0 to disable (requires hispeed_auto) -->
-    <!-- Note: target is still updated when manually changing hi-speed (except soflan and "?" songs) -->
+    <!-- Note: target is still updated when manually changing hi-speed (except soflan and "?" charts) -->
     <hispeed_default_bpm __type="u16">0</hispeed_default_bpm>
 
   <!-- Result screen display patches -->
