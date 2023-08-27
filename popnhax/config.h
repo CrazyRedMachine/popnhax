@@ -6,6 +6,7 @@
 struct popnhax_config {
     bool practice_mode;
     bool hidden_is_offset;
+    bool survival_gauge;
     bool show_offset;
     bool show_fast_slow;
     bool show_details;

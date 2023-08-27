@@ -90,6 +90,8 @@ struct popnhax_config config = {};
 PSMAP_BEGIN(config_psmap, static)
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hidden_is_offset,
                  "/popnhax/hidden_is_offset")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, survival_gauge,
+                 "/popnhax/survival_gauge")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_fast_slow,
                  "/popnhax/show_fast_slow")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_details,
@@ -4352,6 +4354,103 @@ bool patch_hispeed_auto(uint8_t mode, uint16_t default_bpm)
     return true;
 }
 
+/* HARD GAUGE SURVIVAL*/
+uint8_t g_hard_gauge_selected = false;
+
+void (*real_survival_flag_hard_gauge)();
+void hook_survival_flag_hard_gauge()
+{
+    __asm("cmp bl, 0\n");
+    __asm("jne no_hard_gauge\n");
+    g_hard_gauge_selected = false;
+    __asm("cmp cl, 2\n");
+    __asm("jne no_hard_gauge\n");
+    g_hard_gauge_selected = true;
+    __asm("no_hard_gauge:\n");
+    real_survival_flag_hard_gauge();
+}
+
+void (*real_survival_flag_hard_gauge_old)();
+void hook_survival_flag_hard_gauge_old()
+{
+    __asm("cmp bl, 0\n");
+    __asm("jne no_hard_gauge_old\n");
+    g_hard_gauge_selected = false;
+    __asm("cmp dl, 2\n");
+    __asm("jne no_hard_gauge_old\n");
+    g_hard_gauge_selected = true;
+    __asm("no_hard_gauge_old:\n");
+    real_survival_flag_hard_gauge_old();
+}
+
+void (*real_check_survival_gauge)();
+void hook_check_survival_gauge()
+{
+    if ( g_hard_gauge_selected )
+    {
+        __asm("mov al, 1\n");
+        __asm("ret\n");
+    }
+    real_check_survival_gauge();
+}
+
+bool patch_hard_gauge_survival()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    /* change is_survival_gauge function behavior */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x33\xC9\x83\xF8\x04\x0F\x94\xC1\x8A\xC1", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: survival gauge: cannot find survival gauge check function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x02;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_check_survival_gauge,
+                      (void **)&real_check_survival_gauge);
+    }
+
+    /* hook commit option to flag hard gauge being selected */
+    {
+        /* find option commit function (unilab) */
+        int64_t pattern_offset = search(data, dllSize, "\x89\x48\x0C\x8B\x56\x10\x89\x50\x10\x66\x8B\x4E\x14\x66\x89\x48\x14\x5B\xC3\xCC", 20, 0);
+        if (pattern_offset == -1) {
+            /* wasn't found, look for older function */
+            int64_t first_loc = search(data, dllSize, "\x0F\xB6\xC3\x03\xCF\x8D", 6, 0);
+
+            if (first_loc == -1) {
+                LOG("popnhax: survival gauge: cannot find option commit function (1)\n");
+                return false;
+            }
+
+            pattern_offset = search(data, 0x50, "\x89\x50\x0C", 3, first_loc);
+
+            if (pattern_offset == -1) {
+                LOG("popnhax: survival gauge: cannot find option commit function (2)\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_flag_hard_gauge_old,
+                        (void **)&real_survival_flag_hard_gauge_old);
+        }
+        else
+        {
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_flag_hard_gauge,
+                        (void **)&real_survival_flag_hard_gauge);
+        }
+
+    }
+
+    LOG("popnhax: hard gauge is survival gauge\n");
+
+    return true;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -4542,6 +4641,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.force_hd_resolution) {
             patch_hd_resolution(config.force_hd_resolution);
+        }
+
+        if (config.survival_gauge) {
+            patch_hard_gauge_survival();
         }
 
         if (config.hidden_is_offset){

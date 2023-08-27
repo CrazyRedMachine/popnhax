@@ -50,6 +50,10 @@
     <!-- Note: target is still updated when manually changing hi-speed (except soflan and "?" charts) -->
     <hispeed_default_bpm __type="u16">0</hispeed_default_bpm>
 
+  <!-- Gauge options -->
+    <!-- Turn hard gauge into survival gauge -->
+    <survival_gauge __type="bool">0</survival_gauge>
+
   <!-- Result screen display patches -->
     <!-- Display details on result screen by default (no need to press yellow button) -->
     <show_details __type="bool">0</show_details>
