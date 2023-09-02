@@ -51,8 +51,12 @@
     <hispeed_default_bpm __type="u16">0</hispeed_default_bpm>
 
   <!-- Gauge options -->
-    <!-- Turn hard gauge into survival gauge -->
-    <survival_gauge __type="bool">0</survival_gauge>
+    <!-- Turn hard gauge into survival gauge (1: former COURSE gauge (-3.42%), 2: NORMAL gauge decrease rate (-4.99%), 3: IIDX HARD gauge decrease rate (-9%), 4: HARD gauge decrease rate (-19.94%)) -->
+    <survival_gauge __type="u8">0</survival_gauge>
+    <!-- Survival gauge has IIDX-like decrease rate adjustment (decrease amount halved when gauge is at 33.3% or less) -->
+    <survival_iidx __type="bool">0</survival_iidx>
+    <!-- Set survival gauge increase rate to spicy (+01/+01 instead of +02/+01) -->
+    <survival_spicy __type="bool">0</survival_spicy>
 
   <!-- Result screen display patches -->
     <!-- Display details on result screen by default (no need to press yellow button) -->

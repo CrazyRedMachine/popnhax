@@ -90,8 +90,12 @@ struct popnhax_config config = {};
 PSMAP_BEGIN(config_psmap, static)
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hidden_is_offset,
                  "/popnhax/hidden_is_offset")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, survival_gauge,
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, survival_gauge,
                  "/popnhax/survival_gauge")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, survival_iidx,
+                 "/popnhax/survival_iidx")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, survival_spicy,
+                 "/popnhax/survival_spicy")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_fast_slow,
                  "/popnhax/show_fast_slow")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_details,
@@ -4376,7 +4380,7 @@ void hook_survival_flag_hard_gauge_old()
     __asm("cmp bl, 0\n");
     __asm("jne no_hard_gauge_old\n");
     g_hard_gauge_selected = false;
-    __asm("cmp dl, 2\n");
+    __asm("cmp dl, 2\n"); //dl is used instead of cl in older games
     __asm("jne no_hard_gauge_old\n");
     g_hard_gauge_selected = true;
     __asm("no_hard_gauge_old:\n");
@@ -4394,7 +4398,21 @@ void hook_check_survival_gauge()
     real_check_survival_gauge();
 }
 
-bool patch_hard_gauge_survival()
+void (*real_survival_gauge_medal_clear)();
+void (*real_survival_gauge_medal)();
+void hook_survival_gauge_medal()
+{
+    if ( g_hard_gauge_selected )
+    {
+        __asm("cmp eax, 0\n"); //empty gauge should still fail
+        __asm("jz skip_force_clear\n");
+        __asm("jmp %0\n"::"m"(real_survival_gauge_medal_clear));
+    }
+    __asm("skip_force_clear:\n");
+    real_survival_gauge_medal();
+}
+
+bool patch_hard_gauge_survival(uint8_t severity)
 {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
@@ -4446,8 +4464,127 @@ bool patch_hard_gauge_survival()
 
     }
 
-    LOG("popnhax: hard gauge is survival gauge\n");
+    /* Fix medal calculation */
+    {
+        int64_t addr = search(data, dllSize, "\x0F\xB7\x47\x12\x66\x83\xF8\x14", 8, 0);
+        if (addr == -1) {
+            LOG("popnhax: survival gauge: cannot find medal computation\n");
+            return false;
+        }
 
+        uint64_t function_addr = (int64_t)data + addr;
+        real_survival_gauge_medal_clear = (void (*)())function_addr;
+
+        int64_t pattern_offset = search(data, dllSize, "\x0F\x9F\xC1\x5E\x8B\xD0\x3B\xC1\x7F\x02", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: survival gauge: cannot find medal computation hook\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x04;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_gauge_medal,
+                      (void **)&real_survival_gauge_medal);
+    }
+
+    /* gauge severity */
+    const char* severity_str[5] = { "", "COURSE (-35)", "NORMAL (-51)", "IIDX (-92)", "HARD (-204)"};
+    uint32_t    severity_val[5] = {  0,  0xFFFFFFDD,     0xFFFFFFCD,     0xFFFFFFA4,   0xFFFFFF34};
+
+    if (severity != 1)
+    {
+        if (severity > 4)
+            severity = 4;
+        uint32_t decrease_amount = severity_val[severity];
+        char *as_hex = (char *) &decrease_amount;
+
+        if (!find_and_patch_hex(g_game_dll_fn, "\xB8\xDD\xFF\xFF\xFF", 5, 1, as_hex, 4))
+        {
+            LOG("\n");
+            LOG("popnhax: survival gauge: cannot patch severity\n");
+        }
+    }
+
+    LOG("popnhax: hard gauge into survival (decrease rate : %s)\n", severity_str[severity]);
+
+    return true;
+}
+
+void (*real_survival_iidx_prepare_gauge)();
+void hook_survival_iidx_prepare_gauge()
+{
+    //this code is specific to survival gauge, so no additional check is required
+    __asm("cmp esi, 2\n");
+    __asm("jne skip_iidx_prepare_gauge\n");
+    __asm("shr eax, 1\n");
+
+    __asm("skip_iidx_prepare_gauge:\n");
+    real_survival_iidx_prepare_gauge();
+}
+
+void (*real_survival_iidx_apply_gauge)();
+void hook_survival_iidx_apply_gauge()
+{
+    __asm("cmp byte ptr %0, 0\n"::"m"(g_hard_gauge_selected));
+    __asm("je skip_iidx_apply_gauge\n"); //skip if not in survival gauge mode
+    __asm("cmp ecx, 2\n");
+    __asm("jb skip_iidx_apply_gauge\n"); //skip if gauge is not decreasing
+    __asm("mov ecx, 3\n");
+    __asm("cmp ax, 342\n");
+    __asm("jge skip_iidx_apply_gauge\n"); //skip if gauge is above 33.3%
+    __asm("mov ecx, 2\n");
+
+    __asm("skip_iidx_apply_gauge:\n");
+    real_survival_iidx_apply_gauge();
+}
+
+bool patch_survival_iidx()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    /* put half the decrease value in the first slot */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\xE9\x8C\x00\x00\x00\x8B\xC6", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: iidx survival gauge: cannot find survival gauge prepare function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_iidx_prepare_gauge,
+                      (void **)&real_survival_iidx_prepare_gauge);
+    }
+
+    /* switch slot depending on gauge value (get halved value when 33.3% or less) */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x66\x83\xF8\x01\x75\x5E\x66\xA1", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: iidx survival gauge: cannot find survival gauge update function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0C;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_iidx_apply_gauge,
+                      (void **)&real_survival_iidx_apply_gauge);
+    }
+
+    LOG("popnhax: survival gauge has IIDX-like adjustment\n");
+    return true;
+}
+
+bool patch_survival_spicy()
+{
+    if (!find_and_patch_hex(g_game_dll_fn, "\xB9\x02\x00\x00\x00\x66\x89\x0C\x75", 9, 1, "\x00\x00\x00\x00", 4))
+    {
+        LOG("\n");
+        LOG("popnhax: spicy survival gauge: cannot patch gauge increment\n");
+        return false;
+    }
+
+    LOG("popnhax: survival gauge is SPICY\n");
     return true;
 }
 
@@ -4644,7 +4781,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.survival_gauge) {
-            patch_hard_gauge_survival();
+            patch_hard_gauge_survival(config.survival_gauge);
+
+            if (config.survival_spicy) {
+                patch_survival_spicy();
+            }
+
+            if (config.survival_iidx) {
+                patch_survival_iidx();
+            }
         }
 
         if (config.hidden_is_offset){
