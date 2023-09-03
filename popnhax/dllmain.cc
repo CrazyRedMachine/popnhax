@@ -90,6 +90,8 @@ struct popnhax_config config = {};
 PSMAP_BEGIN(config_psmap, static)
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hidden_is_offset,
                  "/popnhax/hidden_is_offset")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, iidx_hard_gauge,
+                 "/popnhax/iidx_hard_gauge")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, survival_gauge,
                  "/popnhax/survival_gauge")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, survival_iidx,
@@ -4505,7 +4507,8 @@ bool patch_hard_gauge_survival(uint8_t severity)
         }
     }
 
-    LOG("popnhax: hard gauge into survival (decrease rate : %s)\n", severity_str[severity]);
+    if (!config.iidx_hard_gauge)
+        LOG("popnhax: survival_gauge debug: enabled (decrease rate : %s)\n", severity_str[severity]);
 
     return true;
 }
@@ -4530,8 +4533,8 @@ void hook_survival_iidx_apply_gauge()
     __asm("cmp ecx, 2\n");
     __asm("jb skip_iidx_apply_gauge\n"); //skip if gauge is not decreasing
     __asm("mov ecx, 3\n");
-    __asm("cmp ax, 342\n");
-    __asm("jge skip_iidx_apply_gauge\n"); //skip if gauge is above 33.3%
+    __asm("cmp ax, 308\n");
+    __asm("jge skip_iidx_apply_gauge\n"); //skip if gauge is above 30%
     __asm("mov ecx, 2\n");
 
     __asm("skip_iidx_apply_gauge:\n");
@@ -4557,7 +4560,7 @@ bool patch_survival_iidx()
                       (void **)&real_survival_iidx_prepare_gauge);
     }
 
-    /* switch slot depending on gauge value (get halved value when 33.3% or less) */
+    /* switch slot depending on gauge value (get halved value when 30% or less) */
     {
         int64_t pattern_offset = search(data, dllSize, "\x66\x83\xF8\x01\x75\x5E\x66\xA1", 8, 0);
         if (pattern_offset == -1) {
@@ -4571,7 +4574,9 @@ bool patch_survival_iidx()
                       (void **)&real_survival_iidx_apply_gauge);
     }
 
-    LOG("popnhax: survival gauge has IIDX-like adjustment\n");
+    if (!config.iidx_hard_gauge)
+        LOG("popnhax: survival_gauge debug: IIDX-like <=30%% adjustment\n");
+
     return true;
 }
 
@@ -4584,7 +4589,8 @@ bool patch_survival_spicy()
         return false;
     }
 
-    LOG("popnhax: survival gauge is SPICY\n");
+    if (!config.iidx_hard_gauge)
+        LOG("popnhax: survival_gauge debug: spicy gauge\n");
     return true;
 }
 
@@ -4780,16 +4786,34 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_hd_resolution(config.force_hd_resolution);
         }
 
+        if (config.iidx_hard_gauge){
+            if (config.survival_gauge || config.survival_spicy || config.survival_iidx)
+            {
+                LOG("popnhax: iidx_hard_gauge cannot be used when other survival options are already set\n");
+                config.iidx_hard_gauge = false;
+            }
+            else
+            {
+                config.survival_gauge = 3;
+                config.survival_spicy = true;
+                config.survival_iidx = true;
+            }
+        }
+
         if (config.survival_gauge) {
-            patch_hard_gauge_survival(config.survival_gauge);
+            bool res = true;
+            res &= patch_hard_gauge_survival(config.survival_gauge);
 
             if (config.survival_spicy) {
-                patch_survival_spicy();
+                res &= patch_survival_spicy();
             }
 
             if (config.survival_iidx) {
-                patch_survival_iidx();
+                res &= patch_survival_iidx();
             }
+
+            if (config.iidx_hard_gauge && res)
+                LOG("popnhax: iidx_hard_gauge: HARD gauge is now IIDX-like\n");
         }
 
         if (config.hidden_is_offset){

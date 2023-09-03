@@ -6,9 +6,7 @@
 struct popnhax_config {
     bool practice_mode;
     bool hidden_is_offset;
-    uint8_t survival_gauge;
-    bool survival_iidx;
-    bool survival_spicy;
+    bool iidx_hard_gauge;
     bool show_offset;
     bool show_fast_slow;
     bool show_details;
@@ -48,6 +46,9 @@ struct popnhax_config {
     int8_t enhanced_polling_priority;
     uint8_t hispeed_auto;
     uint16_t hispeed_default_bpm;
+    uint8_t survival_gauge;
+    bool survival_iidx;
+    bool survival_spicy;
 };
 
 #endif
