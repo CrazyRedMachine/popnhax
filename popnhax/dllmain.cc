@@ -4419,6 +4419,14 @@ bool patch_hard_gauge_survival(uint8_t severity)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
+    /* refill gauge at each stage */
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\x84\xC0\x75\x0B\xB8\x00\x04\x00\x00", 9, 0, "\x90\x90\x90\x90", 4))
+        {
+            LOG("popnhax: survival gauge: cannot patch gauge refill\n");
+        }
+    }
+
     /* change is_survival_gauge function behavior */
     {
         int64_t pattern_offset = search(data, dllSize, "\x33\xC9\x83\xF8\x04\x0F\x94\xC1\x8A\xC1", 10, 0);
