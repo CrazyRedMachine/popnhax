@@ -1822,6 +1822,29 @@ static bool force_show_details_result() {
     return true;
 }
 
+uint8_t g_pfree_song_offset = 0x54;
+uint16_t g_pfree_song_offset_2 = 0x558;
+/* hook is installed in stage increment function */
+void (*real_pfree_cleanup)();
+void hook_pfree_cleanup()
+{
+    __asm("push esi\n");
+    __asm("push edi\n");
+    __asm("push eax\n");
+    __asm("push ebx\n");
+    __asm("movsx eax, byte ptr [%0]\n"::"m"(g_pfree_song_offset));
+    __asm("movsx ebx, word ptr [%0]\n"::"m"(g_pfree_song_offset_2));
+    __asm("lea edi, dword ptr [esi+eax]\n");
+    __asm("lea esi, dword ptr [esi+ebx]\n");
+    __asm("mov ecx, 0x98");
+    __asm("rep movsd");
+    __asm("pop ebx");
+    __asm("pop eax");
+    __asm("pop edi");
+    __asm("pop esi");
+    __asm("ret");
+}
+
 static bool patch_pfree() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
@@ -1891,38 +1914,23 @@ static bool patch_pfree() {
     }
 
 pfree_apply:
-    int64_t first_loc = 0;
-    /* cleanup score and stats part1 */
-    {
-        first_loc = search(data, dllSize, "\xFE\x46\x0E\x80", 4, 0);
-        if (first_loc == -1) {
-        LOG("popnhax: pfree: cannot find stage update function\n");
-            return false;
-        }
+    g_pfree_song_offset = offset_from_base;
+    g_pfree_song_offset_2 = *((uint16_t*)offset_from_stage1);
+    g_pfree_song_offset_2 += offset_from_base;
 
-        uint64_t patch_addr = (int64_t)data + first_loc;
-        patch_memory(patch_addr, (char *)"\x90\x90\x90", 3);
-    }
-
-    /* cleanup score and stats part2 */
+    /* cleanup score and stats */
     {
-        int64_t pattern_offset = search(data, 0x40, "\x83\xC4\x08\x8A", 4, first_loc);
+        int64_t pattern_offset = search(data, dllSize, "\xFE\x46\x0E\x80", 4, 0);
         if (pattern_offset == -1) {
         LOG("popnhax: pfree: cannot find stage update function\n");
             return false;
         }
 
-        char patch_str[24] = "\x56\x57\x8D\x7E\x54\x8D\xB6\x58\x05\x00\x00\xB9\x98\x00\x00\x00\xF3\xA5\x5F\x5E\xC3\xCC\xCC";
-        patch_str[4] = offset_from_base;
-        patch_str[7] = offset_from_stage1[0] + offset_from_base;
-        patch_str[8] = offset_from_stage1[1];
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x03;
-
-        add_stage_addr = (int64_t)data + pattern_offset + 0x03;
-
-        patch_memory(patch_addr, patch_str, 23);
-
+        /* replace stage number increment with a score cleanup function */
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup,
+                     (void **)&real_pfree_cleanup);
     }
 
     LOG("popnhax: premium free enabled\n");
