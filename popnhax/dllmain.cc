@@ -1824,6 +1824,9 @@ static bool force_show_details_result() {
 
 uint8_t g_pfree_song_offset = 0x54;
 uint16_t g_pfree_song_offset_2 = 0x558;
+int32_t g_power_point_value = -1;
+void (*popn22_get_powerpoints)();
+void (*popn22_get_chart_level)();
 /* hook is installed in stage increment function */
 void (*real_pfree_cleanup)();
 void hook_pfree_cleanup()
@@ -1831,13 +1834,67 @@ void hook_pfree_cleanup()
     __asm("push esi\n");
     __asm("push edi\n");
     __asm("push eax\n");
+    __asm("push edx\n");
+    __asm("movsx eax, byte ptr [%0]\n"::"m"(g_pfree_song_offset));
+    __asm("movsx ebx, word ptr [%0]\n"::"m"(g_pfree_song_offset_2));
+    __asm("lea edi, dword ptr [esi+eax]\n");
+    __asm("lea esi, dword ptr [esi+ebx]\n");
+    __asm("push esi\n");
+    __asm("push edi\n");
+	
+	/* compute powerpoints before cleanup */
+	__asm("mov eax, dword ptr [edi-0x38]\n"); //music id (TODO: check offset dans usaneko->kaimei)
+	__asm("push 0\n");
+	__asm("push eax\n");	
+	__asm("mov al, byte ptr [edi-0x36]\n"); //sheet id (TODO: check que c'est bien 0x36 et pas 0x35)
+    __asm("call %0\n"::"b"(popn22_get_chart_level));
+	__asm("add esp, 8\n");	
+    __asm("mov bl, byte ptr [edi+0x24]\n"); //medal (TODO: check offset dans usaneko->kaimei)
+	
+	/* push "is full combo" */
+	__asm("cmp bl, 8\n");
+	__asm("setae dl\n");
+	__asm("movzx ecx, dl\n");
+	__asm("push ecx\n");
+	
+	/* push "is clear" */
+	__asm("cmp bl, 4\n");
+	__asm("setae dl\n");
+	__asm("movzx ecx, dl\n");
+	__asm("push ecx\n");
+
+	__asm("mov ecx, eax\n"); //diff level
+	__asm("mov eax, dword ptr [edi]\n"); //score
+	__asm("call %0\n"::"b"(popn22_get_powerpoints));
+	__asm("mov %0, eax\n":"=a"(g_power_point_value):);
+	//__asm("call %0\n"::"r"(update_pplist));
+	
+	/* can finally cleanup score */
+	__asm("pop edi\n");
+	__asm("pop esi\n");
+    __asm("mov ecx, 0x98");
+    __asm("rep movsd");
+	__asm("pop edx");
+    __asm("pop eax");
+    __asm("pop edi");
+    __asm("pop esi");
+}
+
+/* hook without the power point fixes (eclale best effort) */
+void hook_pfree_cleanup_simple()
+{
+    __asm("push esi\n");
+    __asm("push edi\n");
+    __asm("push eax\n");
     __asm("push ebx\n");
+    __asm("push edx\n");
     __asm("movsx eax, byte ptr [%0]\n"::"m"(g_pfree_song_offset));
     __asm("movsx ebx, word ptr [%0]\n"::"m"(g_pfree_song_offset_2));
     __asm("lea edi, dword ptr [esi+eax]\n");
     __asm("lea esi, dword ptr [esi+ebx]\n");
     __asm("mov ecx, 0x98");
     __asm("rep movsd");
+	__asm("pop edx");
     __asm("pop ebx");
     __asm("pop eax");
     __asm("pop edi");
@@ -1848,6 +1905,7 @@ void hook_pfree_cleanup()
 static bool patch_pfree() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
+    bool simple = false;
 
     /* stop stage counter (2 matches, 1st one is the good one) */
     {
@@ -1880,6 +1938,7 @@ static bool patch_pfree() {
             offset_from_base = 0x54;
             offset_from_stage1[0] = 0x04;
             offset_from_stage1[1] = 0x05;
+			simple = true;
             goto pfree_apply;
         }
         uint32_t child_fun_rel = *(uint32_t *) ((int64_t)data + offset - 0x04);
@@ -1929,10 +1988,39 @@ pfree_apply:
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
         /* replace stage number increment with a score cleanup function */
+		if ( simple )
+		{
+			MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup_simple,
+						(void **)&real_pfree_cleanup);
+            LOG("popnhax: premium free enabled (WARN: no power points fix)\n");
+			return true;
+		}
+
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup,
                      (void **)&real_pfree_cleanup);
     }
 
+	/* fix power points */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x8A\xD8\x8B\x44\x24\x0C\xE8", 7, 0);
+        if (pattern_offset == -1) {
+        LOG("popnhax: pfree: cannot find get_power_points function\n");
+            return false;
+        }
+
+        popn22_get_chart_level = (void(*)()) (data + pattern_offset - 0x07);
+    }
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x3D\x50\xC3\x00\x00\x7D\x05", 7, 0);
+        if (pattern_offset == -1) {
+        LOG("popnhax: pfree: cannot find get_power_points function\n");
+            return false;
+        }
+
+        popn22_get_powerpoints = (void(*)()) (data + pattern_offset);
+    }
+	//
     LOG("popnhax: premium free enabled\n");
 
     return true;
