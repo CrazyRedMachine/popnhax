@@ -1822,11 +1822,101 @@ static bool force_show_details_result() {
     return true;
 }
 
+
 uint8_t g_pfree_song_offset = 0x54;
 uint16_t g_pfree_song_offset_2 = 0x558;
-int32_t g_power_point_value = -1;
 void (*popn22_get_powerpoints)();
 void (*popn22_get_chart_level)();
+
+/* POWER POINTS LIST FIX */
+uint8_t g_pplist_idx = 0;   // also serves as elem count
+int32_t g_pplist[20] = {0}; // 20 elements for power_point_list (always ordered)
+int32_t g_power_point_value = -1; // latest value (hook uses update_pplist() to add to g_pplist array)
+int32_t *g_real_pplist; // list that the game retrieves from server
+uint32_t *allocated_pplist_copy;
+
+void pplist_reset()
+{
+        for (int i=0; i<20; i++)
+            g_pplist[i] = -1;
+        g_pplist_idx = 0;
+}
+
+/* add new computed value to the circular buffer */
+void pplist_update()
+{
+    if ( g_power_point_value == -1 )
+        return;
+
+    if ( g_pplist_idx == 20 )
+    {
+        for (int i = 0; i < 19; i++)
+        {
+            g_pplist[i] = g_pplist[i+1];
+        }
+        g_pplist_idx = 19;
+    }
+
+    g_pplist[g_pplist_idx++] = g_power_point_value;
+    g_power_point_value = -1;
+}
+
+void pplist_init()
+{
+    for (int i = 0; i < 20; i++)
+    {
+        g_pplist[i] = g_real_pplist[i];
+    }
+
+    /* in the general case your pplist will be full from the start so this is optimal */
+    g_pplist_idx = 19;
+    while ( g_pplist[g_pplist_idx] == -1 )
+    {
+        if ( g_pplist_idx == 0 )
+            return;
+        g_pplist_idx--;
+    }
+    g_pplist_idx++;
+}
+
+void (*real_pfree_pplist_init)();
+void hook_pfree_pplist_init()
+{
+    __asm("push eax");
+    __asm("push ebx");
+    __asm("lea ebx, [eax+0x1C4]\n");
+    __asm("mov %0, ebx\n":"=m"(g_real_pplist));
+    __asm("call %0\n"::"a"(pplist_init));
+    __asm("pop ebx");
+    __asm("pop eax");
+    real_pfree_pplist_init();
+}
+
+void (*real_pfree_pplist_inject)();
+void hook_pfree_pplist_inject()
+{
+    __asm("lea esi, %0\n"::"m"(g_pplist[g_pplist_idx]));
+    __asm("mov dword ptr [esp+0x40], esi\n");
+
+    __asm("lea esi, %0\n"::"m"(g_pplist));
+    __asm("mov eax, dword ptr [esp+0x3C]\n");
+    __asm("mov %0, eax\n":"=m"(allocated_pplist_copy));
+    __asm("mov dword ptr [esp+0x3C], esi\n");
+    __asm("movzx eax, %0\n"::"m"(g_pplist_idx));
+
+    real_pfree_pplist_inject();
+}
+
+/* restore original pointer so that it can be freed */
+void (*real_pfree_pplist_inject_cleanup)();
+void hook_pfree_pplist_inject_cleanup()
+{
+    __asm("mov esi, %0\n"::"m"(allocated_pplist_copy));
+    __asm("call %0\n"::"a"(pplist_reset));
+
+    real_pfree_pplist_inject_cleanup();
+}
+
 /* hook is installed in stage increment function */
 void (*real_pfree_cleanup)();
 void hook_pfree_cleanup()
@@ -1841,40 +1931,41 @@ void hook_pfree_cleanup()
     __asm("lea esi, dword ptr [esi+ebx]\n");
     __asm("push esi\n");
     __asm("push edi\n");
-	
-	/* compute powerpoints before cleanup */
-	__asm("mov eax, dword ptr [edi-0x38]\n"); //music id (TODO: check offset dans usaneko->kaimei)
-	__asm("push 0\n");
-	__asm("push eax\n");	
-	__asm("mov al, byte ptr [edi-0x36]\n"); //sheet id (TODO: check que c'est bien 0x36 et pas 0x35)
+    //TODO: FILTRER MUSIC ID SUPERIEUR A 4000
+    //TODO: EST-CE QU'ON FILTRE LES QUICK RETIRE
+    /* compute powerpoints before cleanup */
+    __asm("mov eax, dword ptr [edi-0x38]\n"); //music id (TODO: check offset dans usaneko->kaimei)
+    __asm("push 0\n");
+    __asm("push eax\n");
+    __asm("mov al, byte ptr [edi-0x36]\n"); //sheet id (TODO: check que c'est bien 0x36 et pas 0x35)
     __asm("call %0\n"::"b"(popn22_get_chart_level));
-	__asm("add esp, 8\n");	
+    __asm("add esp, 8\n");
     __asm("mov bl, byte ptr [edi+0x24]\n"); //medal (TODO: check offset dans usaneko->kaimei)
-	
-	/* push "is full combo" */
-	__asm("cmp bl, 8\n");
-	__asm("setae dl\n");
-	__asm("movzx ecx, dl\n");
-	__asm("push ecx\n");
-	
-	/* push "is clear" */
-	__asm("cmp bl, 4\n");
-	__asm("setae dl\n");
-	__asm("movzx ecx, dl\n");
-	__asm("push ecx\n");
 
-	__asm("mov ecx, eax\n"); //diff level
-	__asm("mov eax, dword ptr [edi]\n"); //score
-	__asm("call %0\n"::"b"(popn22_get_powerpoints));
-	__asm("mov %0, eax\n":"=a"(g_power_point_value):);
-	//__asm("call %0\n"::"r"(update_pplist));
-	
-	/* can finally cleanup score */
-	__asm("pop edi\n");
-	__asm("pop esi\n");
+    /* push "is full combo" */
+    __asm("cmp bl, 8\n");
+    __asm("setae dl\n");
+    __asm("movzx ecx, dl\n");
+    __asm("push ecx\n");
+
+    /* push "is clear" */
+    __asm("cmp bl, 4\n");
+    __asm("setae dl\n");
+    __asm("movzx ecx, dl\n");
+    __asm("push ecx\n");
+
+    __asm("mov ecx, eax\n"); //diff level
+    __asm("mov eax, dword ptr [edi]\n"); //score
+    __asm("call %0\n"::"b"(popn22_get_powerpoints));
+    __asm("mov %0, eax\n":"=a"(g_power_point_value):);
+    __asm("call %0\n"::"a"(pplist_update));
+
+    /* can finally cleanup score */
+    __asm("pop edi\n");
+    __asm("pop esi\n");
     __asm("mov ecx, 0x98");
     __asm("rep movsd");
-	__asm("pop edx");
+    __asm("pop edx");
     __asm("pop eax");
     __asm("pop edi");
     __asm("pop esi");
@@ -1894,7 +1985,7 @@ void hook_pfree_cleanup_simple()
     __asm("lea esi, dword ptr [esi+ebx]\n");
     __asm("mov ecx, 0x98");
     __asm("rep movsd");
-	__asm("pop edx");
+    __asm("pop edx");
     __asm("pop ebx");
     __asm("pop eax");
     __asm("pop edi");
@@ -1938,7 +2029,7 @@ static bool patch_pfree() {
             offset_from_base = 0x54;
             offset_from_stage1[0] = 0x04;
             offset_from_stage1[1] = 0x05;
-			simple = true;
+            simple = true;
             goto pfree_apply;
         }
         uint32_t child_fun_rel = *(uint32_t *) ((int64_t)data + offset - 0x04);
@@ -1988,19 +2079,20 @@ pfree_apply:
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
         /* replace stage number increment with a score cleanup function */
-		if ( simple )
-		{
-			MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup_simple,
-						(void **)&real_pfree_cleanup);
+        if ( simple )
+        {
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup_simple,
+                        (void **)&real_pfree_cleanup);
             LOG("popnhax: premium free enabled (WARN: no power points fix)\n");
-			return true;
-		}
+            return true;
+        }
 
+        /* compute and save power points to g_pplist before cleaning up memory zone */
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup,
                      (void **)&real_pfree_cleanup);
     }
 
-	/* fix power points */
+    /* fix power points */
     {
         int64_t pattern_offset = search(data, dllSize, "\x8A\xD8\x8B\x44\x24\x0C\xE8", 7, 0);
         if (pattern_offset == -1) {
@@ -2020,7 +2112,51 @@ pfree_apply:
 
         popn22_get_powerpoints = (void(*)()) (data + pattern_offset);
     }
-	//
+    /* init pp_list */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x6B\xD2\x64\x2B\xCA\x51\x50\x68", 8, 0);
+        if (pattern_offset == -1) {
+        LOG("popnhax: pfree: cannot find power point load function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x1A;
+
+        /* copy power point list to g_pplist on profile load and init g_pplist_idx */
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_init,
+                     (void **)&real_pfree_pplist_init);
+    }
+
+    /* inject pp_list at end of credit */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x8B\x74\x24\x3C\x66\x8B\x04\x9E", 8, 0);
+        if (pattern_offset == -1) {
+        LOG("popnhax: pfree: cannot find end of credit power point handling function (1)\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
+
+        /* make power point list pointers point to g_pplist at the end of processing */
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_inject,
+                     (void **)&real_pfree_pplist_inject);
+    }
+
+    /* restore pp_list pointer so that it is freed at end of credit */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x7E\x04\x2B\xC1\x8B\xF8\x3B\xF5", 8, 0);
+        if (pattern_offset == -1) {
+        LOG("popnhax: pfree: cannot find end of credit power point handling function (2)\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x06;
+
+        /* make power point list pointers point to g_pplist at the end of processing */
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_inject_cleanup,
+                     (void **)&real_pfree_pplist_inject_cleanup);
+    }
+
     LOG("popnhax: premium free enabled\n");
 
     return true;
