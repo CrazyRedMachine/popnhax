@@ -1768,14 +1768,13 @@ static bool force_show_fast_slow() {
 
 
 void (*real_show_detail_result)();
-void hook_show_detail_result()
-{
+void hook_show_detail_result(){
     static uint32_t last_call = 0;
 
     __asm("push eax\n");
     __asm("push edx\n");
 
-    uint32_t curr_time = timeGetTime();    //will clobber eax
+    uint32_t curr_time = timeGetTime();  //will clobber eax
     if ( curr_time - last_call > 10000 ) //will clobber edx
     {
         last_call = curr_time;
@@ -1803,7 +1802,7 @@ static bool force_show_details_result() {
         LOG("popnhax: show details: cannot find result screen button check (1)\n");
         return false;
     }
-//+0x26
+
     {
         int64_t pattern_offset = search(data, 0x50, "\x84\xC0", 2, first_loc);
         if (pattern_offset == -1) {
@@ -1823,17 +1822,17 @@ static bool force_show_details_result() {
 }
 
 
-uint8_t g_pfree_song_offset = 0x54;
+uint8_t  g_pfree_song_offset   = 0x54;
 uint16_t g_pfree_song_offset_2 = 0x558;
 void (*popn22_get_powerpoints)();
 void (*popn22_get_chart_level)();
 
 /* POWER POINTS LIST FIX */
-uint8_t g_pplist_idx = 0;   // also serves as elem count
-int32_t g_pplist[20] = {0}; // 20 elements for power_point_list (always ordered)
-int32_t g_power_point_value = -1; // latest value (hook uses update_pplist() to add to g_pplist array)
-int32_t *g_real_pplist; // list that the game retrieves from server
-uint32_t *allocated_pplist_copy;
+uint8_t   g_pplist_idx = 0;         // also serves as elem count
+int32_t   g_pplist[20] = {0};       // 20 elements for power_point_list (always ordered)
+int32_t   g_power_point_value = -1; // latest value (hook uses update_pplist() to add to g_pplist array)
+int32_t  *g_real_pplist;            // list that the game retrieves from server
+uint32_t *allocated_pplist_copy;    // pointer to the location where the game's pp_list modified copy resides
 
 void pplist_reset()
 {
@@ -1842,9 +1841,8 @@ void pplist_reset()
         g_pplist_idx = 0;
 }
 
-/* add new computed value to the circular buffer */
-void pplist_update()
-{
+/* add new value (stored in g_power_point_value) to g_pp_list */
+void pplist_update(){
     if ( g_power_point_value == -1 )
         return;
 
@@ -1861,8 +1859,8 @@ void pplist_update()
     g_power_point_value = -1;
 }
 
-void pplist_init()
-{
+/* copy real pp_list to our local copy and check length */
+void pplist_retrieve(){
     for (int i = 0; i < 20; i++)
     {
         g_pplist[i] = g_real_pplist[i];
@@ -1880,21 +1878,19 @@ void pplist_init()
 }
 
 void (*real_pfree_pplist_init)();
-void hook_pfree_pplist_init()
-{
+void hook_pfree_pplist_init(){
     __asm("push eax");
     __asm("push ebx");
     __asm("lea ebx, [eax+0x1C4]\n");
     __asm("mov %0, ebx\n":"=m"(g_real_pplist));
-    __asm("call %0\n"::"a"(pplist_init));
+    __asm("call %0\n"::"a"(pplist_retrieve));
     __asm("pop ebx");
     __asm("pop eax");
     real_pfree_pplist_init();
 }
 
 void (*real_pfree_pplist_inject)();
-void hook_pfree_pplist_inject()
-{
+void hook_pfree_pplist_inject(){
     __asm("lea esi, %0\n"::"m"(g_pplist[g_pplist_idx]));
     __asm("mov dword ptr [esp+0x40], esi\n");
 
@@ -1925,41 +1921,48 @@ void hook_pfree_cleanup()
     __asm("push edi\n");
     __asm("push eax\n");
     __asm("push edx\n");
-    __asm("movsx eax, byte ptr [%0]\n"::"m"(g_pfree_song_offset));
-    __asm("movsx ebx, word ptr [%0]\n"::"m"(g_pfree_song_offset_2));
+    __asm("movzx eax, byte ptr [%0]\n"::"m"(g_pfree_song_offset));
+    __asm("movzx ebx, word ptr [%0]\n"::"m"(g_pfree_song_offset_2));
     __asm("lea edi, dword ptr [esi+eax]\n");
     __asm("lea esi, dword ptr [esi+ebx]\n");
     __asm("push esi\n");
     __asm("push edi\n");
-    //TODO: FILTRER MUSIC ID SUPERIEUR A 4000
-    //TODO: EST-CE QU'ON FILTRE LES QUICK RETIRE
+
     /* compute powerpoints before cleanup */
-    __asm("mov eax, dword ptr [edi-0x38]\n"); //music id (TODO: check offset dans usaneko->kaimei)
+    __asm("sub eax, 0x20\n"); // eax still contains g_pfree_song_offset
+    __asm("neg eax\n");
+    __asm("lea eax, dword ptr [edi+eax]\n");
+    __asm("mov eax, dword ptr [eax]\n"); // music id (edi-0x38 or edi-0x34 depending on game)
+
+    __asm("cmp ax, 0xBB8\n"); // skip if music id is >= 3000 (cs_omni and user customs)
+    __asm("jae cleanup_score\n");
+
     __asm("push 0\n");
     __asm("push eax\n");
-    __asm("mov al, byte ptr [edi-0x36]\n"); //sheet id (TODO: check que c'est bien 0x36 et pas 0x35)
+    __asm("shr eax, 0x10\n"); //sheet id in al
     __asm("call %0\n"::"b"(popn22_get_chart_level));
     __asm("add esp, 8\n");
-    __asm("mov bl, byte ptr [edi+0x24]\n"); //medal (TODO: check offset dans usaneko->kaimei)
+    __asm("mov bl, byte ptr [edi+0x24]\n"); // medal
 
-    /* push "is full combo" */
+    /* push "is full combo" param */
     __asm("cmp bl, 8\n");
     __asm("setae dl\n");
     __asm("movzx ecx, dl\n");
     __asm("push ecx\n");
 
-    /* push "is clear" */
+    /* push "is clear" param */
     __asm("cmp bl, 4\n");
     __asm("setae dl\n");
     __asm("movzx ecx, dl\n");
     __asm("push ecx\n");
 
-    __asm("mov ecx, eax\n"); //diff level
-    __asm("mov eax, dword ptr [edi]\n"); //score
+    __asm("mov ecx, eax\n"); // diff level
+    __asm("mov eax, dword ptr [edi]\n"); // score
     __asm("call %0\n"::"b"(popn22_get_powerpoints));
     __asm("mov %0, eax\n":"=a"(g_power_point_value):);
     __asm("call %0\n"::"a"(pplist_update));
 
+    __asm("cleanup_score:\n");
     /* can finally cleanup score */
     __asm("pop edi\n");
     __asm("pop esi\n");
@@ -1997,6 +2000,7 @@ static bool patch_pfree() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
     bool simple = false;
+    pplist_reset();
 
     /* stop stage counter (2 matches, 1st one is the good one) */
     {
@@ -2064,8 +2068,8 @@ static bool patch_pfree() {
     }
 
 pfree_apply:
-    g_pfree_song_offset = offset_from_base;
-    g_pfree_song_offset_2 = *((uint16_t*)offset_from_stage1);
+    g_pfree_song_offset    = offset_from_base;
+    g_pfree_song_offset_2  = *((uint16_t*)offset_from_stage1);
     g_pfree_song_offset_2 += offset_from_base;
 
     /* cleanup score and stats */
