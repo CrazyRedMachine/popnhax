@@ -4838,6 +4838,69 @@ bool patch_survival_spicy()
     return true;
 }
 
+void (*skip_convergence_value_get_score)();
+void (*real_convergence_value_compute)();
+void hook_convergence_value_compute()
+{
+    __asm("push eax\n");
+    __asm("mov eax, dword ptr [eax]\n"); // music id (edi-0x38 or edi-0x34 depending on game)
+    __asm("cmp ax, 0xBB8\n"); // skip if music id is >= 3000 (cs_omni and user customs)
+    __asm("jae force_convergence_value\n");
+    __asm("pop eax\n");
+    __asm("jmp %0\n"::"m"(real_convergence_value_compute));
+    __asm("force_convergence_value:\n");
+    __asm("pop eax\n");
+    __asm("xor eax, eax\n");
+    __asm("jmp %0\n"::"m"(skip_convergence_value_get_score));
+}
+
+bool patch_db_power_points()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    int64_t child_fun_loc = 0;
+    {
+        int64_t offset = search(data, dllSize, "\x8D\x46\xFF\x83\xF8\x0A\x0F", 7, 0);
+        if (offset == -1) {
+        #if DEBUG == 1
+            LOG("popnhax: patch_db: failed to retrieve struct size and offset\n");
+        #endif
+            return false;
+        }
+        uint32_t child_fun_rel = *(uint32_t *) ((int64_t)data + offset - 0x04);
+        child_fun_loc = offset + child_fun_rel;
+    }
+
+    {
+        int64_t pattern_offset = search(data, 0x40, "\x8d\x74\x01", 3, child_fun_loc);
+        if (pattern_offset == -1) {
+            LOG("popnhax: patch_db: failed to retrieve offset from base\n");
+            g_pfree_song_offset = 0x54; // best effort
+            return false;
+        }
+
+        g_pfree_song_offset = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
+    }
+
+    /* Adapt convergence value computation (skip cs_omni and customs) */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x75\x11\x8D\x44\x24\x38", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: patch_db: cannot find convergence value computation\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x08;
+
+        skip_convergence_value_get_score = (void(*)()) (patch_addr + 0x05);
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_convergence_value_compute,
+                      (void **)&real_convergence_value_compute);
+    }
+
+    return true;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -5121,6 +5184,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (config.patch_db) {
             LOG("popnhax: patching songdb\n");
             /* must be called after force_datecode */
+            patch_db_power_points();
             patch_database(config.force_unlocks);
         }
 
