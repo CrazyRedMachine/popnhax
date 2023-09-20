@@ -4854,6 +4854,17 @@ void hook_convergence_value_compute()
     __asm("jmp %0\n"::"m"(skip_convergence_value_get_score));
 }
 
+void (*skip_pp_list_elem)();
+void (*real_pp_increment_compute)();
+void hook_pp_increment_compute()
+{
+    __asm("cmp ecx, 0xBB8\n"); // skip if music id is >= 3000 (cs_omni and user customs)
+    __asm("jb process_pp_elem\n");
+    __asm("jmp %0\n"::"m"(skip_pp_list_elem));
+    __asm("process_pp_elem:\n");
+    __asm("jmp %0\n"::"m"(real_pp_increment_compute));
+}
+
 bool patch_db_power_points()
 {
     DWORD dllSize = 0;
@@ -4896,6 +4907,28 @@ bool patch_db_power_points()
         skip_convergence_value_get_score = (void(*)()) (patch_addr + 0x05);
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_convergence_value_compute,
                       (void **)&real_convergence_value_compute);
+    }
+
+    /* skip cs_omni and customs in new stages pplist */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x8A\x1E\x6A\x00\x51\xE8", 6, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: patch_db: cannot find pp increment computation\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x02;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_pp_increment_compute,
+                      (void **)&real_pp_increment_compute);
+
+        int64_t jump_addr_offset = search(data, dllSize, "\x8B\x54\x24\x5C\x0F\xB6\x42\x0E\x45", 9, 0);
+        if (jump_addr_offset == -1) {
+            LOG("popnhax: patch_db: cannot find pp increment computation next iter\n");
+            return false;
+        }
+        skip_pp_list_elem = (void(*)()) ((int64_t)data + jump_addr_offset);
+
     }
 
     return true;
