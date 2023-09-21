@@ -279,6 +279,12 @@ void omnimix_patch_jbx() {
     real_omnimix_patch_jbx();
 }
 
+/* dummy function to replace real one when not found */
+bool is_normal_mode_best_effort(){
+    return true;
+}
+bool (*popn22_is_normal_mode)() = is_normal_mode_best_effort;
+
 uint32_t g_startsong_addr = 0;
 uint32_t g_transition_addr = 0;
 uint32_t g_stage_addr = 0;
@@ -299,10 +305,21 @@ void quickexit_screen_transition()
     else if (g_return_to_song_select)
     {
         __asm("mov dword ptr [edi+0x30], 0x17\n");
-        if (g_pfree_mode)
+
+        __asm("push eax");
+        __asm("call %0"::"a"(popn22_is_normal_mode));
+        __asm("test al,al");
+        __asm("pop eax");
+        __asm("je skip_change_flag");
+
+        if ( g_pfree_mode )
+        {
             g_return_to_song_select = false;
+        }
         //flag is set back to false in hook_stage_increment otherwise
     }
+
+    __asm("skip_change_flag:");
     g_end_session = false;
     real_screen_transition();
 }
@@ -507,8 +524,18 @@ void quickexit_game_loop()
     /* numpad 8 is pressed: quick retry if pfree is active */
     use_sp_flg = 0;
 
-    if (!g_pfree_mode)
+    __asm("push eax");
+    __asm("call %0"::"a"(popn22_is_normal_mode));
+    __asm("test al,al");
+    __asm("pop eax");
+    __asm("je skip_pfree_check");
+
+    if ( !g_pfree_mode )
+    {
+        __asm("skip_pfree_check:");
         __asm("jmp call_real\n");
+    }
+
     g_return_to_options = true;
     /* numpad 7 or 9 is pressed */
     __asm("leave_song:\n");
@@ -555,8 +582,17 @@ void quickexit_result_loop()
     __asm("cmp bl, 8\n");
     __asm("jne call_real_result\n");
 
-    if (!g_pfree_mode)
+    __asm("push eax");
+    __asm("call %0"::"a"(popn22_is_normal_mode));
+    __asm("test al,al");
+    __asm("pop eax");
+    __asm("je skip_quickexit_pfree_check");
+
+    if ( !g_pfree_mode )
+    {
+        __asm("skip_quickexit_pfree_check:");
         __asm("jmp call_real_result\n");
+    }
 
     g_return_to_options = true; //transition screen hook will catch it
     __asm("jmp call_real_result\n");
@@ -639,8 +675,17 @@ void hook_stage_update()
     __asm("lea ebx, [ebx+0xC]\n");
     __asm("mov %0, ebx\n":"=b"(g_transition_addr): :);
 
-    if (!g_pfree_mode)
+    __asm("push eax");
+    __asm("call %0"::"a"(popn22_is_normal_mode));
+    __asm("test al,al");
+    __asm("pop eax");
+    __asm("je skip_stage_update_pfree_check");
+
+    if ( !g_pfree_mode )
+    {
+        __asm("skip_stage_update_pfree_check:");
         real_stage_update();
+    }
 }
 
 /* this hook is installed only when back_to_song_select is enabled and pfree is not */
@@ -1917,6 +1962,12 @@ void hook_pfree_pplist_inject_cleanup()
 void (*real_pfree_cleanup)();
 void hook_pfree_cleanup()
 {
+    __asm("push eax");
+    __asm("call %0"::"a"(popn22_is_normal_mode));
+    __asm("test al,al");
+    __asm("pop eax");
+    __asm("je skip_pfree_cleanup");
+
     __asm("push esi\n");
     __asm("push edi\n");
     __asm("push eax\n");
@@ -1972,11 +2023,23 @@ void hook_pfree_cleanup()
     __asm("pop eax");
     __asm("pop edi");
     __asm("pop esi");
+    __asm("jmp cleanup_end");
+
+    __asm("skip_pfree_cleanup:\n");
+    real_pfree_cleanup();
+
+    __asm("cleanup_end:\n");
 }
 
 /* hook without the power point fixes (eclale best effort) */
 void hook_pfree_cleanup_simple()
 {
+    __asm("push eax");
+    __asm("call %0"::"a"(popn22_is_normal_mode));
+    __asm("test al,al");
+    __asm("pop eax");
+    __asm("je skip_pfree_cleanup_simple");
+
     __asm("push esi\n");
     __asm("push edi\n");
     __asm("push eax\n");
@@ -1994,6 +2057,9 @@ void hook_pfree_cleanup_simple()
     __asm("pop edi");
     __asm("pop esi");
     __asm("ret");
+
+    __asm("skip_pfree_cleanup_simple:\n");
+    real_pfree_cleanup();
 }
 
 static bool patch_pfree() {
@@ -2001,6 +2067,18 @@ static bool patch_pfree() {
     char *data = getDllData(g_game_dll_fn, &dllSize);
     bool simple = false;
     pplist_reset();
+
+    /* retrieve is_normal_mode function */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: pfree: cannot find is_normal_mode function, fallback to best effort (active in all modes)\n");
+        }
+        else
+        {
+            popn22_is_normal_mode = (bool(*)()) (data + pattern_offset + 0x0A);
+        }
+    }
 
     /* stop stage counter (2 matches, 1st one is the good one) */
     {
