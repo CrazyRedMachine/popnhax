@@ -2227,6 +2227,13 @@ pfree_apply:
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_inject,
                      (void **)&real_pfree_pplist_inject);
     }
+    /* prevent crash when playing only customs in a credit */
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\x0F\x8E\x5C\xFF\xFF\xFF\xEB\x04", 8, 6, "\x90\x90", 2))
+        {
+            LOG("popnhax: pfree: cannot patch end list pointer\n");
+        }
+    }
 
     /* restore pp_list pointer so that it is freed at end of credit */
     {
@@ -4908,6 +4915,26 @@ void hook_pp_increment_compute()
     __asm("jmp %0\n"::"m"(real_pp_increment_compute));
 }
 
+static bool patch_db_fix_cursor(){
+    /* bypass song id sanitizer */
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\x0F\xB7\x06\x66\x85\xC0\x7C\x1C", 8, -5, "\x90\x90\x90\x90\x90", 5))
+        {
+            LOG("popnhax: patch_db: cannot fix cursor\n");
+            return false;
+        }
+    }
+    /* skip 2nd check */
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\x0F\xB7\x06\x66\x85\xC0\x7C\x1C", 8, 0x1A, "\xEB", 1))
+        {
+            LOG("popnhax: patch_db: cannot fix cursor (2)\n");
+            return false;
+        }
+    }
+    return true;
+}
+
 bool patch_db_power_points()
 {
     DWORD dllSize = 0;
@@ -5308,6 +5335,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             LOG("popnhax: patching songdb\n");
             /* must be called after force_datecode */
             patch_db_power_points();
+            patch_db_fix_cursor();
             patch_database(config.force_unlocks);
         }
 
