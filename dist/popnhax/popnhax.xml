@@ -20,14 +20,6 @@
     <!-- Force skip menu and long note tutorials without a card -->
     <skip_tutorials __type="bool">0</skip_tutorials>
 
-  <!-- Default option behavior -->
-    <!-- Force full options by default (useful when no numpad is available) -->
-    <force_full_opt __type="bool">0</force_full_opt>
-    <!-- Guide SE defaults to OFF (useful for Battle mode) -->
-    <guidese_off __type="bool">0</guidese_off>
-    <!-- All net Ojama default to OFF (useful for Local mode) -->
-    <netvs_off __type="bool">0</netvs_off>
-
   <!-- Stage management -->
     <!-- Premium free (unlimited stages per credit) -->
     <pfree __type="bool">0</pfree>
@@ -49,22 +41,27 @@
     <!-- Display offset adjust value on score result screen (requires hidden_is_offset, won't be sent over network) -->
     <show_offset __type="bool">0</show_offset>
 
-  <!-- Hi-speed -->
+  <!-- Option patches -->
     <!-- Auto set hi-speed to match previously set BPM (0: off, 1: target higher bpm on soflan, 2: target lower bpm on soflan, 3: target longest bpm on soflan) -->
     <hispeed_auto __type="u8">0</hispeed_auto>
     <!-- Default target BPM, 0 to disable (requires hispeed_auto) -->
     <!-- Note: target is still updated when manually changing hi-speed (except soflan and "?" charts) -->
     <hispeed_default_bpm __type="u16">0</hispeed_default_bpm>
 
-  <!-- Gauge options -->
     <!-- IIDX-like hard gauge (start with full gauge, instant fail if gauge drops to 0) -->
     <!-- Gauge details: increment: +0.1% for each cool/great/good (like spicy gauge), decrement: -9% for each bad, or -4.5% if gauge <=30% ) -->
     <iidx_hard_gauge __type="bool">0</iidx_hard_gauge>
+    <!-- Force full options by default (useful when no numpad is available) -->
+    <force_full_opt __type="bool">0</force_full_opt>
+    <!-- Guide SE defaults to OFF (useful for Battle mode) -->
+    <guidese_off __type="bool">0</guidese_off>
+    <!-- All net Ojama default to OFF (useful for Local mode) -->
+    <netvs_off __type="bool">0</netvs_off>
 
   <!-- Result screen display patches -->
-    <!-- Display details on result screen by default (no need to press yellow button) -->
+    <!-- Details on result screen by default (no need to press yellow button) -->
     <show_details __type="bool">0</show_details>
-    <!-- Display fast/slow counter on result screen even on judge+ off/lost/panic -->
+    <!-- Fast/Slow counter on result screen even on judge+ off/lost/panic -->
     <show_fast_slow __type="bool">0</show_fast_slow>
 
   <!-- Input polling -->
