@@ -132,6 +132,10 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, skip_tutorials
                  "/popnhax/skip_tutorials")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_full_opt,
                  "/popnhax/force_full_opt")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, netvs_off,
+                 "/popnhax/netvs_off")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, guidese_off,
+                 "/popnhax/guidese_off")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_db,
                  "/popnhax/patch_db")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_expansions,
@@ -3521,45 +3525,6 @@ void patch_numpad0_options() {
     real_numpad0_options();
 }
 
-static bool patch_options()
-{
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-    /* starting value */
-    {
-        int64_t pattern_offset = search(data, dllSize, "\xFF\xD0\xB8\x01\x00\x00\x00\x01\x46\x34\x01\x46\x38\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x04\x8B\x54\x24\x08\x89\x48\x20\x89\x50\x24\xC7\x40\x2C\x00\x00\x00\x00\xC6\x40\x30\x01\xC2\x08\x00\xCC\xCC\xCC\xCC\x83\xEC\x18\x33\xC0", 60, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: always full options: cannot find function call\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_song_options,
-                      (void **)&real_song_options);
-
-    }
-    /* prevent switching with numpad 0 */
-    {
-        int64_t pattern_offset = search(data, dllSize, "\xC6\x85\x1F\x0A\x00\x00\x00\xC6\x85\x20\x0A\x00\x00\x00\xE9\x3E\x01\x00\x00\x33\xC9", 21, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: always full options: cannot find numpad0 check\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x22;
-
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_numpad0_options,
-                      (void **)&real_numpad0_options);
-
-    }
-
-    LOG("popnhax: always display full options\n");
-    return true;
-
-}
-
-
 /* r2nk226 */
 
 
@@ -5012,6 +4977,48 @@ bool patch_db_power_points()
     return true;
 }
 
+static bool option_full()
+{
+    /* patch default values in memory init function */
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\x88\x48\x1A\x88\x48\x1B\x88\x48\x1C", 9, 0, "\xC7\x40\x1A\x00\x00\x01\x00\x90\x90", 9))
+        {
+            LOG("popnhax: cannot set full options by default\n");
+            return false;
+        }
+    }
+
+    LOG("popnhax: always display full options\n");
+    return true;
+}
+
+static bool option_guide_se_off(){
+    /* set guide SE OFF by default in all modes */
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\xC6\x40\x24\x01\x88\x48\x25", 7, 3, "\x00", 1)   /* unilab */
+         && !find_and_patch_hex(g_game_dll_fn, "\x89\x48\x20\x88\x48\x24\xC3\xCC", 8, 3, "\xC6\x40\x24\x01\xC3", 5) ) /* usaneko-kaimei */
+        {
+            LOG("popnhax: guidese_off: cannot set guide SE off by default\n");
+            return false;
+        }
+    }
+    LOG("popnhax: guidese_off: Guide SE OFF by default\n");
+    return true;
+}
+
+static bool option_net_ojama_off(){
+    /* set netvs ojama OFF by default */
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\xC6\x40\xFD\x00\xC6\x00\x01", 7, 6, "\x00", 1))
+        {
+            LOG("popnhax: netvs_off: cannot set net ojama off by default\n");
+            return false;
+        }
+    }
+    LOG("popnhax: netvs_off: net ojama OFF by default\n");
+    return true;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -5115,6 +5122,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 {
                     LOG("popnhax: multiboot: auto disable omnimix patch (not compatible)\n");
                     config.patch_db = false;
+                }
+                if (config.guidese_off && ( strcmp(config.force_datecode,"2016121400") < 0 ) )
+                {
+                    LOG("popnhax: multiboot: auto disable Guide SE patch (not compatible)\n");
+                    config.guidese_off = false;
                 }
             }
         }
@@ -5310,7 +5322,13 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.force_full_opt)
-            patch_options();
+            option_full();
+
+        if (config.netvs_off)
+            option_net_ojama_off();
+
+        if (config.guidese_off)
+            option_guide_se_off();
 
         if (config.fps_uncap)
             patch_fps_uncap();

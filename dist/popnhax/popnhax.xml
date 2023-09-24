@@ -19,8 +19,14 @@
     <freeze_timer __type="bool">0</freeze_timer>
     <!-- Force skip menu and long note tutorials without a card -->
     <skip_tutorials __type="bool">0</skip_tutorials>
-    <!-- Force full options to display (useful when no numpad is available) -->
+
+  <!-- Default option behavior -->
+    <!-- Force full options by default (useful when no numpad is available) -->
     <force_full_opt __type="bool">0</force_full_opt>
+    <!-- Guide SE defaults to OFF (useful for Battle mode) -->
+    <guidese_off __type="bool">0</guidese_off>
+    <!-- All net Ojama default to OFF (useful for Local mode) -->
+    <netvs_off __type="bool">0</netvs_off>
 
   <!-- Stage management -->
     <!-- Premium free (unlimited stages per credit) -->
