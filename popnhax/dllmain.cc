@@ -4468,7 +4468,7 @@ void hook_increase_hispeed()
     }
 
     //increase hispeed
-    __asm("mov ecx, dword ptr[edi]\n");
+    __asm("movzx ecx, word ptr[edi]\n");
     __asm("inc ecx\n");
     __asm("cmp ecx, 0x65\n");
     __asm("jb skip_hispeed_rollover_high\n");
@@ -4509,7 +4509,7 @@ void hook_decrease_hispeed()
     }
 
     //decrease hispeed
-    __asm("mov ecx, dword ptr[edi]\n");
+    __asm("movzx ecx, word ptr[edi]\n");
     __asm("dec ecx\n");
     __asm("cmp ecx, 0x0A\n");
     __asm("jge skip_hispeed_rollover_low\n");
@@ -4700,6 +4700,17 @@ void hook_survival_gauge_medal()
     real_survival_gauge_medal();
 }
 
+void (*real_get_retire_timer)();
+void hook_get_retire_timer()
+{
+    if ( g_hard_gauge_selected )
+    {
+        __asm("mov eax, 0xFFFF\n");
+        __asm("ret\n");
+    }
+    real_get_retire_timer();
+}
+
 bool patch_hard_gauge_survival(uint8_t severity)
 {
     DWORD dllSize = 0;
@@ -4725,6 +4736,21 @@ bool patch_hard_gauge_survival(uint8_t severity)
 
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_check_survival_gauge,
                       (void **)&real_check_survival_gauge);
+    }
+
+    /* change get_retire_timer function behavior (fix bug with song not exiting on empty gauge when paseli is on) */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x3D\xB0\x04\x00\x00\x7C", 6, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: survival gauge: cannot find get retire timer function\n");
+            return false;
+        }
+
+        int64_t fun_rel = *(int32_t *)(data + pattern_offset - 0x04 ); // function call is just before our pattern
+        uint64_t patch_addr = (int64_t)data + pattern_offset + fun_rel;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_get_retire_timer,
+                      (void **)&real_get_retire_timer);
     }
 
     /* hook commit option to flag hard gauge being selected */
