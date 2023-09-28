@@ -4694,6 +4694,29 @@ void hook_survival_gauge_medal()
     {
         __asm("cmp eax, 0\n"); //empty gauge should still fail
         __asm("jz skip_force_clear\n");
+
+        /* fix gauge ( [0;1023] -> [725;1023] ) */
+        __asm("push eax");
+        __asm("push ebx");
+        __asm("push edx");
+        __asm("xor edx,edx");
+        __asm("mov eax, dword ptr [edi+4]");
+        __asm("cmp eax, 0x2B");
+        __asm("jl skip_sub");
+        __asm("sub eax, 0x2B");
+        __asm("skip_sub:");
+        __asm("mov bx, 3");
+        __asm("idiv bx");
+        __asm("add eax, 0x2D5"); //725
+        __asm("cmp eax, 0x3FF");
+        __asm("jle skip_trim");
+        __asm("mov eax, 0x3FF");
+        __asm("skip_trim:");
+        __asm("mov dword ptr [edi+4], eax");
+        __asm("pop edx");
+        __asm("pop ebx");
+        __asm("pop eax");
+
         __asm("jmp %0\n"::"m"(real_survival_gauge_medal_clear));
     }
     __asm("skip_force_clear:\n");
