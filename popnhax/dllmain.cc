@@ -3934,9 +3934,9 @@ const char menu_1[] = "--- Practice Mode ---";
 const char menu_2[] = "Scores are not recorded."; //NO CONTEST 表現がわからん
 const char menu_3[] = "REGUL SPEED (numpad4) >> %s";
 const char menu_4[] = "R-RANDOM (numpad6) >> %s";
-const char menu_5[] = "SPEED (numpad8) >> %s";
+const char menu_5[] = "SPEED (numpad5) >> %s";
 //const char menu_6[] = "menu display on/off (numpad9)";
-const char menu_7[] = "quick retry (numpad7)";
+const char menu_7[] = "quick retry (numpad8)";
 const char menu_8[] = "quick retire (numpad9)";
 const char menu_6[] = "quit pfree mode (numpad9)";
 const char menu_on[] = "ON";
@@ -3972,12 +3972,12 @@ void new_menu()
         flg_3 = menu_on;
     }
 
-    __asm("mov ecx, 8\n");
+    __asm("mov ecx, 5\n");
     __asm("call %0\n"::"a"(input_func));
     __asm("test al, al\n");
-    __asm("je SW_8\n");
+    __asm("je SW_5\n");
     speed++;
-    __asm("SW_8:\n");
+    __asm("SW_5:\n");
 
     __asm("mov eax, [%0]\n"::"a"(*g_rend_addr));
     __asm("cmp eax, 0\n");
