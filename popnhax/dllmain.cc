@@ -4701,17 +4701,48 @@ void hook_survival_gauge_medal()
         __asm("push edx");
         __asm("xor edx,edx");
         __asm("mov eax, dword ptr [edi+4]");
-        __asm("cmp eax, 0x2B");
-        __asm("jl skip_sub");
-        __asm("sub eax, 0x2B");
-        __asm("skip_sub:");
+
+            /* bigger interval for first bar */
+        __asm("cmp eax, 42");
+        __asm("jge skip_lower");
+        __asm("mov eax, 42");
+        __asm("skip_lower:");
+
+            /* tweak off by one/two values */
+        __asm("cmp eax, 297");
+        __asm("je decrease_once");
+        __asm("cmp eax, 298");
+        __asm("je decrease_twice");
+        __asm("cmp eax, 426");
+        __asm("je decrease_once");
+        __asm("cmp eax, 681");
+        __asm("je decrease_once");
+        __asm("cmp eax, 936");
+        __asm("je decrease_once");
+        __asm("cmp eax, 937");
+        __asm("je decrease_twice");
+
+        __asm("jmp no_decrease");
+
+        __asm("decrease_twice:");
+        __asm("dec eax");
+        __asm("decrease_once:");
+        __asm("dec eax");
+
+        __asm("no_decrease:");
+
+            /* perform ((gauge+99)/3) + 678 */
+        __asm("add eax, 99");
         __asm("mov bx, 3");
         __asm("idiv bx");
-        __asm("add eax, 0x2D5"); //725
-        __asm("cmp eax, 0x3FF");
+        __asm("add eax, 678");
+
+            /* higher cap value */
+        __asm("cmp eax, 1023");
         __asm("jle skip_trim");
-        __asm("mov eax, 0x3FF");
+        __asm("mov eax, 1023");
         __asm("skip_trim:");
+
         __asm("mov dword ptr [edi+4], eax");
         __asm("pop edx");
         __asm("pop ebx");
