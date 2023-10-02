@@ -2346,7 +2346,7 @@ static bool patch_quick_retire(bool pfree)
             return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x1D;
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x1A;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_button_loop,
                       (void **)&real_result_button_loop);
 
@@ -4438,8 +4438,8 @@ void hook_read_hispeed()
 
     g_hispeed_double = (double)g_target_bpm / (double)(*g_base_bpm_ptr/10.0);
     g_hispeed = (uint32_t)(g_hispeed_double+0.5); //rounding to nearest
-    if (g_hispeed > 0x64) g_hispeed = 0x0A;
-    if (g_hispeed < 0x0A) g_hispeed = 0x64;
+    if (g_hispeed > 0x64) g_hispeed = 0x64;
+    if (g_hispeed < 0x0A) g_hispeed = 0x0A;
 
     __asm("and edi, 0xFFFF0000\n");                   //keep existing popkun and hidden status values
     __asm("or edi, dword ptr[%0]\n"::"m"(g_hispeed)); //fix hispeed initial display on option screen
