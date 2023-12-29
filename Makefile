@@ -232,8 +232,8 @@ $$(dll_$1_$2_$3) $$(implib_$1_$2_$3):	$$(obj_$1_$2_$3) $$(abslib_$1_$2_$3) \
 	$(ccache) $$(toolchain_$1)gcc -shared $$(srcdir_$3)/$3.def \
 		-o $$(dll_$1_$2_$3) -Wl,--out-implib,$$(implib_$1_$2_$3) \
 		$$^ $$(ldflags_$3) $(optflags_$1)
-	strip -s $$(dll_$1_$2_$3)
-	ranlib $$(implib_$1_$2_$3)
+	$$(toolchain_$1)strip -s $$(dll_$1_$2_$3)
+	$$(toolchain_$1)ranlib $$(implib_$1_$2_$3)
 
 endef
 
@@ -248,7 +248,7 @@ exe_$1_$2_$3	:= $$(bindir_$1_$2)/$3.exe
 $$(exe_$1_$2_$3): $$(obj_$1_$2_$3) $$(abslib_$1_$2_$3) $$(absdpl_$1_$2_$3) \
 		| $$(bindir_$1_$2)
 	$(ccache) $$(toolchain_$1)gcc -o $$@ $$^ $$(ldflags_$3) $(optflags_$1)
-	strip -s $$@
+	$$(toolchain_$1)strip -s $$@
 
 endef
 
@@ -259,7 +259,7 @@ define t_import
 impdef_$1_$2_$3	?= imports/import_$1_$2_$3.def
 
 $$(bindir_$1_$2)/lib$3.a: $$(impdef_$1_$2_$3) | $$(bindir_$1_$2)
-	dlltool -l $$@ -d $$<
+	$$(toolchain_$1)dlltool -l $$@ -d $$<
 
 endef
 
