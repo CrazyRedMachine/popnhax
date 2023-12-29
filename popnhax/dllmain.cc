@@ -31,6 +31,8 @@
 
 #include "SearchFile.h"
 
+#define PROGRAM_VERSION "1.9c_rc1"
+
 const char *g_game_dll_fn = NULL;
 const char *g_config_fn   = NULL;
 FILE *g_log_fp = NULL;
@@ -2319,8 +2321,14 @@ static bool patch_quick_retire(bool pfree)
 
     /* instant exit with numpad 9 on result screen */
     {
-        int64_t pattern_offset = search(data, dllSize, "\xF8\x53\x55\x56\x57\x8B\xE9\x8B\x75\x00\x8B\x85", 12, 0);
+        int64_t first_loc = search(data, dllSize, "\xBF\x03\x00\x00\x00\x81\xC6", 7, 0);
 
+        if (first_loc == -1) {
+            LOG("popnhax: cannot retrieve result screen loop first loc\n");
+            return false;
+        }
+
+        int64_t pattern_offset = search(data, 0x50, "\x55\x8B\xEC\x83\xE4", 5, first_loc-0x50);
         if (pattern_offset == -1) {
             LOG("popnhax: cannot retrieve result screen loop\n");
             return false;
@@ -2332,7 +2340,7 @@ static bool patch_quick_retire(bool pfree)
             return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_loop,
                       (void **)&real_result_loop);
     }
@@ -2340,13 +2348,19 @@ static bool patch_quick_retire(bool pfree)
     /* no need to press red button when numpad 8 or 9 is pressed on result screen */
     {
         int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x75\x0F\x8B\x8D\x1C\x0A\x00\x00\xE8", 11, 0);
+        int adjust = 0;
 
         if (pattern_offset == -1) {
-            LOG("popnhax: cannot retrieve result screen button check\n");
-            return false;
+            /* fallback */
+            pattern_offset = search(data, dllSize, "\x09\x00\x84\xC0\x75\x0F\x8B\x8D", 8, 0);
+            adjust = 2;
+            if (pattern_offset == -1) {
+                LOG("popnhax: cannot retrieve result screen button check\n");
+                return false;
+            }
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x1A;
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x1A + adjust;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_button_loop,
                       (void **)&real_result_button_loop);
 
@@ -2356,7 +2370,7 @@ static bool patch_quick_retire(bool pfree)
 
     /* retrieve songstart function pointer for quick retry */
     {
-        int64_t pattern_offset = search(data, dllSize, "\xE9\x0C\x01\x00\x00\x8B\x85\x10\x0A\x00\x00", 11, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve song start function\n");
@@ -2396,7 +2410,7 @@ static bool patch_quick_retire(bool pfree)
 
     /* instant launch song with numpad 8 on option select (hold 8 during song for quick retry) */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x51\x50\x8B\x83\x0C\x0A\x00\x00\xEB\x09\x33\xD2", 12, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x8B\xF0\x83\x7E\x0C\x00\x0F\x84", 8, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve option screen loop\n");
@@ -2409,7 +2423,7 @@ static bool patch_quick_retire(bool pfree)
             return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 12 + 5 + 2;
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x0F;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen,
                       (void **)&real_option_screen);
     }
@@ -4564,7 +4578,7 @@ bool patch_hispeed_auto(uint8_t mode, uint16_t default_bpm)
     }
     /* write new hispeed according to target bpm */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x98\x50\x66\x8B\x85\x1A\x0A\x00\x00\x8B\xCF", 11, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x98\x50\x66\x8B\x85", 5, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot find hi-speed apply address\n");
             return false;
@@ -5134,6 +5148,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             LOG("cannot open popnhax.log for write, output to stderr only\n");
         }
+        LOG("== popnhax version " PROGRAM_VERSION " ==\n");
         LOG("popnhax: Initializing\n");
         if (MH_Initialize() != MH_OK) {
             LOG("Failed to initialize minhook\n");
