@@ -2432,41 +2432,53 @@ static bool patch_quick_retire(bool pfree)
     {
         /* go back to song select with numpad 9 on song option screen (before pressing yellow) */
         {
-            int64_t pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
+            int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0); //unilab
+            uint8_t adjust = 3;
+            if (pattern_offset == -1) {
+                /* fallback */
+                pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
+                adjust = 0;
+            }
 
             if (pattern_offset == -1) {
                 LOG("popnhax: back to song select: cannot retrieve option screen loop function\n");
                 return false;
             }
 
-            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            uint64_t patch_addr = (int64_t)data + pattern_offset - adjust;
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen,
                           (void **)&real_option_screen_later);
         }
         /* automatically leave option screen after numpad 9 press */
         {
-            int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x75\x63\x8B\x85\x10\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00", 18, 0);
+            int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00\xE8", 12, 0);
 
             if (pattern_offset == -1) {
                 LOG("popnhax: back to song select: cannot retrieve option screen loop function\n");
                 return false;
             }
 
-            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen_auto_leave,
                           (void **)&real_backtosongselect_option_screen_auto_leave);
         }
 
         /* go back to song select with numpad 9 on song option screen (after pressing yellow) */
         {
-            int64_t pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x38\x00\x75", 11, 0);
+            int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x38\x00\x75\x3D\x68", 10, 0); //unilab
+            uint8_t adjust = 3;
+            if (pattern_offset == -1) {
+                /* fallback */
+                pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x38\x00\x75", 11, 0);
+                adjust = 0;
+            }
 
             if (pattern_offset == -1) {
-                LOG("popnhax: quick retry: cannot retrieve option screen loop function\n");
+                LOG("popnhax: quick retry: cannot retrieve yellow option screen loop function\n");
                 return false;
             }
 
-            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            uint64_t patch_addr = (int64_t)data + pattern_offset - adjust;
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_yellow,
                           (void **)&real_option_screen_yellow);
         }
@@ -4080,7 +4092,7 @@ if (use_sp_flg){
         __asm("add esp, 0x0C\n");
     }
 
-    if (config.enhanced_polling_stats)
+    if (config.enhanced_polling && config.enhanced_polling_stats)
         enhanced_polling_stats_disp_sub();
 
     real_aging_loop();
@@ -4093,7 +4105,7 @@ static bool patch_practice_mode()
 
     /* AGING MODE to Practice Mode */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xEC\x40\x53\x56\x57", 6, 0);
+        int64_t pattern_offset = search(data, dllSize-0x100000, "\x83\xEC\x40\x53\x56\x57", 6, 0x100000);
 
         if (pattern_offset == -1) {
             LOG("popnhax: cannot retrieve aging loop\n");
@@ -4263,7 +4275,7 @@ static bool patch_enhanced_polling_stats()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xEC\x40\x53\x56\x57", 6, 0);
+        int64_t pattern_offset = search(data, dllSize-0x100000, "\x83\xEC\x40\x53\x56\x57", 6, 0x100000);
 
         if (pattern_offset == -1) {
             LOG("popnhax: enhanced_polling_stats: cannot retrieve aging loop\n");
