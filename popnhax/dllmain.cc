@@ -31,7 +31,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "1.9c_rc1"
+#define PROGRAM_VERSION "1.10.dev"
 
 const char *g_game_dll_fn = NULL;
 const char *g_config_fn   = NULL;
@@ -283,6 +283,441 @@ void omnimix_patch_jbx() {
     __asm("mov al, 'X'\n");
     __asm("mov byte [edi+4], al\n");
     real_omnimix_patch_jbx();
+}
+
+/*
+ * auto hi-speed
+ */
+bool g_longest_bpm_old_chart = false;
+bool g_bypass_hispeed = false; //bypass target update for mystery bpm and soflan songs
+bool g_mystery_bpm = false;
+bool g_soflan_retry = false;
+uint32_t g_hispeed = 0;
+uint32_t g_soflan_retry_hispeed = 0; //hispeed value that is temporary kept for quick retry on soflan songs
+uint32_t g_hispeed_addr = 0;
+uint32_t g_target_bpm = 0;
+uint16_t *g_base_bpm_ptr = 0; //will point to g_low_bpm or g_hi_bpm according to mode
+uint16_t g_low_bpm = 0;
+uint16_t g_hi_bpm = 0;
+uint16_t g_longest_bpm = 0;
+uint16_t g_low_bpm_ebp_offset = 0;
+unsigned char *g_chart_addr = 0;
+
+typedef struct chart_chunk_s {
+    uint32_t timestamp;
+    uint16_t operation;
+    uint16_t data;
+    uint32_t duration;
+} chart_chunk_t;
+#define CHART_OP_BPM 0x0445
+#define CHART_OP_END 0x0645
+
+typedef struct bpm_list_s {
+    uint16_t bpm;
+    uint32_t duration;
+    struct bpm_list_s *next;
+} bpm_list_t;
+
+static uint32_t add_duration(bpm_list_t *list, uint16_t bpm, uint32_t duration)
+{
+    if (list->bpm == 0)
+    {
+        list->bpm = bpm;
+        list->duration = duration;
+        return duration;
+    }
+
+    while (list->next != NULL)
+    {
+        if (list->bpm == bpm)
+        {
+            list->duration += duration;
+            return list->duration;
+        }
+        list = list->next;
+    }
+    //new entry
+    bpm_list_t *entry = (bpm_list_t *)malloc(sizeof(bpm_list_t));
+    entry->bpm = bpm;
+    entry->duration = duration;
+    entry->next = NULL;
+    list->next = entry;
+
+    return duration;
+}
+
+static void destroy_list(bpm_list_t *list)
+{
+    while (list != NULL)
+    {
+        bpm_list_t *tmp = list;
+        list = list->next;
+        free(tmp);
+    }
+}
+
+/* the goal is to set g_longest_bpm to the most used bpm from the chart present in memory at address g_chart_addr
+ */
+void compute_longest_bpm(){
+    chart_chunk_t* chunk = NULL;
+    unsigned char *chart_ptr = g_chart_addr;
+    int chunk_size = g_longest_bpm_old_chart? 8 : 12;
+    uint32_t prev_timestamp = 0x64; //game adds 0x64 to every timestamp of a chart upon loading
+    uint16_t prev_bpm = 0;
+
+    bpm_list_t *list = (bpm_list_t *)malloc(sizeof(bpm_list_t));
+    list->bpm = 0;
+    list->duration = 0;
+    list->next = NULL;
+
+    uint32_t max_duration = 0;
+    uint16_t longest_bpm = 0;
+    do {
+        chunk = (chart_chunk_t*) chart_ptr;
+
+        if ( chunk->operation == CHART_OP_BPM || chunk->operation == CHART_OP_END )
+        {
+            if (prev_bpm)
+            {
+                uint32_t bpm_dur = add_duration(list, prev_bpm, chunk->timestamp - prev_timestamp); //will add to existing entry or create a new one if not present
+                if (bpm_dur > max_duration)
+                {
+                    max_duration = bpm_dur;
+                    longest_bpm = prev_bpm;
+                }
+            }
+            prev_bpm = chunk->data;
+            prev_timestamp = chunk->timestamp;
+        }
+        chart_ptr += chunk_size;
+    } while ( chunk->operation != CHART_OP_END );
+
+    destroy_list(list);
+    g_longest_bpm = longest_bpm;
+}
+
+void (*real_set_hispeed)();
+void hook_set_hispeed()
+{
+    g_bypass_hispeed = false;
+    __asm("mov %0, eax\n":"=r"(g_hispeed_addr): :);
+    real_set_hispeed();
+}
+
+void (*real_retrieve_chart_addr)();
+void hook_retrieve_chart_addr()
+{
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("mov %0, esi\n":"=a"(g_chart_addr): :);
+    __asm("call %0\n"::"r"(compute_longest_bpm));
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+    real_retrieve_chart_addr();
+}
+void (*real_retrieve_chart_addr_old)();
+void hook_retrieve_chart_addr_old()
+{
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("mov %0, edi\n":"=a"(g_chart_addr): :);
+    __asm("call %0\n"::"r"(compute_longest_bpm));
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+    real_retrieve_chart_addr_old();
+}
+
+/*
+ * This is called a lot of times: when arriving on option select, and when changing/navigating *any* option
+ * I'm hooking here to set hi-speed to the target BPM
+ */
+double g_hispeed_double = 0;
+void (*real_read_hispeed)();
+void hook_read_hispeed()
+{
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+
+    __asm("mov ecx, ebp\n");
+    __asm("add cx, word ptr [%0]\n"::"a"(&g_low_bpm_ebp_offset));
+
+    __asm __volatile__("mov %0, word ptr [ecx]\n":"=a"(g_low_bpm): :);
+    __asm("add cx, 2\n");
+    __asm __volatile__("mov %0, word ptr [ecx]\n":"=a"(g_hi_bpm): :);
+    __asm("add cx, 2\n");
+    __asm __volatile__("mov %0, byte ptr [ecx]\n":"=a"(g_mystery_bpm): :);
+
+    if (g_soflan_retry && ( g_mystery_bpm || g_low_bpm != g_hi_bpm ))
+    {
+        g_hispeed = g_soflan_retry_hispeed;
+        __asm("jmp apply_hispeed\n");
+    }
+
+    if ( g_bypass_hispeed || g_target_bpm == 0 ) //bypass for mystery BPM and soflan songs once hispeed has been manually changed (to avoid hi-speed being locked since target won't change)
+    {
+        __asm("jmp leave_read_hispeed\n");
+    }
+
+    g_hispeed_double = (double)g_target_bpm / (double)(*g_base_bpm_ptr/10.0);
+    g_hispeed = (uint32_t)(g_hispeed_double+0.5); //rounding to nearest
+    if (g_hispeed > 0x64) g_hispeed = 0x64;
+    if (g_hispeed < 0x0A) g_hispeed = 0x0A;
+
+    __asm("apply_hispeed:\n");
+    __asm("and edi, 0xFFFF0000\n");                   //keep existing popkun and hidden status values
+    __asm("or edi, dword ptr[%0]\n"::"m"(g_hispeed)); //fix hispeed initial display on option screen
+    __asm("mov eax, dword ptr[%0]\n"::"m"(g_hispeed_addr));
+    __asm("mov dword ptr[eax], edi\n");
+
+    __asm("leave_read_hispeed:\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+
+    real_read_hispeed();
+}
+
+void (*real_increase_hispeed)();
+void hook_increase_hispeed()
+{
+    __asm("push eax\n");
+    __asm("push edx\n");
+    __asm("push ecx\n");
+
+    //increase hispeed
+    __asm("movzx ecx, word ptr[edi]\n");
+    __asm("inc ecx\n");
+    __asm("cmp ecx, 0x65\n");
+    __asm("jb skip_hispeed_rollover_high\n");
+    __asm("mov ecx, 0x0A\n");
+    __asm("skip_hispeed_rollover_high:\n");
+
+    if ( g_mystery_bpm || g_low_bpm != g_hi_bpm )
+    {
+        __asm("mov %0, ecx\n":"=m"(g_soflan_retry_hispeed):);
+        g_soflan_retry = false;
+        g_bypass_hispeed = true;
+        __asm("jmp leave_increase_hispeed\n");
+    }
+
+    //compute resulting bpm using exact same formula as game (base bpm in eax, multiplier in ecx)
+    __asm("movsx eax, %0\n"::"m"(g_hi_bpm));
+    __asm("cwde\n");
+    __asm("movsx ecx,cx\n");
+    __asm("imul ecx,eax\n");
+    __asm("mov eax, 0x66666667\n");
+    __asm("imul ecx\n");
+    __asm("sar edx,2\n");
+    __asm("mov eax,edx\n");
+    __asm("shr eax,0x1F\n");
+    __asm("add eax,edx\n");
+
+    __asm("mov %0, eax\n":"=m"(g_target_bpm): :);
+
+    __asm("leave_increase_hispeed:\n");
+    __asm("pop ecx\n");
+    __asm("pop edx\n");
+    __asm("pop eax\n");
+    real_increase_hispeed();
+}
+
+void (*real_decrease_hispeed)();
+void hook_decrease_hispeed()
+{
+    __asm("push eax\n");
+    __asm("push edx\n");
+    __asm("push ecx\n");
+
+    //decrease hispeed
+    __asm("movzx ecx, word ptr[edi]\n");
+    __asm("dec ecx\n");
+    __asm("cmp ecx, 0x0A\n");
+    __asm("jge skip_hispeed_rollover_low\n");
+    __asm("mov ecx, 0x64\n");
+    __asm("skip_hispeed_rollover_low:\n");
+
+    if ( g_mystery_bpm || g_low_bpm != g_hi_bpm )
+    {
+        __asm("mov %0, ecx\n":"=m"(g_soflan_retry_hispeed):);
+        g_bypass_hispeed = true;
+        g_soflan_retry = false;
+        __asm("jmp leave_decrease_hispeed\n");
+    }
+
+    //compute resulting bpm using exact same formula as game (base bpm in eax, multiplier in ecx)
+    __asm("movsx eax, %0\n"::"m"(g_hi_bpm));
+    __asm("cwde\n");
+    __asm("movsx ecx,cx\n");
+    __asm("imul ecx,eax\n");
+    __asm("mov eax, 0x66666667\n");
+    __asm("imul ecx\n");
+    __asm("sar edx,2\n");
+    __asm("mov eax,edx\n");
+    __asm("shr eax,0x1F\n");
+    __asm("add eax,edx\n");
+
+    __asm("mov %0, eax\n":"=m"(g_target_bpm): :);
+
+    __asm("leave_decrease_hispeed:\n");
+    __asm("pop ecx\n");
+    __asm("pop edx\n");
+    __asm("pop eax\n");
+    real_decrease_hispeed();
+}
+
+void (*real_leave_options)();
+void retry_soflan_reset()
+{
+    g_soflan_retry = false;
+    real_leave_options();
+}
+
+bool patch_hispeed_auto(uint8_t mode, uint16_t default_bpm)
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    g_base_bpm_ptr = &g_hi_bpm;
+    if (mode == 2)
+        g_base_bpm_ptr = &g_low_bpm;
+    else if (mode == 3)
+        g_base_bpm_ptr = &g_longest_bpm;
+
+    g_target_bpm = default_bpm;
+    /* retrieve hi-speed address */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x66\x89\x0C\x07\x0F\xB6\x45\x04", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find hi-speed address\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x04;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_set_hispeed,
+                      (void **)&real_set_hispeed);
+    }
+    /* write new hispeed according to target bpm */
+    {
+        /* improve compatibility with newer games */
+        int64_t pattern_offset = search(data, dllSize, "\xEB\x57\x8B\xBC\x24\x50\x01\x00\x00\x66\x8B\x85", 12, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find chart BPM address offset\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x1C;
+        g_low_bpm_ebp_offset = *((uint16_t *)(patch_addr));
+
+        if (g_low_bpm_ebp_offset != 0x0A1A && g_low_bpm_ebp_offset != 0x0A1E)
+        {
+            LOG("popnhax: auto hi-speed: WARNING: unexpected BPM address offset (%hu), might not work\n", g_low_bpm_ebp_offset);
+        }
+
+        pattern_offset = search(data, dllSize, "\x98\x50\x66\x8B\x85", 5, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find hi-speed apply address\n");
+            return false;
+        }
+
+        patch_addr = (int64_t)data + pattern_offset - 0x07;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_read_hispeed,
+                      (void **)&real_read_hispeed);
+    }
+    /* update target bpm on hispeed increase */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x66\xFF\x07\x0F\xB7\x07\x66\x83\xF8\x64", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find hi-speed increase\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_increase_hispeed,
+                      (void **)&real_increase_hispeed);
+    }
+    /* update target bpm on hispeed decrease */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x66\xFF\x0F\x0F\xB7\x07\x66\x83\xF8\x0A", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find hi-speed decrease\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_decrease_hispeed,
+                      (void **)&real_decrease_hispeed);
+    }
+
+    /* set g_soflan_retry back to false when leaving options */
+    {
+        int64_t first_loc = search(data, dllSize, "\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00\xE8", 12, 0);
+        if (first_loc == -1) {
+            LOG("popnhax: auto hi-speed: cannot retrieve option screen loop function\n");
+            return false;
+        }
+
+        int64_t pattern_offset = search(data, 1000, "\x33\xC9\x51\x50\x8B", 5, first_loc);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot retrieve option screen leave\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)retry_soflan_reset,
+                      (void **)&real_leave_options);
+    }
+
+    /* compute longest bpm for mode 3 */
+    if (mode == 3)
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x00\x00\x72\x05\xB9\xFF", 6, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto hi-speed: cannot find chart address\n");
+            return false;
+        }
+
+        /* detect if usaneko+ */
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0F;
+        uint8_t check_byte = *((uint8_t *)(patch_addr + 1));
+
+        if (check_byte == 0x04)
+        {
+            patch_addr += 9;
+            g_longest_bpm_old_chart = true;
+            LOG("popnhax: auto hi-speed: old game version\n");
+            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_retrieve_chart_addr_old,
+                          (void **)&real_retrieve_chart_addr_old);
+        }
+        else
+        {
+            patch_addr += 11;
+            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_retrieve_chart_addr,
+                          (void **)&real_retrieve_chart_addr);
+        }
+    }
+
+    LOG("popnhax: auto hi-speed enabled");
+    if (g_target_bpm != 0)
+        LOG(" with default %hubpm", g_target_bpm);
+    if (mode == 2)
+        LOG(" (lower bpm target)");
+    else if (mode == 3)
+        LOG(" (longest bpm target)");
+    else
+        LOG(" (higher bpm target)");
+
+    LOG("\n");
+
+    return true;
 }
 
 /* dummy function to replace real one when not found */
@@ -541,8 +976,14 @@ void quickexit_game_loop()
         __asm("skip_pfree_check:");
         __asm("jmp call_real\n");
     }
+    else
+    {
+        if (g_mystery_bpm || g_low_bpm != g_hi_bpm)
+            g_soflan_retry = true;
+    }
 
     g_return_to_options = true;
+
     /* numpad 7 or 9 is pressed */
     __asm("leave_song:\n");
     __asm("mov eax, 1\n");
@@ -598,6 +1039,11 @@ void quickexit_result_loop()
     {
         __asm("skip_quickexit_pfree_check:");
         __asm("jmp call_real_result\n");
+    }
+    else
+    {
+        if (g_mystery_bpm || g_low_bpm != g_hi_bpm)
+            g_soflan_retry = true;
     }
 
     g_return_to_options = true; //transition screen hook will catch it
@@ -4298,400 +4744,6 @@ static bool patch_enhanced_polling_stats()
     return true;
 }
 
-/*
- * auto hi-speed
- */
-bool g_longest_bpm_old_chart = false;
-bool g_bypass_hispeed = false; //bypass target update for mystery bpm and soflan songs
-bool g_mystery_bpm = 0;
-uint32_t g_hispeed = 0;
-uint32_t g_hispeed_addr = 0;
-uint32_t g_target_bpm = 0;
-uint16_t *g_base_bpm_ptr = 0; //will point to g_low_bpm or g_hi_bpm according to mode
-uint16_t g_low_bpm = 0;
-uint16_t g_hi_bpm = 0;
-uint16_t g_longest_bpm = 0;
-uint16_t g_low_bpm_ebp_offset = 0;
-unsigned char *g_chart_addr = 0;
-
-typedef struct chart_chunk_s {
-    uint32_t timestamp;
-    uint16_t operation;
-    uint16_t data;
-    uint32_t duration;
-} chart_chunk_t;
-#define CHART_OP_BPM 0x0445
-#define CHART_OP_END 0x0645
-
-typedef struct bpm_list_s {
-    uint16_t bpm;
-    uint32_t duration;
-    struct bpm_list_s *next;
-} bpm_list_t;
-
-static uint32_t add_duration(bpm_list_t *list, uint16_t bpm, uint32_t duration)
-{
-    if (list->bpm == 0)
-    {
-        list->bpm = bpm;
-        list->duration = duration;
-        return duration;
-    }
-
-    while (list->next != NULL)
-    {
-        if (list->bpm == bpm)
-        {
-            list->duration += duration;
-            return list->duration;
-        }
-        list = list->next;
-    }
-    //new entry
-    bpm_list_t *entry = (bpm_list_t *)malloc(sizeof(bpm_list_t));
-    entry->bpm = bpm;
-    entry->duration = duration;
-    entry->next = NULL;
-    list->next = entry;
-
-    return duration;
-}
-
-static void destroy_list(bpm_list_t *list)
-{
-    while (list != NULL)
-    {
-        bpm_list_t *tmp = list;
-        list = list->next;
-        free(tmp);
-    }
-}
-
-/* the goal is to set g_longest_bpm to the most used bpm from the chart present in memory at address g_chart_addr
- */
-void compute_longest_bpm(){
-    chart_chunk_t* chunk = NULL;
-    unsigned char *chart_ptr = g_chart_addr;
-    int chunk_size = g_longest_bpm_old_chart? 8 : 12;
-    uint32_t prev_timestamp = 0x64; //game adds 0x64 to every timestamp of a chart upon loading
-    uint16_t prev_bpm = 0;
-
-    bpm_list_t *list = (bpm_list_t *)malloc(sizeof(bpm_list_t));
-    list->bpm = 0;
-    list->duration = 0;
-    list->next = NULL;
-
-    uint32_t max_duration = 0;
-    uint16_t longest_bpm = 0;
-    do {
-        chunk = (chart_chunk_t*) chart_ptr;
-
-        if ( chunk->operation == CHART_OP_BPM || chunk->operation == CHART_OP_END )
-        {
-            if (prev_bpm)
-            {
-                uint32_t bpm_dur = add_duration(list, prev_bpm, chunk->timestamp - prev_timestamp); //will add to existing entry or create a new one if not present
-                if (bpm_dur > max_duration)
-                {
-                    max_duration = bpm_dur;
-                    longest_bpm = prev_bpm;
-                }
-            }
-            prev_bpm = chunk->data;
-            prev_timestamp = chunk->timestamp;
-        }
-        chart_ptr += chunk_size;
-    } while ( chunk->operation != CHART_OP_END );
-
-    destroy_list(list);
-    g_longest_bpm = longest_bpm;
-}
-
-void (*real_set_hispeed)();
-void hook_set_hispeed()
-{
-    g_bypass_hispeed = false;
-    __asm("mov %0, eax\n":"=r"(g_hispeed_addr): :);
-    real_set_hispeed();
-}
-
-void (*real_retrieve_chart_addr)();
-void hook_retrieve_chart_addr()
-{
-    __asm("push eax\n");
-    __asm("push ecx\n");
-    __asm("push edx\n");
-    __asm("mov %0, esi\n":"=a"(g_chart_addr): :);
-    __asm("call %0\n"::"r"(compute_longest_bpm));
-    __asm("pop edx\n");
-    __asm("pop ecx\n");
-    __asm("pop eax\n");
-    real_retrieve_chart_addr();
-}
-void (*real_retrieve_chart_addr_old)();
-void hook_retrieve_chart_addr_old()
-{
-    __asm("push eax\n");
-    __asm("push ecx\n");
-    __asm("push edx\n");
-    __asm("mov %0, edi\n":"=a"(g_chart_addr): :);
-    __asm("call %0\n"::"r"(compute_longest_bpm));
-    __asm("pop edx\n");
-    __asm("pop ecx\n");
-    __asm("pop eax\n");
-    real_retrieve_chart_addr_old();
-}
-
-/*
- * This is called a lot of times: when arriving on option select, and when changing/navigating *any* option
- * I'm hooking here to set hi-speed to the target BPM
- */
-double g_hispeed_double = 0;
-void (*real_read_hispeed)();
-void hook_read_hispeed()
-{
-    __asm("push eax\n");
-    __asm("push ecx\n");
-    __asm("push edx\n");
-
-    __asm("mov ecx, ebp\n");
-    __asm("add cx, word ptr [%0]\n"::"a"(&g_low_bpm_ebp_offset));
-
-    __asm __volatile__("mov %0, word ptr [ecx]\n":"=a"(g_low_bpm): :);
-    __asm("add cx, 2\n");
-    __asm __volatile__("mov %0, word ptr [ecx]\n":"=a"(g_hi_bpm): :);
-    __asm("add cx, 2\n");
-    __asm __volatile__("mov %0, byte ptr [ecx]\n":"=a"(g_mystery_bpm): :);
-
-    if ( g_bypass_hispeed || g_target_bpm == 0 ) //bypass for mystery BPM and soflan songs (to avoid hi-speed being locked since target won't change)
-    {
-        __asm("jmp leave_read_hispeed\n");
-    }
-
-    g_hispeed_double = (double)g_target_bpm / (double)(*g_base_bpm_ptr/10.0);
-    g_hispeed = (uint32_t)(g_hispeed_double+0.5); //rounding to nearest
-    if (g_hispeed > 0x64) g_hispeed = 0x64;
-    if (g_hispeed < 0x0A) g_hispeed = 0x0A;
-
-    __asm("and edi, 0xFFFF0000\n");                   //keep existing popkun and hidden status values
-    __asm("or edi, dword ptr[%0]\n"::"m"(g_hispeed)); //fix hispeed initial display on option screen
-    __asm("mov eax, dword ptr[%0]\n"::"m"(g_hispeed_addr));
-    __asm("mov dword ptr[eax], edi\n");
-
-    __asm("leave_read_hispeed:\n");
-    __asm("pop edx\n");
-    __asm("pop ecx\n");
-    __asm("pop eax\n");
-
-    real_read_hispeed();
-}
-
-void (*real_increase_hispeed)();
-void hook_increase_hispeed()
-{
-    __asm("push eax\n");
-    __asm("push edx\n");
-    __asm("push ecx\n");
-
-    if ( g_mystery_bpm || g_low_bpm != g_hi_bpm )
-    {
-        g_bypass_hispeed = true;
-        __asm("jmp leave_increase_hispeed\n");
-    }
-
-    //increase hispeed
-    __asm("movzx ecx, word ptr[edi]\n");
-    __asm("inc ecx\n");
-    __asm("cmp ecx, 0x65\n");
-    __asm("jb skip_hispeed_rollover_high\n");
-    __asm("mov ecx, 0x0A\n");
-    __asm("skip_hispeed_rollover_high:\n");
-
-    //compute resulting bpm using exact same formula as game (base bpm in eax, multiplier in ecx)
-    __asm("movsx eax, %0\n"::"m"(g_hi_bpm));
-    __asm("cwde\n");
-    __asm("movsx ecx,cx\n");
-    __asm("imul ecx,eax\n");
-    __asm("mov eax, 0x66666667\n");
-    __asm("imul ecx\n");
-    __asm("sar edx,2\n");
-    __asm("mov eax,edx\n");
-    __asm("shr eax,0x1F\n");
-    __asm("add eax,edx\n");
-
-    __asm("mov %0, eax\n":"=m"(g_target_bpm): :);
-
-    __asm("leave_increase_hispeed:\n");
-    __asm("pop ecx\n");
-    __asm("pop edx\n");
-    __asm("pop eax\n");
-    real_increase_hispeed();
-}
-
-void (*real_decrease_hispeed)();
-void hook_decrease_hispeed()
-{
-    __asm("push eax\n");
-    __asm("push edx\n");
-    __asm("push ecx\n");
-    if ( g_mystery_bpm || g_low_bpm != g_hi_bpm )
-    {
-        g_bypass_hispeed = true;
-        __asm("jmp leave_decrease_hispeed\n");
-    }
-
-    //decrease hispeed
-    __asm("movzx ecx, word ptr[edi]\n");
-    __asm("dec ecx\n");
-    __asm("cmp ecx, 0x0A\n");
-    __asm("jge skip_hispeed_rollover_low\n");
-    __asm("mov ecx, 0x64\n");
-    __asm("skip_hispeed_rollover_low:\n");
-
-    //compute resulting bpm using exact same formula as game (base bpm in eax, multiplier in ecx)
-    __asm("movsx eax, %0\n"::"m"(g_hi_bpm));
-    __asm("cwde\n");
-    __asm("movsx ecx,cx\n");
-    __asm("imul ecx,eax\n");
-    __asm("mov eax, 0x66666667\n");
-    __asm("imul ecx\n");
-    __asm("sar edx,2\n");
-    __asm("mov eax,edx\n");
-    __asm("shr eax,0x1F\n");
-    __asm("add eax,edx\n");
-
-    __asm("mov %0, eax\n":"=m"(g_target_bpm): :);
-
-    __asm("leave_decrease_hispeed:\n");
-    __asm("pop ecx\n");
-    __asm("pop edx\n");
-    __asm("pop eax\n");
-    real_decrease_hispeed();
-}
-
-bool patch_hispeed_auto(uint8_t mode, uint16_t default_bpm)
-{
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
-    g_base_bpm_ptr = &g_hi_bpm;
-    if (mode == 2)
-        g_base_bpm_ptr = &g_low_bpm;
-    else if (mode == 3)
-        g_base_bpm_ptr = &g_longest_bpm;
-
-    g_target_bpm = default_bpm;
-    /* retrieve hi-speed address */
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x66\x89\x0C\x07\x0F\xB6\x45\x04", 8, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: auto hi-speed: cannot find hi-speed address\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x04;
-
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_set_hispeed,
-                      (void **)&real_set_hispeed);
-    }
-    /* write new hispeed according to target bpm */
-    {
-        /* improve compatibility with newer games */
-        int64_t pattern_offset = search(data, dllSize, "\xEB\x57\x8B\xBC\x24\x50\x01\x00\x00\x66\x8B\x85", 12, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: auto hi-speed: cannot find chart BPM address offset\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x1C;
-        g_low_bpm_ebp_offset = *((uint16_t *)(patch_addr));
-
-        if (g_low_bpm_ebp_offset != 0x0A1A && g_low_bpm_ebp_offset != 0x0A1E)
-        {
-            LOG("popnhax: auto hi-speed: WARNING: unexpected BPM address offset (%hu), might not work\n", g_low_bpm_ebp_offset);
-        }
-
-        pattern_offset = search(data, dllSize, "\x98\x50\x66\x8B\x85", 5, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: auto hi-speed: cannot find hi-speed apply address\n");
-            return false;
-        }
-
-        patch_addr = (int64_t)data + pattern_offset - 0x07;
-
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_read_hispeed,
-                      (void **)&real_read_hispeed);
-    }
-    /* update target bpm on hispeed increase */
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x66\xFF\x07\x0F\xB7\x07\x66\x83\xF8\x64", 10, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: auto hi-speed: cannot find hi-speed increase\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_increase_hispeed,
-                      (void **)&real_increase_hispeed);
-    }
-    /* update target bpm on hispeed decrease */
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x66\xFF\x0F\x0F\xB7\x07\x66\x83\xF8\x0A", 10, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: auto hi-speed: cannot find hi-speed decrease\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
-
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_decrease_hispeed,
-                      (void **)&real_decrease_hispeed);
-    }
-
-    /* compute longest bpm for mode 3 */
-    if (mode == 3)
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x00\x00\x72\x05\xB9\xFF", 6, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: auto hi-speed: cannot find chart address\n");
-            return false;
-        }
-
-        /* detect if usaneko+ */
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0F;
-        uint8_t check_byte = *((uint8_t *)(patch_addr + 1));
-
-        if (check_byte == 0x04)
-        {
-            patch_addr += 9;
-            g_longest_bpm_old_chart = true;
-            LOG("popnhax: auto hi-speed: old game version\n");
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_retrieve_chart_addr_old,
-                          (void **)&real_retrieve_chart_addr_old);
-        }
-        else
-        {
-            patch_addr += 11;
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_retrieve_chart_addr,
-                          (void **)&real_retrieve_chart_addr);
-        }
-    }
-
-    LOG("popnhax: auto hi-speed enabled");
-    if (g_target_bpm != 0)
-        LOG(" with default %hubpm", g_target_bpm);
-    if (mode == 2)
-        LOG(" (lower bpm target)");
-    else if (mode == 3)
-        LOG(" (longest bpm target)");
-    else
-        LOG(" (higher bpm target)");
-
-    LOG("\n");
-
-    return true;
-}
 
 /* HARD GAUGE SURVIVAL*/
 uint8_t g_hard_gauge_selected = false;
