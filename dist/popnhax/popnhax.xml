@@ -104,6 +104,8 @@
     <disable_multiboot __type="bool">0</disable_multiboot>
 
   <!-- Timing and lanes -->
+    <!-- Base visual offset (value will be added to the base SD (-60) and base HD (-76) values) -->
+    <base_offset __type="s8">0</base_offset>
     <!-- Automatically play keysounds during songs -->
     <disable_keysounds __type="bool">0</disable_keysounds>
     <!-- Offset the keysounds by x ms (negative is earlier). With disable_keysounds, becomes an audio offset -->

@@ -51,6 +51,7 @@ struct popnhax_config {
     uint8_t survival_gauge;
     bool survival_iidx;
     bool survival_spicy;
+    int8_t base_offset;
 };
 
 #endif

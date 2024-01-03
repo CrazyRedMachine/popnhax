@@ -182,6 +182,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, hispeed_auto,
                  "/popnhax/hispeed_auto")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, hispeed_default_bpm,
                  "/popnhax/hispeed_default_bpm")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, base_offset,
+                 "/popnhax/base_offset")
 PSMAP_END
 
 enum BufferIndexes {
@@ -5485,8 +5487,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_disable_keysound();
         }
 
+        if (config.base_offset){
+            patch_add_to_base_offset(config.base_offset);
+        }
+
         if (config.keysound_offset){
-            /* must be called _after_ force_hd_timing */
+            /* must be called _after_ force_hd_timing and base_offset */
             patch_keysound_offset(config.keysound_offset);
         }
 
