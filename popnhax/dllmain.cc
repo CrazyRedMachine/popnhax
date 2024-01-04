@@ -31,7 +31,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "1.10.dev"
+#define PROGRAM_VERSION "1.10"
 
 const char *g_game_dll_fn = NULL;
 const char *g_config_fn   = NULL;
@@ -2677,13 +2677,6 @@ pfree_apply:
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_inject,
                      (void **)&real_pfree_pplist_inject);
     }
-    /* prevent crash when playing only customs in a credit */
-    {
-        if (!find_and_patch_hex(g_game_dll_fn, "\x0F\x8E\x5C\xFF\xFF\xFF\xEB\x04", 8, 6, "\x90\x90", 2))
-        {
-            LOG("popnhax: pfree: cannot patch end list pointer\n");
-        }
-    }
 
     /* restore pp_list pointer so that it is freed at end of credit */
     {
@@ -5116,6 +5109,33 @@ static bool patch_db_fix_cursor(){
     return true;
 }
 
+void (*real_pp_mean_compute)();
+void hook_pp_mean_compute()
+{
+    __asm("test ecx, ecx\n");
+    __asm("jnz divide_list\n");
+    __asm("mov eax, 0\n");
+    __asm("jmp skip_divide\n");
+    __asm("divide_list:\n");
+    __asm("div ecx\n");
+    __asm("skip_divide:\n");
+    real_pp_mean_compute();
+}
+
+void (*real_pp_convergence_loop)();
+void hook_pp_convergence_loop()
+{
+    __asm("movzx eax, word ptr[ebx]\n");
+    __asm("cmp eax, 0xBB8\n");
+    __asm("jl conv_loop_rearm\n");
+    __asm("mov al, 0\n");
+    __asm("jmp conv_loop_leave\n");
+    __asm("conv_loop_rearm:\n");
+    __asm("mov al, 1\n");
+    __asm("conv_loop_leave:\n");
+    real_pp_convergence_loop();
+}
+
 bool patch_db_power_points()
 {
     DWORD dllSize = 0;
@@ -5145,7 +5165,20 @@ bool patch_db_power_points()
         g_pfree_song_offset = *(uint8_t *) ((int64_t)data + pattern_offset + 0x03);
     }
 
-    /* Adapt convergence value computation (skip cs_omni and customs) */
+    /* skip cs_omni and customs in power point convergence value */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x8B\x6C\x24\x30\x8B\x4C\x24\x2C", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: patch_db: cannot find power point convergence value computation loop\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x08;
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_pp_convergence_loop,
+                      (void **)&real_pp_convergence_loop);
+    }
+
+    /* make sure they cannot count (sanity check) */
     {
         int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x75\x11\x8D\x44\x24\x38", 8, 0);
         if (pattern_offset == -1) {
@@ -5179,9 +5212,33 @@ bool patch_db_power_points()
             return false;
         }
         skip_pp_list_elem = (void(*)()) ((int64_t)data + jump_addr_offset);
-
     }
 
+    /* prevent crash when playing only customs in a credit */
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\x0F\x8E\x5C\xFF\xFF\xFF\xEB\x04", 8, 6, "\x90\x90", 2))
+        {
+            LOG("popnhax: patch_db: cannot patch end list pointer\n");
+        }
+    }
+
+    /* prevent another crash when playing only customs in a credit (sanity check) */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\xC1\xF9\x02\x33\xD2\xF7\xF1\x8B\xC8", 9, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: patch_db: cannot find power point mean computation\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05;
+        patch_memory(patch_addr, (char*)"\x90\x90", 2); // erase original div ecx (is taken care of in hook_pp_mean_compute)
+
+        /* fix possible divide by zero error */
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pp_mean_compute,
+                     (void **)&real_pp_mean_compute);
+    }
+
+    LOG("popnhax: patch_db: power point computation fixed\n");
     return true;
 }
 
