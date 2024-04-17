@@ -31,7 +31,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "1.10"
+#define PROGRAM_VERSION "1.11.beta1"
 
 const char *g_game_dll_fn = NULL;
 const char *g_config_fn   = NULL;
@@ -606,7 +606,7 @@ bool patch_hispeed_auto(uint8_t mode, uint16_t default_bpm)
     }
     /* write new hispeed according to target bpm */
     {
-        /* improve compatibility with newer games */ 
+        /* improve compatibility with newer games */
         int64_t pattern_offset = search(data, dllSize, "\x0B\x00\x83\xC4\x04\xEB\x57\x8B\xBC\x24", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot find chart BPM address offset\n");
@@ -5284,6 +5284,204 @@ static bool option_net_ojama_off(){
     return true;
 }
 
+const char *g_categname = "Custom Tracks";
+const char *g_categicon = "cate_13";
+const char *g_categformat = "[ol:4][olc:d92f0d]%s";
+
+uint32_t songlist[4096] = {0};
+uint32_t songlist_addr = (uint32_t)&songlist;
+uint32_t songlist_count = 0;
+
+struct songlist_struct_s {
+    uint32_t dummy[3];
+    uint32_t array_start;
+    uint32_t array_end;
+} songlist_struct;
+
+uint32_t songlist_struct_addr = (uint32_t)&songlist_struct;
+
+void (*add_song_in_list)();
+void (*categ_inject_songlist)();
+
+void categ_inject_songlist_impl()
+{
+    __asm("push edx\n");
+    songlist_struct.array_start = (uint32_t)&songlist;
+    songlist_struct.array_end = (uint32_t)&(songlist[songlist_count]);
+    __asm("pop edx\n");
+    __asm("push ecx\n");
+    __asm("push _songlist_struct_addr\n");
+    __asm("lea eax, dword ptr [ecx+0x24]\n");
+    __asm("call [_add_song_in_list]\n");
+    __asm("pop ecx\n");
+}
+
+void (*real_categ_reinit_songlist)();
+void hook_categ_reinit_songlist()
+{
+    songlist_count = 0;
+    real_categ_reinit_songlist();
+}
+
+void (*real_categ_build_songlist)();
+void hook_categ_build_songlist()
+{
+    __asm("cmp eax, 0xFA0\n");
+    __asm("jb categ_skip_add\n");
+    __asm("push eax\n");
+    __asm("push ebx\n");
+    __asm("mov eax, [_songlist_count]\n");
+    __asm("sal eax, 2\n");
+    __asm("add eax, _songlist_addr\n");
+    __asm("mov ebx, [edx]\n");
+    __asm("mov dword ptr [eax], ebx\n");
+    songlist_count++;
+    __asm("pop ebx\n");
+    __asm("pop eax\n");
+    __asm("categ_skip_add:\n");
+    real_categ_build_songlist();
+}
+
+
+void (*real_categ_printf_call)();
+void (*real_categ_title_printf)();
+void hook_categ_title_printf()
+{
+    __asm("cmp edi, 0x10\n");
+    __asm("jle categ_title_printf_ok\n");
+    __asm("mov eax, _g_categformat\n");
+    __asm("push eax\n");
+    __asm("jmp [_real_categ_printf_call]\n");
+    __asm("categ_title_printf_ok:\n");
+    real_categ_title_printf();
+}
+
+void (*categ_listing_newsongs)();
+void (*real_categ_listing)();
+void hook_categ_listing()
+{
+    __asm("cmp eax, 0x11\n");
+    __asm("jne categ_listing_ok\n");
+    __asm("call [_categ_inject_songlist]\n");
+    __asm("categ_listing_ok:\n");
+    real_categ_listing();
+}
+
+static bool patch_custom_categ() {
+
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    //patch format string for any category above 16 (prevent crash)
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x6A\xFF\x8B\xCB\xFF\xD2\x50", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_categ: cannot find category title format string function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x07;
+        real_categ_printf_call = (void (*)())(patch_addr + 0x08);
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_title_printf,
+                     (void **)&real_categ_title_printf);
+    }
+
+    //add new category processing in jump table
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x8B\x4D\x10\x8B\x5D\x0C\x8B\xF1", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_categ: cannot find add_song_in_list function\n");
+            return false;
+        }
+
+        add_song_in_list = (void (*)())(data + pattern_offset - 0x12);
+        categ_inject_songlist = &categ_inject_songlist_impl;
+    }
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_categ: cannot find category jump table\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05 + 0x75;
+        //categ_listing_newsongs = (void (*)())(data + pattern_offset + 0x05 + 0x0E); //TODO: replace this with my own function
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_listing,
+                     (void **)&real_categ_listing);
+    }
+
+    //create new song list
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x00\x8B\x56\x04\x0F\xB7\x02\xE8", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_categ: cannot find songlist processing table\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x07;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_build_songlist,
+                     (void **)&real_categ_build_songlist);
+    }
+
+    //create new song list
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x33\xC9\xB8\x12\x00\x00\x00\xBA", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_categ: cannot find category generation function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_reinit_songlist,
+                     (void **)&real_categ_reinit_songlist);
+    }
+
+
+    //bump category number from 16 to 17
+    if (!find_and_patch_hex(g_game_dll_fn, "\x83\xFE\x11\x0F\x82\x59\xFE\xFF\xFF", 9, 2, "\x12", 1))
+    {
+        return false;
+    }
+
+    //patch getCategName for a 17th entry
+    //make array one cell larger
+    if (!find_and_patch_hex(g_game_dll_fn, "\x83\xEC\x44\x98\xC7\x04\x24", 7, 2, "\x48", 1))
+    {
+        return false;
+    }
+
+    uint32_t categname_str_addr = (uint32_t)g_categname;
+    char categname_patch_string[] = "\xC7\x44\x24\x44\x20\x00\x28\x10\x8B\x04\x84\x83\xC4\x48\xC3";
+    memcpy(categname_patch_string+4, &categname_str_addr, 4);
+    if (!find_and_patch_hex(g_game_dll_fn, "\x8B\x04\x84\x83\xC4\x44\xC3\xCC", 8, 0, categname_patch_string, 15))
+    {
+        return false;
+    }
+
+    //patch getIconName for a 17th entry
+    if (!find_and_patch_hex(g_game_dll_fn, "\x83\xEC\x44\x98\xC7\x04\x24", 7, 2, "\x48", 1)) //2nd occurrence since first one just got patched
+    {
+        return false;
+    }
+
+    uint32_t categicon_str_addr = (uint32_t)g_categicon;
+    char categicon_patch_string[] = "\xC7\x44\x24\x44\xDC\x00\x28\x10\x8B\x04\x84\x83\xC4\x48\xC3";
+    memcpy(categicon_patch_string+4, &categicon_str_addr, 4);
+    if (!find_and_patch_hex(g_game_dll_fn, "\x8B\x04\x84\x83\xC4\x44\xC3\xCC", 8, 0, categicon_patch_string, 15))
+    {
+        return false;
+    }
+
+    LOG("popnhax: custom category injected\n");
+
+    return true;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -5579,6 +5777,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             /* must be called after force_datecode */
             patch_db_power_points();
             patch_db_fix_cursor();
+            patch_custom_categ();
             patch_database(config.force_unlocks);
         }
 
