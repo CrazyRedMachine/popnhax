@@ -606,14 +606,14 @@ bool patch_hispeed_auto(uint8_t mode, uint16_t default_bpm)
     }
     /* write new hispeed according to target bpm */
     {
-        /* improve compatibility with newer games */
-        int64_t pattern_offset = search(data, dllSize, "\xEB\x57\x8B\xBC\x24\x50\x01\x00\x00\x66\x8B\x85", 12, 0);
+        /* improve compatibility with newer games */ 
+        int64_t pattern_offset = search(data, dllSize, "\x0B\x00\x83\xC4\x04\xEB\x57\x8B\xBC\x24", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot find chart BPM address offset\n");
             return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x1C;
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x21;
         g_low_bpm_ebp_offset = *((uint16_t *)(patch_addr));
 
         if (g_low_bpm_ebp_offset != 0x0A1A && g_low_bpm_ebp_offset != 0x0A1E)
