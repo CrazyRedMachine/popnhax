@@ -14,4 +14,5 @@ srcpp_popnhax      := \
     dllmain.cc \
     loader.cc \
     SearchFile.cc \
-    translation.cc
+    translation.cc \
+    custom_categs.cc

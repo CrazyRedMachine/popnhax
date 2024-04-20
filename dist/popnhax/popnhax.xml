@@ -5,6 +5,8 @@
     <patch_db __type="bool">0</patch_db>
     <!-- Force unlock music, charts, characters, and deco parts when applicable -->
     <force_unlocks __type="bool">0</force_unlocks>
+    <!-- Put customs into their own category (0: no, 1: simple category with all customs, 2: subcategories by folder name) -->
+    <custom_categ __type="u8">0</custom_categ>
 
   <!-- Classic patches -->
     <!-- Prevent crash on boot when using a different default audio source (aka HDMI audio patch) -->
@@ -132,6 +134,10 @@
     <disable_expansions __type="bool">0</disable_expansions>
     <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
     <disable_redirection __type="bool">0</disable_redirection>
+    <!-- minimum songid for a song to be seen as "custom" -->
+    <custom_categ_min_songid __type="u16">4000</custom_categ_min_songid>
+    <!-- maximum songid for a song to be seen as "custom" (0 = no limit) -->
+    <custom_categ_max_songid __type="u16">0</custom_categ_max_songid>
 
   <!-- Translation -->
     <!-- Disable .dict string replacements and .ips patches -->
