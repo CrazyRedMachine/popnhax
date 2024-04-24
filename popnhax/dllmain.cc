@@ -32,7 +32,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "1.11.beta1"
+#define PROGRAM_VERSION "1.11.beta2"
 
 const char *g_game_dll_fn = NULL;
 const char *g_config_fn   = NULL;

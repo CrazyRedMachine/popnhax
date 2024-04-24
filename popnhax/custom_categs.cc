@@ -379,6 +379,91 @@ void hook_categ_listing()
     real_categ_listing();
 }
 
+void (*real_song_printf)();
+void hook_song_printf()
+{
+    __asm("push eax\n");
+    __asm("push ebx\n");
+    __asm("mov eax, [esp+0x50]\n");
+    __asm("cmp eax, _g_min_id\n");
+    __asm("jb print_regular_song\n");
+    __asm("cmp dword ptr _g_max_id, 0\n");
+    __asm("je print_custom_song\n");
+    __asm("cmp eax, _g_max_id\n");
+    __asm("ja print_regular_song\n");
+
+    __asm("print_custom_song:\n");
+    
+    __asm("lea eax, [esp+0x08]\n");
+    __asm("mov ebx, _g_categformat\n");
+    __asm("mov [eax], ebx\n");
+
+    __asm("print_regular_song:\n");
+    __asm("pop ebx\n");
+    __asm("pop eax\n");
+    real_song_printf();
+}
+
+void (*real_artist_printf)();
+void hook_artist_printf()
+{
+    __asm("push eax\n");
+    __asm("push ebx\n");
+    __asm("mov eax, [esp+0x50]\n");
+    __asm("cmp eax, _g_min_id\n");
+    __asm("jb print_regular_artist\n");
+    __asm("cmp dword ptr _g_max_id, 0\n");
+    __asm("je print_custom_artist\n");
+    __asm("cmp eax, _g_max_id\n");
+    __asm("ja print_regular_artist\n");
+
+    __asm("print_custom_artist:\n");
+    
+    __asm("lea eax, [esp+0x08]\n");
+    __asm("mov ebx, _g_categformat\n");
+    __asm("mov [eax], ebx\n");
+
+    __asm("print_regular_artist:\n");
+    __asm("pop ebx\n");
+    __asm("pop eax\n");
+    real_artist_printf();
+}
+
+static bool patch_custom_highlight(const char *game_dll_fn) {
+    DWORD dllSize = 0;
+    char *data = getDllData(game_dll_fn, &dllSize);
+
+    //hook format string for song/genre name
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x50\x50\x68", 9, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_highlight: cannot find song/genre print function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_song_printf,
+                     (void **)&real_song_printf);
+    }
+
+    //hook format string for artist 
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x33\xFF\x8B\x43\x0C\x8B\x70\x04\x83\xC0\x04", 14, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_highlight: cannot find artist print function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_artist_printf,
+                     (void **)&real_artist_printf);
+    }
+
+return true;
+}
+
 static bool patch_custom_categ(const char *game_dll_fn) {
 
     DWORD dllSize = 0;
@@ -607,6 +692,8 @@ bool patch_custom_categs(const char *dllFilename, uint8_t mode, uint16_t min, ui
         g_subcategmode = true;
         load_databases();
     }
+
+    patch_custom_highlight(dllFilename);
 
     return patch_custom_categ(dllFilename);
 }
