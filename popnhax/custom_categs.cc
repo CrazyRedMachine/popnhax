@@ -23,9 +23,10 @@ bool g_subcategmode = false;
 uint32_t g_min_id = 4000;
 uint32_t g_max_id = 0;
 
-const char *g_categname = "Custom Tracks";
-const char *g_categicon = "cate_13";
+const char *g_categname = "Customs";
+const char *g_categicon = "cate_cc";
 const char *g_categformat = "[ol:4][olc:d92f0d]%s";
+const char *g_customformat = "※[rz:3][c:d92f0d]%s[/rz][/c]※";
 
 char *g_string_addr;
 uint8_t idx = 0;
@@ -395,7 +396,7 @@ void hook_song_printf()
     __asm("print_custom_song:\n");
     
     __asm("lea eax, [esp+0x08]\n");
-    __asm("mov ebx, _g_categformat\n");
+    __asm("mov ebx, _g_customformat\n");
     __asm("mov [eax], ebx\n");
 
     __asm("print_regular_song:\n");
@@ -420,7 +421,7 @@ void hook_artist_printf()
     __asm("print_custom_artist:\n");
     
     __asm("lea eax, [esp+0x08]\n");
-    __asm("mov ebx, _g_categformat\n");
+    __asm("mov ebx, _g_customformat\n");
     __asm("mov [eax], ebx\n");
 
     __asm("print_regular_artist:\n");
