@@ -19,6 +19,18 @@
 #include "minhook/hde32.h"
 #include "minhook/include/MinHook.h"
 
+uint32_t g_playerdata_ptr_addr; //pointer to the playerdata memory zone (offset 0x08 is popn friend ID as ascii (12 char long), offset 0x1A5 is "is logged in" flag)
+char *g_current_friendid;
+uint32_t g_current_songid;
+
+void (*add_song_in_list)();
+//game code takes array start address from offset 0xC and the address after the list end from offset 0x10
+typedef struct songlist_s {
+    uint32_t dummy[3];
+    uint32_t array_start;
+    uint32_t array_end;
+} songlist_t;
+
 bool g_subcategmode = false;
 uint32_t g_min_id = 4000;
 uint32_t g_max_id = 0;
@@ -26,13 +38,203 @@ uint32_t g_max_id = 0;
 const char *g_categname = "Customs";
 const char *g_categicon = "cate_cc";
 const char *g_categformat = "[ol:4][olc:d92f0d]%s";
-const char *g_customformat = "‚Äª[rz:3][c:d92f0d]%s[/rz][/c]‚Äª";
+const char *g_customformat = "Å¶ [rz:3][c:d92f0d]%s[/rz][/c]";
 
 char *g_string_addr;
 uint8_t idx = 0;
 uint32_t tmp_size = 0;
 uint32_t tmp_categ_ptr = 0;
 uint32_t tmp_songlist_ptr = 0;
+
+uint32_t* favorites;
+uint32_t favorites_addr = (uint32_t)&favorites;
+uint32_t favorites_count = 0;
+songlist_t favorites_struct;
+uint32_t favorites_struct_addr = (uint32_t)&favorites_struct;
+
+void add_song_to_favorites()
+{
+    favorites = (uint32_t *) realloc(favorites, sizeof(uint32_t)*(favorites_count+5));
+    favorites[favorites_count++] = g_current_songid | 0x00060000; // game wants this otherwise only easy difficulty will appear
+	return;
+}
+void remove_song_from_favorites()
+{
+	for (uint32_t i = 0; i < favorites_count; i++)
+	{
+		if ( g_current_songid == (favorites[i] & 0x0000FFFF) )
+		{
+			for (uint32_t j = i+1; j < favorites_count; j++)
+			{
+				favorites[j-1] = favorites[j];
+			}
+			favorites_count--;
+			return;
+		}
+	}
+	return;
+}
+
+void prepare_favorite_list(){
+
+    char fav_filepath[64];
+    sprintf(fav_filepath, "data_mods\\%s.fav", g_current_friendid);
+    FILE *file = fopen(fav_filepath, "rb");
+
+    favorites_count = 0;
+
+    if ( file == NULL )
+	{
+		file = fopen("data_mods\\default.fav", "rb");
+
+		if (file == NULL)
+		{
+			return;
+		}
+	}
+
+    char line[32];
+
+    while (fgets(line, sizeof(line), file)) {
+        /* note that fgets don't strip the terminating \n, checking its
+           presence would allow to handle lines longer that sizeof(line) */
+        int songid = strtol(line, NULL, 10);
+		if ( songid != 0 )
+		{
+			g_current_songid = songid;
+            add_song_to_favorites();
+		}
+    }
+    fclose(file);
+	//printf("added %d songs from %s to favorites\n",favorites_count,fav_filepath);
+	return;
+}
+
+void commit_favorites()
+{
+	if ( favorites_count == 0 )
+		return;
+
+	char fav_filepath[64];
+    sprintf(fav_filepath, "data_mods\\%s.fav", g_current_friendid);
+    FILE *file = fopen(fav_filepath, "w");
+
+    if ( file == NULL )
+	{
+		file = fopen("data_mods\\default.fav", "w");
+
+		if (file == NULL)
+		{
+			return;
+		}
+	}
+	
+	for (uint32_t i = 0; i < favorites_count; i++)
+	{
+		fprintf(file, "%d\n", (favorites[i] & 0x0000FFFF));
+	}
+	fclose(file);
+	return;
+}
+
+void (*real_song_is_in_favorite)();
+void hook_song_is_in_favorite()
+{
+	__asm("push ecx\n");
+	__asm("push edx\n");
+	//dx contains songid
+	__asm("mov _g_current_songid, dx\n");
+
+	for (uint32_t i = 0; i < favorites_count; i++)
+	{
+		if ( g_current_songid == (favorites[i] & 0x0000FFFF) )
+		{
+			__asm("pop edx\n");
+			__asm("pop ecx\n");
+			__asm("pop ebx\n");
+			__asm("mov eax, 0x01\n");
+			__asm("ret\n");
+		}
+	}
+			__asm("pop edx\n");
+			__asm("pop ecx\n");
+			__asm("pop ebx\n");
+	__asm("mov eax, 0x00\n");
+	__asm("ret\n");
+}
+
+void (*real_add_to_favorite)();
+void hook_add_to_favorite()
+{
+	__asm("push ecx\n");
+	//dx contains songid
+	__asm("mov _g_current_songid, dx\n");
+
+	add_song_to_favorites();
+	commit_favorites();
+
+    __asm("mov eax, [_favorites_count]\n");
+	__asm("mov edx, _g_current_songid\n");
+	__asm("pop ecx\n");
+	real_add_to_favorite();
+}
+
+
+void (*real_remove_from_favorite)();
+void hook_remove_from_favorite()
+{
+	//code pushes edi, esi and ebx as well
+	__asm("push ecx\n");
+	__asm("push edx\n");
+	//dx contains songid
+	__asm("mov _g_current_songid, cx\n");
+
+	remove_song_from_favorites();
+	commit_favorites();
+
+	__asm("pop edx\n");
+	__asm("pop ecx\n");
+	real_remove_from_favorite();
+}
+
+//this replaces the category handling function ( add_song_in_list is a subroutine called by the game )
+void (*real_categ_favorite)();
+void categ_inject_favorites()
+{
+    __asm("add esp, 0xC"); // cancel a sub esp 0xC that is added by this code for no reason
+    __asm("push ecx\n");
+    __asm("push edx\n");
+
+    //fake login if necessary
+    __asm("mov ecx, dword ptr [_g_playerdata_ptr_addr]\n");
+    __asm("mov edx, [ecx]\n");
+    __asm("add edx, 0x1A5\n"); //offset where result screen is checking to decide if the favorite option should be displayed/handled
+    __asm("mov ecx, [edx]\n");
+    __asm("cmp ecx, 0\n");
+    __asm("jne skip_fake_login\n");
+    __asm("mov dword ptr [edx], 0xFF000001\n");
+    __asm("skip_fake_login:\n");
+
+    //retrieve songlist according to friend id
+    __asm("mov ecx, dword ptr [_g_playerdata_ptr_addr]\n");
+    __asm("mov edx, [ecx]\n");
+    __asm("add edx, 0x08\n");
+    __asm("mov _g_current_friendid, edx\n");
+
+    prepare_favorite_list();
+
+    //finally prepare songlist struct and inject it in the category
+    favorites_struct.array_start = (uint32_t)favorites;
+    favorites_struct.array_end = (uint32_t)&(favorites[favorites_count]);
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("push ecx\n");
+    __asm("push _favorites_struct_addr\n");
+    __asm("lea eax, dword ptr [ecx+0x24]\n");
+    __asm("call [_add_song_in_list]\n");
+    __asm("pop ecx\n");
+    __asm("ret\n"); //because we patch inside the function
+}
 
 #define SIMPLE_CATEG_ALLOC 1
 
@@ -44,11 +246,7 @@ uint32_t songlist[4096] = {0};
 uint32_t songlist_addr = (uint32_t)&songlist;
 uint32_t songlist_count = 0;
 
-struct songlist_struct_s {
-    uint32_t dummy[3];
-    uint32_t array_start;
-    uint32_t array_end;
-} songlist_struct;
+songlist_t songlist_struct;
 uint32_t songlist_struct_addr = (uint32_t)&songlist_struct;
 
 typedef struct {
@@ -101,17 +299,16 @@ static subcategory_s* get_subcateg(char *title)
     return NULL;
 }
 
-void (*add_song_in_list)();
 void (*categ_inject_songlist)();
 
-struct songlist_struct_s *new_song_list = NULL;
+songlist_t *new_song_list = NULL;
 void get_subcateg_size_impl()
 {
     __asm("push edx\n");
     __asm("mov _idx, eax\n");
 
     tmp_size = subcategories[idx].size;
-    new_song_list = (struct songlist_struct_s*) songlist_struct_addr;
+    new_song_list = (songlist_t*) songlist_struct_addr;
     new_song_list->array_start = (uint32_t)&(subcategories[idx].songlist[0]);
     new_song_list->array_end = (uint32_t)&(subcategories[idx].songlist[tmp_size]);
 
@@ -138,7 +335,7 @@ void hook_event_categ_generation()
         if (  (uint32_t)subcategories[i].name == tmp_str_addr )
         {
             tmp_size = subcategories[i].size;
-            new_song_list = (struct songlist_struct_s*) songlist_struct_addr;
+            new_song_list = (songlist_t*) songlist_struct_addr;
             new_song_list->array_start = (uint32_t)&(subcategories[i].songlist[0]);
             new_song_list->array_end = (uint32_t)&(subcategories[i].songlist[tmp_size]);
             break;
@@ -462,7 +659,84 @@ static bool patch_custom_highlight(const char *game_dll_fn) {
                      (void **)&real_artist_printf);
     }
 
-return true;
+    return true;
+}
+
+static bool patch_favorite_categ(const char *game_dll_fn) {
+
+    DWORD dllSize = 0;
+    char *data = getDllData(game_dll_fn, &dllSize);
+
+    if (add_song_in_list == NULL) {
+        int64_t pattern_offset = search(data, dllSize, "\x8B\x4D\x10\x8B\x5D\x0C\x8B\xF1", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_favorites: cannot find add_song_in_list function\n");
+            return false;
+        }
+
+        //I need to call this subfunction from my hook
+        add_song_in_list = (void (*)())(data + pattern_offset - 0x12);
+    }
+
+    // patch category handling jumptable to add our processing
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_favorites: cannot find category jump table\n");
+            return false;
+        }
+
+            uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x05 + 0x5A);
+            uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
+            uint64_t function_addr = function_call_addr+5+function_offset;
+         
+		 MH_CreateHook((LPVOID)function_addr, (LPVOID)categ_inject_favorites,
+                     (void **)&real_categ_favorite);
+    }
+    //categ_inject_favorites will need to force "logged in" status (for result screen)
+    {
+        //this is the same function used in score challenge patch, checking if we're logged in... but now we just directly retrieve the address
+        int64_t pattern_offset = search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_favorites: cannot find check if logged function\n");
+            return false;
+        }
+
+        g_playerdata_ptr_addr = (*(uint32_t *)(data + pattern_offset + 0x25));
+    }
+
+    //hook result screen to replace 3 functions
+    {
+        int64_t pattern_offset = search(data, dllSize, "\xBF\x07\x00\x00\x00\xC6\x85\x61\xD3", 9, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: custom_favorites: cannot find result screen function\n");
+            return false;
+        }
+
+//song is in favorite
+            uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x5F);
+            uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
+            uint64_t function_addr = function_call_addr+5+function_offset;
+            MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_song_is_in_favorite,
+                     (void **)&real_song_is_in_favorite);
+
+//add to favorites
+            uint64_t function2_call_addr = (int64_t)(data + pattern_offset + 0xBA);
+            uint32_t function2_offset = *((uint32_t*)(function2_call_addr +0x01));
+            uint64_t function2_addr = function2_call_addr+5+function2_offset;
+            MH_CreateHook((LPVOID)function2_addr, (LPVOID)hook_add_to_favorite,
+                     (void **)&real_add_to_favorite);
+
+//remove from favorites
+            uint64_t function3_call_addr = (int64_t)(data + pattern_offset + 0x89);
+            uint32_t function3_offset = *((uint32_t*)(function3_call_addr +0x01));
+            uint64_t function3_addr = function3_call_addr+5+function3_offset;
+            MH_CreateHook((LPVOID)function3_addr, (LPVOID)hook_remove_from_favorite,
+                     (void **)&real_remove_from_favorite);
+
+    }
+    LOG("popnhax: custom_favorites: favorite category handling replaced\n");
+    return true;
 }
 
 static bool patch_custom_categ(const char *game_dll_fn) {
@@ -680,6 +954,37 @@ static void load_databases() {
     }
     LOG("\n");
 }
+/*
+bool load_favorites(){
+	favorites_count = subcategories[0].size;
+	favorites = subcategories[0].songlist;
+	return true;
+}*/
+
+bool load_favorites(){
+    FILE *file = fopen("data_mods\\default.fav", "rb");
+
+    if (file == NULL)
+    {
+        return false;
+    }
+
+    char line[32];
+
+    while (fgets(line, sizeof(line), file)) {
+        /* note that fgets don't strip the terminating \n, checking its
+           presence would allow to handle lines longer that sizeof(line) */
+        int songid = strtol(line, NULL, 10);
+		if ( songid != 0 )
+		{
+            favorites = (uint32_t *) realloc(favorites, sizeof(uint32_t)*(favorites_count+5));
+            favorites[favorites_count++] = songid | 0x00060000; // game wants this otherwise only easy difficulty will appear
+		}
+    }
+    fclose(file);
+	LOG("added %d songs to favorites\n",favorites_count);
+	return true;
+}
 
 bool patch_custom_categs(const char *dllFilename, uint8_t mode, uint16_t min, uint16_t max)
 {
@@ -695,6 +1000,9 @@ bool patch_custom_categs(const char *dllFilename, uint8_t mode, uint16_t min, ui
     }
 
     patch_custom_highlight(dllFilename);
+
+load_favorites();
+patch_favorite_categ(dllFilename);
 
     return patch_custom_categ(dllFilename);
 }

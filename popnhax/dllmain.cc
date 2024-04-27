@@ -3869,7 +3869,7 @@ static bool patch_score_challenge()
     {
         int64_t pattern_offset = search(data, dllSize, "\xF7\xD8\x1B\xC0\x40\xC3\xE8", 7, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: score challenge: cannot find check if logged function\n");
+            LOG("popnhax: score challenge: cannot find check if normal mode function\n");
             return false;
         }
 
