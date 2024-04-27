@@ -5475,6 +5475,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.quick_retire) {
             patch_quick_retire(config.pfree);
+        } else if (config.back_to_song_select) {
+            LOG("WARNING: back to song select cannot be enabled without quick retire.\n");
         }
 
         if (config.score_challenge) {
