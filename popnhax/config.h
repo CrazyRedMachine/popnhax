@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 struct popnhax_config {
+    uint8_t game_version;
     bool practice_mode;
     bool hidden_is_offset;
     bool iidx_hard_gauge;

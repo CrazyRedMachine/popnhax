@@ -19,6 +19,7 @@
 #include "minhook/hde32.h"
 #include "minhook/include/MinHook.h"
 
+uint8_t g_game_version;
 uint32_t g_playerdata_ptr_addr; //pointer to the playerdata memory zone (offset 0x08 is popn friend ID as ascii (12 char long), offset 0x1A5 is "is logged in" flag)
 char *g_current_friendid;
 uint32_t g_current_songid;
@@ -56,37 +57,37 @@ void add_song_to_favorites()
 {
     favorites = (uint32_t *) realloc(favorites, sizeof(uint32_t)*(favorites_count+5));
     favorites[favorites_count++] = g_current_songid | 0x00060000; // game wants this otherwise only easy difficulty will appear
-	return;
+    return;
 }
 void remove_song_from_favorites()
 {
-	for (uint32_t i = 0; i < favorites_count; i++)
-	{
-		if ( g_current_songid == (favorites[i] & 0x0000FFFF) )
-		{
-			for (uint32_t j = i+1; j < favorites_count; j++)
-			{
-				favorites[j-1] = favorites[j];
-			}
-			favorites_count--;
-			return;
-		}
-	}
-	return;
+    for (uint32_t i = 0; i < favorites_count; i++)
+    {
+        if ( g_current_songid == (favorites[i] & 0x0000FFFF) )
+        {
+            for (uint32_t j = i+1; j < favorites_count; j++)
+            {
+                favorites[j-1] = favorites[j];
+            }
+            favorites_count--;
+            return;
+        }
+    }
+    return;
 }
 
 void prepare_favorite_list(){
 
     char fav_filepath[64];
-    sprintf(fav_filepath, "data_mods\\%s.fav", g_current_friendid);
+    sprintf(fav_filepath, "data_mods\\%d.%s.fav", g_game_version, g_current_friendid);
     FILE *file = fopen(fav_filepath, "rb");
 
     favorites_count = 0;
 
     if ( file == NULL )
-	{
-		return;
-	}
+    {
+        return;
+    }
 
     char line[32];
 
@@ -94,97 +95,97 @@ void prepare_favorite_list(){
         /* note that fgets don't strip the terminating \n, checking its
            presence would allow to handle lines longer that sizeof(line) */
         int songid = strtol(line, NULL, 10);
-		if ( songid != 0 )
-		{
-			g_current_songid = songid;
+        if ( songid != 0 )
+        {
+            g_current_songid = songid;
             add_song_to_favorites();
-		}
+        }
     }
     fclose(file);
-	//printf("added %d songs from %s to favorites\n",favorites_count,fav_filepath);
-	return;
+    //printf("added %d songs from %s to favorites\n",favorites_count,fav_filepath);
+    return;
 }
 
 void commit_favorites()
 {
-	if ( favorites_count == 0 )
-		return;
+    if ( favorites_count == 0 )
+        return;
 
-	char fav_filepath[64];
-    sprintf(fav_filepath, "data_mods\\%s.fav", g_current_friendid);
+    char fav_filepath[64];
+    sprintf(fav_filepath, "data_mods\\%d.%s.fav", g_game_version, g_current_friendid);
     FILE *file = fopen(fav_filepath, "w");
 
     if ( file == NULL )
-	{
-		return;
-	}
-	
-	for (uint32_t i = 0; i < favorites_count; i++)
-	{
-		fprintf(file, "%d\n", (favorites[i] & 0x0000FFFF));
-	}
-	fclose(file);
-	return;
+    {
+        return;
+    }
+
+    for (uint32_t i = 0; i < favorites_count; i++)
+    {
+        fprintf(file, "%d\n", (favorites[i] & 0x0000FFFF));
+    }
+    fclose(file);
+    return;
 }
 
 void (*real_song_is_in_favorite)();
 void hook_song_is_in_favorite()
 {
-	__asm("push ecx\n");
-	__asm("push edx\n");
-	//dx contains songid
-	__asm("mov _g_current_songid, dx\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    //dx contains songid
+    __asm("mov _g_current_songid, dx\n");
 
-	for (uint32_t i = 0; i < favorites_count; i++)
-	{
-		if ( g_current_songid == (favorites[i] & 0x0000FFFF) )
-		{
-			__asm("pop edx\n");
-			__asm("pop ecx\n");
-			__asm("pop ebx\n");
-			__asm("mov eax, 0x01\n");
-			__asm("ret\n");
-		}
-	}
-			__asm("pop edx\n");
-			__asm("pop ecx\n");
-			__asm("pop ebx\n");
-	__asm("mov eax, 0x00\n");
-	__asm("ret\n");
+    for (uint32_t i = 0; i < favorites_count; i++)
+    {
+        if ( g_current_songid == (favorites[i] & 0x0000FFFF) )
+        {
+            __asm("pop edx\n");
+            __asm("pop ecx\n");
+            __asm("pop ebx\n");
+            __asm("mov eax, 0x01\n");
+            __asm("ret\n");
+        }
+    }
+            __asm("pop edx\n");
+            __asm("pop ecx\n");
+            __asm("pop ebx\n");
+    __asm("mov eax, 0x00\n");
+    __asm("ret\n");
 }
 
 void (*real_add_to_favorite)();
 void hook_add_to_favorite()
 {
-	__asm("push ecx\n");
-	//dx contains songid
-	__asm("mov _g_current_songid, dx\n");
+    __asm("push ecx\n");
+    //dx contains songid
+    __asm("mov _g_current_songid, dx\n");
 
-	add_song_to_favorites();
-	commit_favorites();
+    add_song_to_favorites();
+    commit_favorites();
 
     __asm("mov eax, [_favorites_count]\n");
-	__asm("mov edx, _g_current_songid\n");
-	__asm("pop ecx\n");
-	real_add_to_favorite();
+    __asm("mov edx, _g_current_songid\n");
+    __asm("pop ecx\n");
+    real_add_to_favorite();
 }
 
 
 void (*real_remove_from_favorite)();
 void hook_remove_from_favorite()
 {
-	//code pushes edi, esi and ebx as well
-	__asm("push ecx\n");
-	__asm("push edx\n");
-	//dx contains songid
-	__asm("mov _g_current_songid, cx\n");
+    //code pushes edi, esi and ebx as well
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    //dx contains songid
+    __asm("mov _g_current_songid, cx\n");
 
-	remove_song_from_favorites();
-	commit_favorites();
+    remove_song_from_favorites();
+    commit_favorites();
 
-	__asm("pop edx\n");
-	__asm("pop ecx\n");
-	real_remove_from_favorite();
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    real_remove_from_favorite();
 }
 
 //this replaces the category handling function ( add_song_in_list is a subroutine called by the game )
@@ -585,7 +586,7 @@ void hook_song_printf()
     __asm("ja print_regular_song\n");
 
     __asm("print_custom_song:\n");
-    
+
     __asm("lea eax, [esp+0x08]\n");
     __asm("mov ebx, _g_customformat\n");
     __asm("mov [eax], ebx\n");
@@ -610,7 +611,7 @@ void hook_artist_printf()
     __asm("ja print_regular_artist\n");
 
     __asm("print_custom_artist:\n");
-    
+
     __asm("lea eax, [esp+0x08]\n");
     __asm("mov ebx, _g_customformat\n");
     __asm("mov [eax], ebx\n");
@@ -639,7 +640,7 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
                      (void **)&real_song_printf);
     }
 
-    //hook format string for artist 
+    //hook format string for artist
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x33\xFF\x8B\x43\x0C\x8B\x70\x04\x83\xC0\x04", 14, 0);
         if (pattern_offset == -1) {
@@ -684,8 +685,8 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
             uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x05 + 0x5A);
             uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
             uint64_t function_addr = function_call_addr+5+function_offset;
-         
-		 MH_CreateHook((LPVOID)function_addr, (LPVOID)categ_inject_favorites,
+
+         MH_CreateHook((LPVOID)function_addr, (LPVOID)categ_inject_favorites,
                      (void **)&real_categ_favorite);
     }
     //categ_inject_favorites will need to force "logged in" status (for result screen)
@@ -964,37 +965,6 @@ static void load_databases() {
     }
     LOG("\n");
 }
-/*
-bool load_favorites(){
-	favorites_count = subcategories[0].size;
-	favorites = subcategories[0].songlist;
-	return true;
-}*/
-
-bool load_favorites(){
-    FILE *file = fopen("data_mods\\default.fav", "rb");
-
-    if (file == NULL)
-    {
-        return false;
-    }
-
-    char line[32];
-
-    while (fgets(line, sizeof(line), file)) {
-        /* note that fgets don't strip the terminating \n, checking its
-           presence would allow to handle lines longer that sizeof(line) */
-        int songid = strtol(line, NULL, 10);
-		if ( songid != 0 )
-		{
-            favorites = (uint32_t *) realloc(favorites, sizeof(uint32_t)*(favorites_count+5));
-            favorites[favorites_count++] = songid | 0x00060000; // game wants this otherwise only easy difficulty will appear
-		}
-    }
-    fclose(file);
-	LOG("added %d songs to favorites\n",favorites_count);
-	return true;
-}
 
 void (*real_getversion)();
 void hook_getversion()
@@ -1048,13 +1018,13 @@ bool patch_exclude(const char *game_dll_fn)
         uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x07);
         uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
         uint64_t function_addr = function_call_addr+5+function_offset;
-         
-		 MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_getversion,
+
+         MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_getversion,
                      (void **)&real_getversion);
     }
-	/*
-	//exclude from CS version category too
-	{
+    /*
+    //exclude from CS version category too
+    {
         int64_t pattern_offset = search(data, dllSize, "\xB8\x13\x05\x00\x00\x66\x3B\xF0", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: exclude_customs: cannot find getCSVersion calling function\n");
@@ -1064,13 +1034,13 @@ bool patch_exclude(const char *game_dll_fn)
         uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x0C);
         uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
         uint64_t function_addr = function_call_addr+5+function_offset;
-         
-		 MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_getcsversion,
+
+         MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_getcsversion,
                      (void **)&real_getcsversion);
     }*/
 
-	LOG("popnhax: exclude_customs: Custom songs excluded from version listings\n");
-	return true;
+    LOG("popnhax: exclude_customs: Custom songs excluded from version listings\n");
+    return true;
 }
 
 bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
@@ -1106,8 +1076,8 @@ LOG("custom title format is %s\n", g_customformat);
     return patch_custom_categ(dllFilename);
 }
 
-bool patch_local_favorites(const char *dllFilename)
+bool patch_local_favorites(const char *dllFilename, uint8_t version)
 {
-    //load_favorites();
+    g_game_version = version;
     return patch_favorite_categ(dllFilename);
 }

@@ -5303,6 +5303,22 @@ static bool option_net_ojama_off(){
     return true;
 }
 
+uint8_t get_version()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x00\x8B\x56\x04\x0F\xB7\x02\xE8", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: get_version: cannot retrieve game version (eclale or less?)\n");
+            return 0;
+        }
+
+        uint8_t version = *(uint8_t*)(data + pattern_offset + 14);
+        return version;
+    }
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -5374,7 +5390,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             free(tmp_name);
         }
 
-        LOG("popnhax: game dll: %s\n",g_game_dll_fn);
+        uint8_t game_version = get_version();
+
+        LOG("popnhax: game dll: %s (popn%d)\n",g_game_dll_fn, game_version);
         LOG("popnhax: config file: %s\n",g_config_fn);
 
         if (!_load_config(g_config_fn, &config, config_psmap))
@@ -5383,11 +5401,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             return FALSE;
         }
 
+        config.game_version = game_version;
+
         if (force_trans_debug)
             config.translation_debug = true;
 
         if (force_no_omni)
             config.patch_db = false;
+
 
         if (!config.disable_multiboot)
         {
@@ -5398,20 +5419,25 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 LOG("popnhax: multiboot autotune activated (custom game dll, force_datecode off)\n");
                 memcpy(config.force_datecode, g_game_dll_fn+7, 10);
                 LOG("popnhax: multiboot: auto set datecode to %s\n", config.force_datecode);
-                if (config.score_challenge && ( strcmp(config.force_datecode,"2020092800") <= 0 ) )
+                if (config.score_challenge && ( config.game_version < 26 || strcmp(config.force_datecode,"2020092800") <= 0 ) )
                 {
                     LOG("popnhax: multiboot: auto disable score challenge patch (already ingame)\n");
                     config.score_challenge = false;
                 }
-                if (config.patch_db && ( strcmp(config.force_datecode,"2016121400") < 0 ) )
+                if (config.patch_db && ( config.game_version == 0 || strcmp(config.force_datecode,"2016121400") < 0 ) )
                 {
                     LOG("popnhax: multiboot: auto disable omnimix patch (not compatible)\n");
                     config.patch_db = false;
                 }
-                if (config.guidese_off && ( strcmp(config.force_datecode,"2016121400") < 0 ) )
+                if (config.guidese_off && ( config.game_version == 0 || strcmp(config.force_datecode,"2016121400") < 0 ) )
                 {
                     LOG("popnhax: multiboot: auto disable Guide SE patch (not compatible)\n");
                     config.guidese_off = false;
+                }
+                if (config.local_favorites && ( config.game_version == 0 || strcmp(config.force_datecode,"2016121400") < 0 ) )
+                {
+                    LOG("popnhax: multiboot: auto disable local favorites patch (not compatible)\n");
+                    config.local_favorites = false;
                 }
             }
         }
@@ -5616,7 +5642,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.local_favorites)
-            patch_local_favorites(g_game_dll_fn);
+        {
+            if ( config.game_version == 0 )
+            {
+                LOG("popnhax: local_favorites: patch is not compatible with your game version.\n");
+            } else {
+                patch_local_favorites(g_game_dll_fn, config.game_version);
+            }
+        }
 
         if (config.force_full_opt)
             option_full();
