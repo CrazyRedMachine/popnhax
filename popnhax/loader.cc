@@ -5,6 +5,7 @@
 
 #include "imports/avs.h"
 #include "util/patch.h"
+#include "util/log.h"
 #include "xmlhelper.h"
 
 #include "tableinfo.h"
@@ -66,7 +67,7 @@ uint32_t add_chart(uint32_t cur_idx, uint8_t *folder, uint8_t *filename, int32_t
                    uint32_t file_type, uint16_t used_keys, bool override_idx);
 
 void parse_charadb(const char *input_filename, const char *target);
-void parse_musicdb(const char *input_filename, const char *target);
+void parse_musicdb(const char *input_filename, const char *target, struct popnhax_config *config);
 
 std::map<uint32_t, int8_t> chart_type_overrides;
 
@@ -818,7 +819,7 @@ void parse_charadb(const char *input_filename, const char *target) {
     free(config_xml);
 }
 
-void parse_musicdb(const char *input_filename, const char *target) {
+void parse_musicdb(const char *input_filename, const char *target, struct popnhax_config *config) {
     if (!file_exists(input_filename)) {
         printf("Couldn't find %s, skipping...\n", input_filename);
         return;
@@ -915,6 +916,18 @@ void parse_musicdb(const char *input_filename, const char *target) {
                 }
             }
 
+            //force loading background for unilab
+            m->mask |= 0x100;
+
+            if ( config->custom_categ
+              && config->custom_exclude_from_version
+              && idx >= config->custom_categ_min_songid
+              && (config->custom_categ_max_songid == 0 || idx <= config->custom_categ_max_songid) )
+            {
+                m->cs_version = 0;
+                m->folder = 0;
+            }
+
             if ((prop_chart = property_search(config_xml, prop, "charts/chart"))) {
                 for (; prop_chart != NULL; prop_chart = property_node_traversal(
                                                prop_chart, TRAVERSE_NEXT_SEARCH_RESULT)) {
@@ -992,7 +1005,7 @@ void parse_musicdb(const char *input_filename, const char *target) {
     free(config_xml);
 }
 
-void load_databases(const char *target_datecode) {
+void load_databases(const char *target_datecode, struct popnhax_config *config) {
 
     SearchFile s;
     printf("XML db files search...\n");
@@ -1013,11 +1026,11 @@ void load_databases(const char *target_datecode) {
         if ( strstr(result[i].c_str(), "musicdb") == NULL )
             continue;
         printf("(musicdb) Loading %s...\n", result[i].c_str());
-        parse_musicdb(result[i].c_str(), target_datecode);
+        parse_musicdb(result[i].c_str(), target_datecode, config);
     }
 }
 
-void musichax_core_init(bool force_unlocks, bool is_expansion_allowed, bool is_redirection_allowed,
+void musichax_core_init(struct popnhax_config *config,
                         char *target_datecode,
 
                         char *base_data,
@@ -1036,6 +1049,11 @@ void musichax_core_init(bool force_unlocks, bool is_expansion_allowed, bool is_r
 
                         uint64_t chara_size, uint64_t *new_chara_size, char *orig_chara_data,
                         uint8_t **new_chara_table) {
+							
+		bool force_unlocks = config->force_unlocks;
+		bool is_expansion_allowed = !config->disable_expansions;
+		bool is_redirection_allowed = !config->disable_redirection;
+
     if (style_size > fontstyle_table_size) {
         fontstyle_table_size = style_size;
     }
@@ -1181,7 +1199,7 @@ void musichax_core_init(bool force_unlocks, bool is_expansion_allowed, bool is_r
             cur->chara_x, cur->chara_y, cur->unk1, cur->display_bpm, cur->hold_flags, true);
     }
 
-    load_databases((const char *)target_datecode);
+    load_databases((const char *)target_datecode, config);
 
     // Add some filler charts to fix some bugs (hack)
     for (int i = 0; i < 10; i++) {

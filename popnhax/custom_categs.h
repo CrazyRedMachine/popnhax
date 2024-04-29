@@ -2,7 +2,9 @@
 #define __CUSTOM_CATEGS_H__
 
 #include <stdint.h>
+#include "popnhax/config.h"
 
-bool patch_custom_categs(const char *dllFilename, uint8_t mode, uint16_t min, uint16_t max);
+bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config);
+bool patch_local_favorites(const char *dllFilename);
 
 #endif

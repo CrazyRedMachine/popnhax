@@ -35,10 +35,10 @@ bool g_subcategmode = false;
 uint32_t g_min_id = 4000;
 uint32_t g_max_id = 0;
 
-const char *g_categname = "Customs";
+char *g_categname;
 const char *g_categicon = "cate_cc";
-const char *g_categformat = "[ol:4][olc:d92f0d]%s";
-const char *g_customformat = "Å¶ [rz:3][c:d92f0d]%s[/rz][/c]";
+char *g_categformat;
+char *g_customformat;
 
 char *g_string_addr;
 uint8_t idx = 0;
@@ -85,12 +85,7 @@ void prepare_favorite_list(){
 
     if ( file == NULL )
 	{
-		file = fopen("data_mods\\default.fav", "rb");
-
-		if (file == NULL)
-		{
-			return;
-		}
+		return;
 	}
 
     char line[32];
@@ -121,12 +116,7 @@ void commit_favorites()
 
     if ( file == NULL )
 	{
-		file = fopen("data_mods\\default.fav", "w");
-
-		if (file == NULL)
-		{
-			return;
-		}
+		return;
 	}
 	
 	for (uint32_t i = 0; i < favorites_count; i++)
@@ -213,6 +203,10 @@ void categ_inject_favorites()
     __asm("cmp ecx, 0\n");
     __asm("jne skip_fake_login\n");
     __asm("mov dword ptr [edx], 0xFF000001\n");
+    __asm("sub edx, 0x19D\n"); //back to popn friendid offset
+    __asm("mov dword ptr [edx], 0x61666564\n"); // "defa"
+    __asm("add edx, 0x04\n");
+    __asm("mov dword ptr [edx], 0x00746C75\n"); // "ult"
     __asm("skip_fake_login:\n");
 
     //retrieve songlist according to friend id
@@ -627,7 +621,7 @@ void hook_artist_printf()
     real_artist_printf();
 }
 
-static bool patch_custom_highlight(const char *game_dll_fn) {
+static bool patch_custom_track_format(const char *game_dll_fn) {
     DWORD dllSize = 0;
     char *data = getDllData(game_dll_fn, &dllSize);
 
@@ -635,7 +629,7 @@ static bool patch_custom_highlight(const char *game_dll_fn) {
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x50\x50\x68", 9, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: custom_highlight: cannot find song/genre print function\n");
+            LOG("popnhax: custom_track_format: cannot find song/genre print function\n");
             return false;
         }
 
@@ -649,7 +643,7 @@ static bool patch_custom_highlight(const char *game_dll_fn) {
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x33\xFF\x8B\x43\x0C\x8B\x70\x04\x83\xC0\x04", 14, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: custom_highlight: cannot find artist print function\n");
+            LOG("popnhax: custom_track_format: cannot find artist print function\n");
             return false;
         }
 
@@ -659,6 +653,7 @@ static bool patch_custom_highlight(const char *game_dll_fn) {
                      (void **)&real_artist_printf);
     }
 
+    LOG("popnhax: custom_track_format: custom format injected\n");
     return true;
 }
 
@@ -670,7 +665,7 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
     if (add_song_in_list == NULL) {
         int64_t pattern_offset = search(data, dllSize, "\x8B\x4D\x10\x8B\x5D\x0C\x8B\xF1", 8, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: custom_favorites: cannot find add_song_in_list function\n");
+            LOG("popnhax: local_favorites: cannot find add_song_in_list function\n");
             return false;
         }
 
@@ -682,7 +677,7 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: custom_favorites: cannot find category jump table\n");
+            LOG("popnhax: local_favorites: cannot find category jump table\n");
             return false;
         }
 
@@ -698,7 +693,7 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
         //this is the same function used in score challenge patch, checking if we're logged in... but now we just directly retrieve the address
         int64_t pattern_offset = search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: custom_favorites: cannot find check if logged function\n");
+            LOG("popnhax: local_favorites: cannot find check if logged function\n");
             return false;
         }
 
@@ -707,35 +702,50 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
 
     //hook result screen to replace 3 functions
     {
-        int64_t pattern_offset = search(data, dllSize, "\xBF\x07\x00\x00\x00\xC6\x85\x61\xD3", 9, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: custom_favorites: cannot find result screen function\n");
+        int64_t first_loc = search(data, dllSize, "\xBF\x07\x00\x00\x00\xC6\x85\x61\xD3", 9, 0);
+        if (first_loc == -1) {
+            LOG("popnhax: local_favorites: cannot find result screen function\n");
             return false;
         }
 
 //song is in favorite
-            uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x5F);
-            uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
-            uint64_t function_addr = function_call_addr+5+function_offset;
-            MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_song_is_in_favorite,
+        int64_t second_loc = search(data, 1000, "\x8B\xC8\xE8", 3, first_loc);
+        if (second_loc == -1) {
+            LOG("popnhax: local_favorites: cannot retrieve is song in favorites call\n");
+            return false;
+        }
+        uint64_t function_call_addr = (int64_t)(data + second_loc + 0x02);
+        uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
+        uint64_t function_addr = function_call_addr+5+function_offset;
+        MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_song_is_in_favorite,
                      (void **)&real_song_is_in_favorite);
 
-//add to favorites
-            uint64_t function2_call_addr = (int64_t)(data + pattern_offset + 0xBA);
-            uint32_t function2_offset = *((uint32_t*)(function2_call_addr +0x01));
-            uint64_t function2_addr = function2_call_addr+5+function2_offset;
-            MH_CreateHook((LPVOID)function2_addr, (LPVOID)hook_add_to_favorite,
-                     (void **)&real_add_to_favorite);
-
 //remove from favorites
-            uint64_t function3_call_addr = (int64_t)(data + pattern_offset + 0x89);
-            uint32_t function3_offset = *((uint32_t*)(function3_call_addr +0x01));
-            uint64_t function3_addr = function3_call_addr+5+function3_offset;
-            MH_CreateHook((LPVOID)function3_addr, (LPVOID)hook_remove_from_favorite,
+        int64_t third_loc = search(data, 1000, "\x6A\x01\x6A\x00\x68", 5, second_loc);
+        if (third_loc == -1) {
+            LOG("popnhax: local_favorites: cannot retrieve remove from favorites call\n");
+            return false;
+        }
+        uint64_t function2_call_addr = (int64_t)(data + third_loc - 0x05);
+        uint32_t function2_offset = *((uint32_t*)(function2_call_addr +0x01));
+        uint64_t function2_addr = function2_call_addr+5+function2_offset;
+        MH_CreateHook((LPVOID)function2_addr, (LPVOID)hook_remove_from_favorite,
                      (void **)&real_remove_from_favorite);
 
+//add to favorites
+        int64_t fourth_loc = search(data, 1000, "\x6A\x01\x6A\x00\x68", 5, third_loc+2);
+        if (fourth_loc == -1) {
+            LOG("popnhax: local_favorites: cannot retrieve add to favorites call\n");
+            return false;
+        }
+        uint64_t function3_call_addr = (int64_t)(data + fourth_loc - 0x05);
+        uint32_t function3_offset = *((uint32_t*)(function3_call_addr +0x01));
+        uint64_t function3_addr = function3_call_addr+5+function3_offset;
+        MH_CreateHook((LPVOID)function3_addr, (LPVOID)hook_add_to_favorite,
+                     (void **)&real_add_to_favorite);
+
     }
-    LOG("popnhax: custom_favorites: favorite category handling replaced\n");
+    LOG("popnhax: local_favorites: favorite category handling replaced\n");
     return true;
 }
 
@@ -986,10 +996,97 @@ bool load_favorites(){
 	return true;
 }
 
-bool patch_custom_categs(const char *dllFilename, uint8_t mode, uint16_t min, uint16_t max)
+void (*real_getversion)();
+void hook_getversion()
 {
-    g_min_id = min;
-    g_max_id = max;
+    __asm("cmp eax, _g_min_id\n");
+    __asm("jb real_version\n");
+    __asm("cmp dword ptr _g_max_id, 0\n");
+    __asm("je force_version_0\n");
+    __asm("cmp eax, _g_max_id\n");
+    __asm("ja real_version\n");
+
+    __asm("force_version_0:\n");
+    __asm("mov eax, 0x00\n");
+    __asm("ret\n");
+
+    __asm("real_version:\n");
+    real_getversion();
+}
+
+void (*real_getcsversion)();
+void hook_getcsversion()
+{
+    __asm("cmp eax, _g_min_id\n");
+    __asm("jb real_csversion\n");
+    __asm("cmp dword ptr _g_max_id, 0\n");
+    __asm("je force_csversion_0\n");
+    __asm("cmp eax, _g_max_id\n");
+    __asm("ja real_csversion\n");
+
+    __asm("force_csversion_0:\n");
+    __asm("mov eax, 0x00\n");
+    __asm("ret\n");
+
+    __asm("real_csversion:\n");
+    real_getcsversion();
+}
+
+bool patch_exclude(const char *game_dll_fn)
+{
+
+    DWORD dllSize = 0;
+    char *data = getDllData(game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x00\x8B\x56\x04\x0F\xB7\x02\xE8", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: exclude_customs: cannot find songlist processing table\n");
+            return false;
+        }
+
+        uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x07);
+        uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
+        uint64_t function_addr = function_call_addr+5+function_offset;
+         
+		 MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_getversion,
+                     (void **)&real_getversion);
+    }
+	/*
+	//exclude from CS version category too
+	{
+        int64_t pattern_offset = search(data, dllSize, "\xB8\x13\x05\x00\x00\x66\x3B\xF0", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: exclude_customs: cannot find getCSVersion calling function\n");
+            return false;
+        }
+
+        uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x0C);
+        uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
+        uint64_t function_addr = function_call_addr+5+function_offset;
+         
+		 MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_getcsversion,
+                     (void **)&real_getcsversion);
+    }*/
+
+	LOG("popnhax: exclude_customs: Custom songs excluded from version listings\n");
+	return true;
+}
+
+bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
+{
+LOG("config is %p\n", (void*)config);
+    g_min_id = config->custom_categ_min_songid;
+    g_max_id = config->custom_categ_max_songid;
+    uint8_t mode = config->custom_categ;
+
+    g_categname = config->custom_category_title;
+    g_categformat = config->custom_category_format;
+
+LOG("custom songid range is [%d;%d]\n", g_min_id, g_max_id);
+LOG("category name is %s\n", g_categname);
+LOG("category format is %s\n", g_categformat);
+
     #if SIMPLE_CATEG_ALLOC == 1
         songlist = (uint32_t*)calloc(1,5);
     #endif
@@ -999,10 +1096,18 @@ bool patch_custom_categs(const char *dllFilename, uint8_t mode, uint16_t min, ui
         load_databases();
     }
 
-    patch_custom_highlight(dllFilename);
-
-load_favorites();
-patch_favorite_categ(dllFilename);
+    if ( config->custom_track_title_format[0] != '\0' )
+    {
+        g_customformat = config->custom_track_title_format;
+LOG("custom title format is %s\n", g_customformat);
+        patch_custom_track_format(dllFilename);
+    }
 
     return patch_custom_categ(dllFilename);
+}
+
+bool patch_local_favorites(const char *dllFilename)
+{
+    //load_favorites();
+    return patch_favorite_categ(dllFilename);
 }

@@ -191,6 +191,18 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, custom_categ_mi
                  "/popnhax/custom_categ_min_songid")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, custom_categ_max_songid,
                  "/popnhax/custom_categ_max_songid")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, custom_exclude_from_version,
+                 "/popnhax/custom_exclude_from_version")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, custom_exclude_from_level,
+                 "/popnhax/custom_exclude_from_level")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, custom_category_title,
+                 "/popnhax/custom_category_title")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, custom_category_format,
+                 "/popnhax/custom_category_format")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, custom_track_title_format,
+                 "/popnhax/custom_track_title_format")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, local_favorites,
+                 "/popnhax/local_favorites")
 PSMAP_END
 
 enum BufferIndexes {
@@ -1441,7 +1453,7 @@ static bool patch_datecode(char *datecode) {
     return true;
 }
 
-static bool patch_database(uint8_t force_unlocks) {
+static bool patch_database() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
@@ -1519,10 +1531,7 @@ static bool patch_database(uint8_t force_unlocks) {
         config.disable_expansions = true;
     }
 
-    musichax_core_init(
-        force_unlocks,
-        !config.disable_expansions,
-        !config.disable_redirection,
+    musichax_core_init(&config,
         target,
 
         data,
@@ -1553,6 +1562,9 @@ static bool patch_database(uint8_t force_unlocks) {
         &new_buffer_addrs[CHARA_TABLE_IDX]
     );
     limit_table[STYLE_TABLE_IDX] = new_limit_table[STYLE_TABLE_IDX];
+
+    if (config.custom_exclude_from_version)
+        LOG("popnhax: custom_exclude_from_version: customs excluded from version folders\n"); //musichax_core_init took care of it
 
     if (config.disable_redirection) {
         LOG("Redirection-related code is disabled, buffer address, buffer size and related patches will not be applied");
@@ -5589,8 +5601,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_db_power_points();
             patch_db_fix_cursor();
             if (config.custom_categ)
-                patch_custom_categs(g_game_dll_fn, config.custom_categ, config.custom_categ_min_songid, config.custom_categ_max_songid);
-            patch_database(config.force_unlocks);
+                patch_custom_categs(g_game_dll_fn, &config);
+            patch_database();
         }
 
         if (config.force_unlocks) {
@@ -5602,6 +5614,9 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_unlocks_offline();
             force_unlock_deco_parts();
         }
+
+        if (config.local_favorites)
+            patch_local_favorites(g_game_dll_fn);
 
         if (config.force_full_opt)
             option_full();

@@ -17,6 +17,8 @@ struct popnhax_config {
     uint8_t custom_categ;
     uint16_t custom_categ_min_songid;
     uint16_t custom_categ_max_songid;
+    bool custom_exclude_from_version;
+    bool custom_exclude_from_level;
     bool force_hd_timing;
     uint8_t force_hd_resolution;
     bool force_unlocks;
@@ -29,6 +31,7 @@ struct popnhax_config {
     bool force_full_opt;
     bool netvs_off;
     bool guidese_off;
+    bool local_favorites;
 
     bool patch_db;
     bool disable_expansions;
@@ -55,6 +58,9 @@ struct popnhax_config {
     bool survival_iidx;
     bool survival_spicy;
     int8_t base_offset;
+    char custom_category_title[16];
+    char custom_category_format[64];
+    char custom_track_title_format[64];
 };
 
 #endif

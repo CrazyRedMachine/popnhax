@@ -7,6 +7,16 @@
     <force_unlocks __type="bool">0</force_unlocks>
     <!-- Put customs into their own category (0: no, 1: simple category with all customs, 2: subcategories by folder name) -->
     <custom_categ __type="u8">0</custom_categ>
+    <!-- Prevent customs from showing up in version folders -->
+    <custom_exclude_from_version __type="bool">0</custom_exclude_from_version>
+    <!-- Prevent customs from showing up in level folders -->
+    <custom_exclude_from_level __type="bool">0</custom_exclude_from_level>
+
+  <!-- Other categories -->
+    <!-- Bring back score challenge in the game for servers supporting it (only for kaimei onwards) -->
+    <score_challenge __type="bool">0</score_challenge>
+    <!-- Handle favorites through data_mods/<friendID>.fav files (Note: allows UNLIMITED favorites) -->
+    <local_favorites __type="bool">0</local_favorites>
 
   <!-- Classic patches -->
     <!-- Prevent crash on boot when using a different default audio source (aka HDMI audio patch) -->
@@ -28,10 +38,6 @@
     <!-- Press numpad 9 in song to retire instantly, or on result screen to leave game session (thank you for playing) -->
     <!-- quick_retire with pfree also enables quick retry: press numpad 8 during song or on result screen to retry (keep holding to skip option select) -->
     <quick_retire __type="bool">0</quick_retire>
-
-  <!-- Network features -->
-    <!-- Bring back score challenge in the game for servers supporting it (only for kaimei onwards) -->
-    <score_challenge __type="bool">0</score_challenge>
 
   <!-- Audio offset -->
     <!-- Offset the audio by x ms (negative plays audio earlier). This will disable keysounds -->
@@ -134,10 +140,18 @@
     <disable_expansions __type="bool">0</disable_expansions>
     <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
     <disable_redirection __type="bool">0</disable_redirection>
+
+  <!-- Custom category options -->
     <!-- minimum songid for a song to be seen as "custom" -->
     <custom_categ_min_songid __type="u16">4000</custom_categ_min_songid>
     <!-- maximum songid for a song to be seen as "custom" (0 = no limit) -->
     <custom_categ_max_songid __type="u16">0</custom_categ_max_songid>
+    <!-- Category title for customs -->
+    <custom_category_title __type="str">Customs</custom_category_title>
+    <!-- Format used for category title (see  -->
+    <custom_category_format __type="str">[ol:4][olc:d92f0d]%s</custom_category_format>
+    <!-- Format used for custom song titles on song select (Note: colors not working for kaimei and unilab, but rotation does, e.g.: * [rz:3]%s[/rz] ) -->
+    <custom_track_title_format __type="str"></custom_track_title_format>
 
   <!-- Translation -->
     <!-- Disable .dict string replacements and .ips patches -->
