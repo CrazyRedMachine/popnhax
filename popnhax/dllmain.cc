@@ -1563,9 +1563,6 @@ static bool patch_database() {
     );
     limit_table[STYLE_TABLE_IDX] = new_limit_table[STYLE_TABLE_IDX];
 
-    if (config.custom_exclude_from_version)
-        LOG("popnhax: custom_exclude_from_version: customs excluded from version folders\n"); //musichax_core_init took care of it
-
     if (config.disable_redirection) {
         LOG("Redirection-related code is disabled, buffer address, buffer size and related patches will not be applied");
         printf("Redirection-related code is disabled, buffer address, buffer size and related patches will not be applied");

@@ -36,8 +36,8 @@ bool g_subcategmode = false;
 uint32_t g_min_id = 4000;
 uint32_t g_max_id = 0;
 
+const char *g_categicon;
 char *g_categname;
-const char *g_categicon = "cate_cc";
 char *g_categformat;
 char *g_customformat;
 
@@ -630,8 +630,11 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x50\x50\x68", 9, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: custom_track_format: cannot find song/genre print function\n");
-            return false;
+            pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x4C\x50\x68", 9, 0); //usaneko
+            if (pattern_offset == -1) {
+                LOG("popnhax: custom_track_format: cannot find song/genre print function\n");
+                return false;
+            }
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
@@ -966,40 +969,24 @@ static void load_databases() {
     LOG("\n");
 }
 
-void (*real_getversion)();
-void hook_getversion()
+void (*real_after_getlevel)();
+void hook_after_getlevel()
 {
-    __asm("cmp eax, _g_min_id\n");
-    __asm("jb real_version\n");
+    __asm("push ebx\n");
+    __asm("mov ebx, dword ptr [esp+0x04]\n");
+    __asm("cmp ebx, _g_min_id\n");
+    __asm("jb real_level\n");
     __asm("cmp dword ptr _g_max_id, 0\n");
-    __asm("je force_version_0\n");
-    __asm("cmp eax, _g_max_id\n");
-    __asm("ja real_version\n");
+    __asm("je force_level_0\n");
+    __asm("cmp ebx, _g_max_id\n");
+    __asm("ja real_level\n");
 
-    __asm("force_version_0:\n");
+    __asm("force_level_0:\n");
     __asm("mov eax, 0x00\n");
-    __asm("ret\n");
 
-    __asm("real_version:\n");
-    real_getversion();
-}
-
-void (*real_getcsversion)();
-void hook_getcsversion()
-{
-    __asm("cmp eax, _g_min_id\n");
-    __asm("jb real_csversion\n");
-    __asm("cmp dword ptr _g_max_id, 0\n");
-    __asm("je force_csversion_0\n");
-    __asm("cmp eax, _g_max_id\n");
-    __asm("ja real_csversion\n");
-
-    __asm("force_csversion_0:\n");
-    __asm("mov eax, 0x00\n");
-    __asm("ret\n");
-
-    __asm("real_csversion:\n");
-    real_getcsversion();
+    __asm("real_level:\n");
+    __asm("pop ebx\n");
+    real_after_getlevel();
 }
 
 bool patch_exclude(const char *game_dll_fn)
@@ -1009,40 +996,23 @@ bool patch_exclude(const char *game_dll_fn)
     char *data = getDllData(game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x00\x8B\x56\x04\x0F\xB7\x02\xE8", 8, 0);
+        int64_t pattern_offset = search(data, dllSize, "\x8B\xF8\x83\xC4\x08\x85\xFF\x7E\x42", 9, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: exclude_customs: cannot find songlist processing table\n");
+            LOG("popnhax: custom_exclude_from_level: cannot find songlist processing table\n");
             return false;
         }
 
-        uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x07);
-        uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
-        uint64_t function_addr = function_call_addr+5+function_offset;
+        uint64_t patch_addr = (int64_t)(data + pattern_offset);
 
-         MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_getversion,
-                     (void **)&real_getversion);
+         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_after_getlevel,
+                     (void **)&real_after_getlevel);
     }
-    /*
-    //exclude from CS version category too
-    {
-        int64_t pattern_offset = search(data, dllSize, "\xB8\x13\x05\x00\x00\x66\x3B\xF0", 8, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: exclude_customs: cannot find getCSVersion calling function\n");
-            return false;
-        }
 
-        uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x0C);
-        uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
-        uint64_t function_addr = function_call_addr+5+function_offset;
-
-         MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_getcsversion,
-                     (void **)&real_getcsversion);
-    }*/
-
-    LOG("popnhax: exclude_customs: Custom songs excluded from version listings\n");
+    LOG("popnhax: custom_exclude_from_level: customs excluded from level folders\n");
     return true;
 }
 
+#define F_OK 0
 bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
 {
 LOG("config is %p\n", (void*)config);
@@ -1050,12 +1020,23 @@ LOG("config is %p\n", (void*)config);
     g_max_id = config->custom_categ_max_songid;
     uint8_t mode = config->custom_categ;
 
+    char icon_path[64];
+    sprintf(icon_path, "data_mods\\_popnhax_assets\\tex\\system%d\\ms_ifs\\cate_cc.png", config->game_version);
+    if (access(icon_path, F_OK) == 0)
+    {
+        g_categicon = "cate_cc";
+    }
+    else
+    {
+        LOG("popnhax: custom_categ: custom icon asset not found. Using \"customize category\" icon\n");
+        g_categicon = "cate_13";
+    }
+
     g_categname = config->custom_category_title;
     g_categformat = config->custom_category_format;
 
-LOG("custom songid range is [%d;%d]\n", g_min_id, g_max_id);
-LOG("category name is %s\n", g_categname);
-LOG("category format is %s\n", g_categformat);
+    LOG("category name is %s\n", g_categname);
+    LOG("category format is %s\n", g_categformat);
 
     #if SIMPLE_CATEG_ALLOC == 1
         songlist = (uint32_t*)calloc(1,5);
@@ -1069,9 +1050,14 @@ LOG("category format is %s\n", g_categformat);
     if ( config->custom_track_title_format[0] != '\0' )
     {
         g_customformat = config->custom_track_title_format;
-LOG("custom title format is %s\n", g_customformat);
+        LOG("custom title format is %s\n", g_customformat);
         patch_custom_track_format(dllFilename);
     }
+
+    if (config->custom_exclude_from_version)
+        LOG("popnhax: custom_exclude_from_version: customs excluded from version folders\n"); //musichax_core_init took care of it
+    if (config->custom_exclude_from_level)
+        patch_exclude(dllFilename);
 
     return patch_custom_categ(dllFilename);
 }
