@@ -1411,6 +1411,43 @@ static bool patch_purelong()
     return true;
 }
 
+
+void (*real_normal0)();
+void hook_normal0()
+{
+    // getChartDifficulty returns 0xFFFFFFFF when there's no chart,
+    // but the game assumes there's always a normal chart so there's no check in this case
+    // and it returns 0... let's fix this
+    __asm("cmp ebx, 1\n"); //chart id
+    __asm("jne process_normal0\n");
+    __asm("cmp eax, 0\n"); //difficulty
+    __asm("jne process_normal0\n");
+    __asm("or eax, 0xFFFFFFFF\n");
+    __asm("process_normal0:\n");
+    real_normal0();
+}
+
+static bool patch_normal0()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\xF8\x89\x7C\x24\x3C", 9, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: Couldn't find song list display function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_normal0,
+                      (void **)&real_normal0);
+
+    }
+
+    return true;
+}
+
 static bool get_music_limit(uint32_t* limit) {
     // avoid doing the search multiple times
     static uint32_t music_limit = 0;
@@ -1675,6 +1712,8 @@ static bool patch_database() {
     limit_table[STYLE_TABLE_IDX] = new_limit_table[STYLE_TABLE_IDX];
 
     patch_purelong();
+
+    patch_normal0();
 
     {
         int64_t pattern_offset = search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
