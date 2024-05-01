@@ -1411,10 +1411,83 @@ static bool patch_purelong()
     return true;
 }
 
+static bool get_music_limit(uint32_t* limit) {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t string_loc = search(data, dllSize, "Illegal music no %d", 19, 0);
+        if (string_loc == -1) {
+            LOG("popnhax: patch_db: could not retrieve music limit error string\n");
+            return false;
+        }
+
+        string_loc += 0x10000000; //entrypoint
+        char *as_hex = (char *) &string_loc;
+        int64_t pattern_offset = search(data, dllSize, as_hex, 4, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: patch_db: could not retrieve music limit test function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x1F;
+        *limit = *(uint32_t*)patch_addr;
+    }
+    return true;
+}
+
+char *get_datecode_from_patches() {
+        SearchFile s;
+        char datecode[11] = {0};
+        uint32_t music_limit = 0;
+        if ( !get_music_limit(&music_limit) )
+        {
+            LOG("WARNING: could not retrieve music limit for datecode_auto\n");
+            return NULL;
+        }
+
+        s.search("data_mods", "xml", false);
+        auto result = s.getResult();
+
+        for (uint16_t i=0; i<result.size(); i++) {
+            uint32_t found_limit = 0;
+            property *patch_xml = load_prop_file(result[i].c_str());
+            READ_U32_OPT(patch_xml, property_search(patch_xml, NULL, "/patches/limits"), "music", found_limit);
+            int res = property_node_refer(patch_xml, property_search(patch_xml, NULL, "/patches"), "target@",
+                                PROPERTY_TYPE_ATTR, datecode, 11);
+            free(patch_xml);
+            if ( found_limit == music_limit )
+                {
+                    if ( res != 11 )
+                    {
+                        LOG("WARNING: %s did not contain a valid target, fallback to filename\n", result[i].c_str()+10);
+                        memcpy(datecode, result[i].c_str()+10+8, 10);
+                    }
+                    return strdup(datecode);
+                }
+        }
+
+        LOG("ERROR: datecode_auto: could not find matching patch file\n");
+        return NULL;
+}
+
 static bool patch_datecode(char *datecode) {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
-    g_datecode_override = strdup(datecode);
+
+    if ( strcmp(datecode, "auto") == 0 )
+    {
+        if ( !config.patch_db )
+        {
+            return true;
+        }
+        LOG("popnhax: find datecode based on patches_.xml file\n");
+        g_datecode_override = get_datecode_from_patches();
+        if ( g_datecode_override == NULL )
+            return false;
+    }
+    else 
+        g_datecode_override = strdup(datecode);
 
     {
         int64_t pattern_offset = search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
@@ -1455,31 +1528,6 @@ static bool patch_datecode(char *datecode) {
     return true;
 }
 
-static bool get_music_limit(uint32_t* limit) {
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
-    {
-        int64_t string_loc = search(data, dllSize, "Illegal music no %d", 19, 0);
-        if (string_loc == -1) {
-            LOG("popnhax: patch_db: could not retrieve music limit error string\n");
-            return false;
-        }
-
-        string_loc += 0x10000000; //entrypoint
-        char *as_hex = (char *) &string_loc;
-        int64_t pattern_offset = search(data, dllSize, as_hex, 4, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: patch_db: could not retrieve music limit test function\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x1F;
-        *limit = *(uint32_t*)patch_addr;
-    }
-    return true;
-}
-
 static bool patch_database() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
@@ -1499,10 +1547,10 @@ static bool patch_database() {
             LOG("popnhax: patch_db: music limit : %d\n", music_limit);
         }
 
-        if (config.force_datecode[0] != '\0')
+        if ( g_datecode_override != NULL )
         {
-            LOG("popnhax: auto detect patch file with datecode override %s\n",config.force_datecode);
-            datecode = (uint8_t*) strdup(config.force_datecode);
+            LOG("popnhax: auto detect patch file with datecode override %s\n", g_datecode_override);
+            datecode = (uint8_t*) strdup(g_datecode_override);
         }
         else
         {
@@ -1548,7 +1596,7 @@ static bool patch_database() {
                 LOG("popnhax: patch_db: found matching music limit, end search\n");
                 if ( !datecode_match )
                 {
-                    LOG("WARNING: datecode did NOT match, please update your %s\n", (config.force_datecode[0] != '\0') ? "force_datecode value" : "ea3-config.xml");
+                    LOG("WARNING: datecode did NOT match, please update your %s\n", ( g_datecode_override != NULL ) ? "force_datecode value" : "ea3-config.xml");
                 }
                 found = true;
                 break;
@@ -5472,14 +5520,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (force_no_omni)
             config.patch_db = false;
 
+        bool datecode_auto = (strcmp(config.force_datecode, "auto") == 0);
 
         if (!config.disable_multiboot)
         {
-            /* automatically force datecode based on dll name when applicable (e.g. popn22_2022061300.dll and no force_datecode) */
+            /* automatically force datecode based on dll name when applicable (e.g. popn22_2022061300.dll and force_datecode is empty or "auto") */
             if ( (strlen(g_game_dll_fn) == 21)
-              && (config.force_datecode[0] == '\0') )
+              && ( datecode_auto || (config.force_datecode[0] == '\0') ) )
             {
-                LOG("popnhax: multiboot autotune activated (custom game dll, force_datecode off)\n");
+                LOG("popnhax: multiboot autotune activated (custom game dll, no force_datecode)\n");
                 memcpy(config.force_datecode, g_game_dll_fn+7, 10);
                 LOG("popnhax: multiboot: auto set datecode to %s\n", config.force_datecode);
                 if (config.score_challenge && ( config.game_version < 26 || strcmp(config.force_datecode,"2020092800") <= 0 ) )
@@ -5507,8 +5556,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.force_datecode[0] != '\0')
         {
-            if (strlen(config.force_datecode) != 10)
-                LOG("popnhax: force_datecode: Invalid datecode %s, should be 10 digits (e.g. 2022061300)\n", config.force_datecode);
+            if (!datecode_auto && strlen(config.force_datecode) != 10)
+                LOG("popnhax: force_datecode: Invalid datecode %s, should be 10 digits (e.g. 2022061300) or \"auto\"\n", config.force_datecode);
             else
                 patch_datecode(config.force_datecode);
         }
