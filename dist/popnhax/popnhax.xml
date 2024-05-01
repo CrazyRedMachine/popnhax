@@ -6,9 +6,9 @@
     <!-- Force unlock music, charts, characters, and deco parts when applicable -->
     <force_unlocks __type="bool">0</force_unlocks>
     <!-- Put customs into their own category (0: no, 1: simple category with all customs, 2: subcategories by folder name) -->
-    <custom_categ __type="u8">0</custom_categ>
+    <custom_categ __type="u8">2</custom_categ>
     <!-- Prevent customs from showing up in version folders -->
-    <custom_exclude_from_version __type="bool">0</custom_exclude_from_version>
+    <custom_exclude_from_version __type="bool">1</custom_exclude_from_version>
     <!-- Prevent customs from showing up in level folders -->
     <custom_exclude_from_level __type="bool">0</custom_exclude_from_level>
 
@@ -140,6 +140,8 @@
     <disable_expansions __type="bool">0</disable_expansions>
     <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
     <disable_redirection __type="bool">0</disable_redirection>
+    <!-- Do not perform music limit checks for patch_xml_auto (not recommended) -->
+    <ignore_music_limit __type="bool">0</ignore_music_limit>
 
   <!-- Custom category options -->
     <!-- minimum songid for a song to be seen as "custom" -->

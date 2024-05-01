@@ -1049,10 +1049,9 @@ void musichax_core_init(struct popnhax_config *config,
 
                         uint64_t chara_size, uint64_t *new_chara_size, char *orig_chara_data,
                         uint8_t **new_chara_table) {
-							
-		bool force_unlocks = config->force_unlocks;
-		bool is_expansion_allowed = !config->disable_expansions;
-		bool is_redirection_allowed = !config->disable_redirection;
+    bool force_unlocks = config->force_unlocks;
+    bool is_expansion_allowed = !config->disable_expansions;
+    bool is_redirection_allowed = !config->disable_redirection;
 
     if (style_size > fontstyle_table_size) {
         fontstyle_table_size = style_size;

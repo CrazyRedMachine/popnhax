@@ -39,6 +39,7 @@ struct popnhax_config {
     bool disable_redirection;
     bool disable_multiboot;
     bool patch_xml_auto;
+    bool ignore_music_limit;
     char patch_xml_filename[MAX_PATH];
     char force_datecode[11];
     bool network_datecode;

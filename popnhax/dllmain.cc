@@ -203,6 +203,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, custom_track_ti
                  "/popnhax/custom_track_title_format")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, local_favorites,
                  "/popnhax/local_favorites")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, ignore_music_limit,
+                 "/popnhax/ignore_music_limit")
 PSMAP_END
 
 enum BufferIndexes {
@@ -1453,24 +1455,34 @@ static bool patch_datecode(char *datecode) {
     return true;
 }
 
-static bool patch_database() {
+static bool get_music_limit(uint32_t* limit) {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    patch_purelong();
-
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
-        if (pattern_offset != -1) {
-            uint64_t patch_addr = (int64_t)data + pattern_offset;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)omnimix_patch_jbx,
-                          (void **)&real_omnimix_patch_jbx);
-
-            LOG("popnhax: Patched X rev for omnimix\n");
-        } else {
-            LOG("popnhax: Couldn't find rev patch\n");
+        int64_t string_loc = search(data, dllSize, "Illegal music no %d", 19, 0);
+        if (string_loc == -1) {
+            LOG("popnhax: patch_db: could not retrieve music limit error string\n");
+            return false;
         }
+
+        string_loc += 0x10000000; //entrypoint
+        char *as_hex = (char *) &string_loc;
+        int64_t pattern_offset = search(data, dllSize, as_hex, 4, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: patch_db: could not retrieve music limit test function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x1F;
+        *limit = *(uint32_t*)patch_addr;
     }
+    return true;
+}
+
+static bool patch_database() {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
     char *target;
 
@@ -1479,6 +1491,13 @@ static bool patch_database() {
         SearchFile s;
         uint8_t *datecode = NULL;
         bool found = false;
+        uint32_t music_limit = 0;
+        if ( !config.ignore_music_limit && !get_music_limit(&music_limit) )
+        {
+            LOG("WARNING: could not retrieve music limit\n");
+        } else {
+            LOG("popnhax: patch_db: music limit : %d\n", music_limit);
+        }
 
         if (config.force_datecode[0] != '\0')
         {
@@ -1487,7 +1506,7 @@ static bool patch_database() {
         }
         else
         {
-            LOG("popnhax: auto detect patch file from ea3-config\n");
+            LOG("popnhax: auto detect patch file with datecode from ea3-config\n");
             property *config_xml = load_prop_file("prop/ea3-config.xml");
             READ_STR_OPT(config_xml, property_search(config_xml, NULL, "/ea3/soft"), "ext", datecode)
             free(config_xml);
@@ -1505,26 +1524,58 @@ static bool patch_database() {
 
         LOG("popnhax: patch_db: found %d xml files in data_mods\n",result.size());
         for (uint16_t i=0; i<result.size(); i++) {
+
             filename = result[i].c_str()+10; // strip "data_mods\" since parsedb will prepend it...
             LOG("%d : %s\n",i,filename);
-            if (strstr(result[i].c_str(), (const char *)datecode) != NULL) {
+            bool datecode_match = (strstr(result[i].c_str(), (const char *)datecode) != NULL);
+            bool limit_match = false;
+            if ( music_limit != 0 )
+            {
+                uint32_t found_limit = 0;
+                LOG("        check music limit... ");
+                property *patch_xml = load_prop_file(result[i].c_str());
+                READ_U32_OPT(patch_xml, property_search(patch_xml, NULL, "/patches/limits"), "music", found_limit)
+                free(patch_xml);
+                LOG("%d\n",found_limit);
+                if ( found_limit == music_limit )
+                {
+                    limit_match = true;
+                }
+            }
+
+            if ( limit_match )
+            {
+                LOG("popnhax: patch_db: found matching music limit, end search\n");
+                if ( !datecode_match )
+                {
+                    LOG("WARNING: datecode did NOT match, please update your %s\n", (config.force_datecode[0] != '\0') ? "force_datecode value" : "ea3-config.xml");
+                }
                 found = true;
-                LOG("popnhax: patch_db: found matching datecode, end search\n");
                 break;
+            }
+
+            if ( datecode_match )
+            {
+                if ( music_limit == 0 )
+                {
+                    found = true;
+                    LOG("popnhax: patch_db: found matching datecode (no music limit check), end search\n");
+                    break;
+                }
+                LOG("WARNING: found matching datecode but music limit doesn't check out, continue search\n");
             }
         }
 
         if (!found) {
-            LOG("popnhax: patch_db: matching datecode not found, defaulting to latest patch file.\n");
+            LOG("popnhax: patch_db: matching %s not found, please add the correct patch xml file in data_mods folder.\n", (music_limit == 0) ? "datecode" : "music limit");
+            return false;
         }
 
         LOG("popnhax: patch_db: using %s\n",filename);
         target = parse_patchdb(filename, data);
 
     } else {
-
         target = parse_patchdb(config.patch_xml_filename, data);
-
     }
 
     if (config.disable_redirection) {
@@ -1562,6 +1613,21 @@ static bool patch_database() {
         &new_buffer_addrs[CHARA_TABLE_IDX]
     );
     limit_table[STYLE_TABLE_IDX] = new_limit_table[STYLE_TABLE_IDX];
+
+    patch_purelong();
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
+        if (pattern_offset != -1) {
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)omnimix_patch_jbx,
+                          (void **)&real_omnimix_patch_jbx);
+
+            LOG("popnhax: Patched X rev for omnimix\n");
+        } else {
+            LOG("popnhax: Couldn't find rev patch\n");
+        }
+    }
 
     if (config.disable_redirection) {
         LOG("Redirection-related code is disabled, buffer address, buffer size and related patches will not be applied");
@@ -5619,13 +5685,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.patch_db) {
-            LOG("popnhax: patching songdb\n");
             /* must be called after force_datecode */
-            patch_db_power_points();
-            patch_db_fix_cursor();
-            if (config.custom_categ)
-                patch_custom_categs(g_game_dll_fn, &config);
-            patch_database();
+            LOG("popnhax: patching songdb\n");
+            if ( patch_database() )
+            {
+                patch_db_power_points();
+                patch_db_fix_cursor();
+                if (config.custom_categ)
+                    patch_custom_categs(g_game_dll_fn, &config);
+            }
         }
 
         if (config.force_unlocks) {
