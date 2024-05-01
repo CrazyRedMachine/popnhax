@@ -19,6 +19,8 @@
 #include "minhook/hde32.h"
 #include "minhook/include/MinHook.h"
 
+#define F_OK 0
+
 uint8_t g_game_version;
 uint32_t g_playerdata_ptr_addr; //pointer to the playerdata memory zone (offset 0x08 is popn friend ID as ascii (12 char long), offset 0x1A5 is "is logged in" flag)
 char *g_current_friendid;
@@ -37,8 +39,8 @@ uint32_t g_min_id = 4000;
 uint32_t g_max_id = 0;
 
 const char *g_categicon;
+const char *g_categformat;
 char *g_categname;
-char *g_categformat;
 char *g_customformat;
 
 char *g_string_addr;
@@ -59,6 +61,7 @@ void add_song_to_favorites()
     favorites[favorites_count++] = g_current_songid | 0x00060000; // game wants this otherwise only easy difficulty will appear
     return;
 }
+
 void remove_song_from_favorites()
 {
     for (uint32_t i = 0; i < favorites_count; i++)
@@ -92,8 +95,6 @@ void prepare_favorite_list(){
     char line[32];
 
     while (fgets(line, sizeof(line), file)) {
-        /* note that fgets don't strip the terminating \n, checking its
-           presence would allow to handle lines longer that sizeof(line) */
         int songid = strtol(line, NULL, 10);
         if ( songid != 0 )
         {
@@ -102,15 +103,12 @@ void prepare_favorite_list(){
         }
     }
     fclose(file);
-    //printf("added %d songs from %s to favorites\n",favorites_count,fav_filepath);
+
     return;
 }
 
 void commit_favorites()
 {
-    if ( favorites_count == 0 )
-        return;
-
     char fav_filepath[64];
     sprintf(fav_filepath, "data_mods\\%d.%s.fav", g_game_version, g_current_friendid);
     FILE *file = fopen(fav_filepath, "w");
@@ -133,7 +131,6 @@ void hook_song_is_in_favorite()
 {
     __asm("push ecx\n");
     __asm("push edx\n");
-    //dx contains songid
     __asm("mov _g_current_songid, dx\n");
 
     for (uint32_t i = 0; i < favorites_count; i++)
@@ -158,7 +155,6 @@ void (*real_add_to_favorite)();
 void hook_add_to_favorite()
 {
     __asm("push ecx\n");
-    //dx contains songid
     __asm("mov _g_current_songid, dx\n");
 
     add_song_to_favorites();
@@ -177,7 +173,6 @@ void hook_remove_from_favorite()
     //code pushes edi, esi and ebx as well
     __asm("push ecx\n");
     __asm("push edx\n");
-    //dx contains songid
     __asm("mov _g_current_songid, cx\n");
 
     remove_song_from_favorites();
@@ -231,13 +226,7 @@ void categ_inject_favorites()
     __asm("ret\n"); //because we patch inside the function
 }
 
-#define SIMPLE_CATEG_ALLOC 1
-
-#if SIMPLE_CATEG_ALLOC == 1
 uint32_t *songlist;
-#else
-uint32_t songlist[4096] = {0};
-#endif
 uint32_t songlist_addr = (uint32_t)&songlist;
 uint32_t songlist_count = 0;
 
@@ -523,7 +512,7 @@ void hook_categ_build_songlist()
     __asm("add_my_song:\n");
     __asm("push eax\n");
     __asm("push ebx\n");
-#if SIMPLE_CATEG_ALLOC == 1
+
     __asm("push ecx\n");
     __asm("push edx\n");
     __asm("sub esp, 0x08\n");
@@ -532,7 +521,7 @@ void hook_categ_build_songlist()
     __asm("add esp, 0x08\n");
     __asm("pop edx\n");
     __asm("pop ecx\n");
-#endif
+
     __asm("mov eax, [_songlist_count]\n");
     __asm("sal eax, 2\n");
     __asm("add eax, _songlist_addr\n");
@@ -632,7 +621,7 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
         if (pattern_offset == -1) {
             pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x4C\x50\x68", 9, 0); //usaneko
             if (pattern_offset == -1) {
-                LOG("popnhax: custom_track_format: cannot find song/genre print function\n");
+                LOG("popnhax: custom_track_title_format: cannot find song/genre print function\n");
                 return false;
             }
         }
@@ -647,7 +636,7 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x33\xFF\x8B\x43\x0C\x8B\x70\x04\x83\xC0\x04", 14, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: custom_track_format: cannot find artist print function\n");
+            LOG("popnhax: custom_track_title_format: cannot find artist print function\n");
             return false;
         }
 
@@ -657,7 +646,7 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
                      (void **)&real_artist_printf);
     }
 
-    LOG("popnhax: custom_track_format: custom format injected\n");
+    LOG("popnhax: Customs displayed in songlist as \"%s\"\n", g_customformat);
     return true;
 }
 
@@ -749,7 +738,7 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
                      (void **)&real_add_to_favorite);
 
     }
-    LOG("popnhax: local_favorites: favorite category handling replaced\n");
+    LOG("popnhax: favorite category uses local files\n");
     return true;
 }
 
@@ -896,11 +885,13 @@ static bool patch_custom_categ(const char *game_dll_fn) {
         }
     }
 
-    LOG("popnhax: custom %s injected (for songids ", g_subcategmode? "subcategories":"category");
+char formatted_title[128];
+sprintf(formatted_title, g_categformat, g_categname);
+    LOG("popnhax: custom %s \"%s\" injected (for songids ", g_subcategmode? "subcategories":"category", formatted_title);
     if (g_max_id)
-        LOG("between %d and %d (inclusive))\n", g_min_id, g_max_id);
+        LOG("between %d and %d (incl.))\n", g_min_id, g_max_id);
     else
-        LOG("above %d (inclusive))\n", g_min_id);
+        LOG("%d and up)\n", g_min_id);
 
     return true;
 }
@@ -949,7 +940,6 @@ static void load_databases() {
     subcategories[0].songlist = NULL;
     subcategories[0].size = 0;
 
-    printf("musicdb search...\n");
     s.search("data_mods", "xml", true);
     auto result = s.getResult();
 
@@ -957,10 +947,11 @@ static void load_databases() {
     {
         if ( strstr(result[i].c_str(), "musicdb") == NULL )
             continue;
-        printf("(musicdb) Loading %s...\n", result[i].c_str());
         parse_musicdb(result[i].c_str());
     }
+}
 
+static void print_databases() {
     for (uint32_t i = 0; i < g_subcateg_count+1; i++)
     {
         if (subcategories[i].size != 0)
@@ -1008,14 +999,12 @@ bool patch_exclude(const char *game_dll_fn)
                      (void **)&real_after_getlevel);
     }
 
-    LOG("popnhax: custom_exclude_from_level: customs excluded from level folders\n");
+    LOG("popnhax: Customs excluded from level folders\n");
     return true;
 }
 
-#define F_OK 0
 bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
 {
-LOG("config is %p\n", (void*)config);
     g_min_id = config->custom_categ_min_songid;
     g_max_id = config->custom_categ_max_songid;
     uint8_t mode = config->custom_categ;
@@ -1032,34 +1021,43 @@ LOG("config is %p\n", (void*)config);
         g_categicon = "cate_13";
     }
 
-    g_categname = config->custom_category_title;
-    g_categformat = config->custom_category_format;
-
-    LOG("category name is %s\n", g_categname);
-    LOG("category format is %s\n", g_categformat);
-
-    #if SIMPLE_CATEG_ALLOC == 1
-        songlist = (uint32_t*)calloc(1,5);
-    #endif
     if (mode == 2)
     {
         g_subcategmode = true;
         load_databases();
+    } else {
+        songlist = (uint32_t*)calloc(1,5); //for some reason it crashes without that 4 cells extra margin
+    }
+
+    g_categname = config->custom_category_title;
+
+    if ( config->custom_category_format[0] != '\0' )
+    {
+        g_categformat = config->custom_category_format;
+    }
+	else
+        g_categformat = "%s";
+
+    if (!patch_custom_categ(dllFilename))
+        return false;
+
+    if (mode == 2)
+    {
+        print_databases();
     }
 
     if ( config->custom_track_title_format[0] != '\0' )
     {
         g_customformat = config->custom_track_title_format;
-        LOG("custom title format is %s\n", g_customformat);
         patch_custom_track_format(dllFilename);
     }
 
     if (config->custom_exclude_from_version)
-        LOG("popnhax: custom_exclude_from_version: customs excluded from version folders\n"); //musichax_core_init took care of it
+        LOG("popnhax: Customs excluded from version folders\n"); //musichax_core_init took care of it
     if (config->custom_exclude_from_level)
         patch_exclude(dllFilename);
 
-    return patch_custom_categ(dllFilename);
+    return true;
 }
 
 bool patch_local_favorites(const char *dllFilename, uint8_t version)

@@ -5503,7 +5503,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         uint8_t game_version = get_version();
 
-        LOG("popnhax: game dll: %s (popn%d)\n",g_game_dll_fn, game_version);
+        LOG("popnhax: game dll: %s ",g_game_dll_fn);
+        if ( game_version != 0 )
+            LOG ("(popn%d)", game_version);
+        LOG("\n");
+
         LOG("popnhax: config file: %s\n",g_config_fn);
 
         if (!_load_config(g_config_fn, &config, config_psmap))
