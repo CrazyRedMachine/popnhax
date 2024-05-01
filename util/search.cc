@@ -73,3 +73,8 @@ int search(char *haystack, size_t haystack_size, const char *needle, size_t need
     int res = _search((unsigned char*) haystack, haystack_size, (const unsigned char *)needle, needle_size, orig_offset, 0);
     return res;
 }
+
+int search_debug(char *haystack, size_t haystack_size, const char *needle, size_t needle_size, size_t orig_offset) {
+    int res = _search((unsigned char*) haystack, haystack_size, (const unsigned char *)needle, needle_size, orig_offset, 2);
+    return res;
+}

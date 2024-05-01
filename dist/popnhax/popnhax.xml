@@ -15,7 +15,7 @@
   <!-- Other categories -->
     <!-- Bring back score challenge in the game for servers supporting it (only for kaimei onwards) -->
     <score_challenge __type="bool">0</score_challenge>
-    <!-- Handle favorites through data_mods/<friendID>.fav files (Note: allows UNLIMITED favorites) -->
+    <!-- Handle favorites through data_mods/<game>.<friendID>.fav files (Note: allows UNLIMITED favorites as well as favorites without an account/server) -->
     <local_favorites __type="bool">0</local_favorites>
 
   <!-- Classic patches -->
@@ -57,7 +57,7 @@
     <hispeed_default_bpm __type="u16">0</hispeed_default_bpm>
 
     <!-- IIDX-like hard gauge (start with full gauge, instant fail if gauge drops to 0) -->
-    <!-- Gauge details: increment: +0.1% for each cool/great/good (like spicy gauge), decrement: -9% for each bad, or -4.5% if gauge <=30% ) -->
+    <!-- Gauge details: increment: +0.1% for each cool/great/good (like spicy gauge), decrement: -9% for each bad, or -4.5% if gauge <=30% (like IIDX) -->
     <iidx_hard_gauge __type="bool">0</iidx_hard_gauge>
     <!-- Force full options by default (useful when no numpad is available) -->
     <force_full_opt __type="bool">0</force_full_opt>
@@ -104,11 +104,11 @@
        ======================================================================================== -->
 
   <!-- Datecode and Multiboot -->
-    <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00) -->
-    <force_datecode __type="str"></force_datecode>
+    <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00), or use "auto" to let music limit decide for you if patch_db is on -->
+    <force_datecode __type="str">auto</force_datecode>
     <!-- Also apply force_datecode to network packets -->
     <network_datecode __type="bool">1</network_datecode>
-    <!-- Disable multiboot auto conf tuning (which takes place when using popn22_yyyymmddrr.dll format and an xml without force_datecode option) -->
+    <!-- Disable multiboot auto conf tuning (which takes place when using popn22_yyyymmddrr.dll format and an xml without another datecode in force_datecode) -->
     <disable_multiboot __type="bool">0</disable_multiboot>
 
   <!-- Timing and lanes -->
@@ -132,13 +132,13 @@
     <enhanced_polling_priority __type="s8">1</enhanced_polling_priority>
 
   <!-- Song db patches -->
-    <!-- Auto select patch file from data_mods folder (will detect datecode from ea3-config or force_datecode option) -->
+    <!-- Auto select patch file from data_mods folder based on music limit, or datecode otherwise (will detect datecode from ea3-config or force_datecode option) -->
     <patch_xml_auto __type="bool">1</patch_xml_auto>
     <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
     <patch_xml_filename __type="str"></patch_xml_filename>
-    <!-- Force the newly created buffers to be the same size as the original buffers -->
+    <!-- Force the newly created buffers to be the same size as the original buffers (not recommended) -->
     <disable_expansions __type="bool">0</disable_expansions>
-    <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) -->
+    <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) (not recommended) -->
     <disable_redirection __type="bool">0</disable_redirection>
     <!-- Do not perform music limit checks for patch_xml_auto (not recommended) -->
     <ignore_music_limit __type="bool">0</ignore_music_limit>
@@ -150,7 +150,7 @@
     <custom_categ_max_songid __type="u16">0</custom_categ_max_songid>
     <!-- Category title for customs -->
     <custom_category_title __type="str">Customs</custom_category_title>
-    <!-- Format used for category title (see  -->
+    <!-- Format used for category title (in BM2DXFontScript format, refer to popnhax_tools documentation)  -->
     <custom_category_format __type="str">[ol:4][olc:d92f0d]%s</custom_category_format>
     <!-- Format used for custom song titles on song select (Note: colors not working for kaimei and unilab, but rotation does, e.g.: * [rz:3]%s[/rz] ) -->
     <custom_track_title_format __type="str"></custom_track_title_format>

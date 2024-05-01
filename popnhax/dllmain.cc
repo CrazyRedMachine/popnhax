@@ -1412,8 +1412,18 @@ static bool patch_purelong()
 }
 
 static bool get_music_limit(uint32_t* limit) {
+    // avoid doing the search multiple times
+    static uint32_t music_limit = 0;
+    if ( music_limit != 0 )
+    {
+        *limit = music_limit;
+        return true;
+    }
+
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
+    PIMAGE_NT_HEADERS headers = (PIMAGE_NT_HEADERS)((int64_t)data + ((PIMAGE_DOS_HEADER)data)->e_lfanew);
+    DWORD_PTR reloc_delta = (DWORD_PTR)((int64_t)data - headers->OptionalHeader.ImageBase);
 
     {
         int64_t string_loc = search(data, dllSize, "Illegal music no %d", 19, 0);
@@ -1422,16 +1432,18 @@ static bool get_music_limit(uint32_t* limit) {
             return false;
         }
 
+        string_loc += reloc_delta; //reloc delta just in case
         string_loc += 0x10000000; //entrypoint
         char *as_hex = (char *) &string_loc;
+
         int64_t pattern_offset = search(data, dllSize, as_hex, 4, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: patch_db: could not retrieve music limit test function\n");
+            LOG("popnhax: could not retrieve music limit test function\n");
             return false;
         }
-
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x1F;
         *limit = *(uint32_t*)patch_addr;
+        music_limit = *limit;
     }
     return true;
 }
@@ -3147,7 +3159,7 @@ static unsigned int __stdcall enhanced_polling_stats_proc(void *ctx)
     if (config.enhanced_polling_priority)
     {
         SetThreadPriority(GetCurrentThread(), config.enhanced_polling_priority);
-        fprintf(stderr, "[Enhanced polling] Thread priority set to %d\n", GetThreadPriority(GetCurrentThread()));
+        LOG("[Enhanced polling] Thread priority set to %d\n", GetThreadPriority(GetCurrentThread()));
     }
 
     uint32_t count = 0;
@@ -3236,7 +3248,7 @@ static unsigned int __stdcall enhanced_polling_proc(void *ctx)
     if (config.enhanced_polling_priority)
     {
         SetThreadPriority(GetCurrentThread(), config.enhanced_polling_priority);
-        fprintf(stderr, "[Enhanced polling] Thread priority set to %d\n", GetThreadPriority(GetCurrentThread()));
+        LOG("[Enhanced polling] Thread priority set to %d\n", GetThreadPriority(GetCurrentThread()));
     }
 
     uint32_t curr_poll_time = 0;
@@ -5430,6 +5442,116 @@ uint8_t get_version()
     }
 }
 
+static bool get_music_limit_from_file(const char *filepath, uint32_t *limit){
+    HANDLE hFile;
+    HANDLE hMap;
+    LPVOID lpBasePtr;
+    LARGE_INTEGER liFileSize;
+
+    hFile = CreateFile(filepath, 
+        GENERIC_READ,                          // dwDesiredAccess
+        0,                                     // dwShareMode
+        NULL,                                  // lpSecurityAttributes
+        OPEN_EXISTING,                         // dwCreationDisposition
+        FILE_ATTRIBUTE_NORMAL,                 // dwFlagsAndAttributes
+        0);                                    // hTemplateFile
+
+    if (hFile == INVALID_HANDLE_VALUE) {
+        //file not existing is actually a good thing
+        return false;
+    }
+
+    if (!GetFileSizeEx(hFile, &liFileSize)) {
+        LOG("popnhax: auto_diag: GetFileSize failed with error %ld\n", GetLastError());
+        CloseHandle(hFile);
+        return false;
+    }
+
+    if (liFileSize.QuadPart == 0) {
+        LOG("popnhax: auto_diag: popn22.dll file is empty?!\n");
+        CloseHandle(hFile);
+        return false;
+    }
+
+    hMap = CreateFileMapping(
+        hFile,
+        NULL,                          // Mapping attributes
+        PAGE_READONLY,                 // Protection flags
+        0,                             // MaximumSizeHigh
+        0,                             // MaximumSizeLow
+        NULL);                         // Name
+    if (hMap == 0) {
+        LOG("popnhax: auto_diag: CreateFileMapping failed with error %ld\n", GetLastError());
+        CloseHandle(hFile);
+        return false;
+    }
+
+    lpBasePtr = MapViewOfFile(
+        hMap,
+        FILE_MAP_READ,         // dwDesiredAccess
+        0,                     // dwFileOffsetHigh
+        0,                     // dwFileOffsetLow
+        0);                    // dwNumberOfBytesToMap
+    if (lpBasePtr == NULL) {
+        LOG("popnhax: auto_diag: MapViewOfFile failed with error %ld\n", GetLastError());
+        CloseHandle(hMap);
+        CloseHandle(hFile);
+        return false;
+    }
+
+    char *data = (char *)lpBasePtr;
+    uint32_t delta = 0;
+
+    //first retrieve .rdata virtual and raw addresses to compute delta
+    {
+        int64_t string_loc = search(data, liFileSize.QuadPart, ".rdata", 6, 0);
+        if (string_loc == -1) {
+            LOG("popnhax: auto_diag: could not retrieve .rdata section header\n");
+            UnmapViewOfFile(lpBasePtr);
+            CloseHandle(hMap);
+            CloseHandle(hFile);
+            return false;
+        }
+        uint32_t virtual_address = *(uint32_t *)(data + string_loc + 0x0C);
+        uint32_t raw_address = *(uint32_t *)(data + string_loc + 0x14);
+        delta = virtual_address - raw_address;
+    }
+
+    //now attempt to find music limit from the dll
+    {
+        int64_t string_loc = search(data, liFileSize.QuadPart, "Illegal music no %d", 19, 0);
+        if (string_loc == -1) {
+            LOG("popnhax: auto_diag: could not retrieve music limit error string\n");
+            UnmapViewOfFile(lpBasePtr);
+            CloseHandle(hMap);
+            CloseHandle(hFile);
+            return false;
+        }
+
+        string_loc += delta; //convert to virtual address
+        string_loc += 0x10000000; //entrypoint
+
+        char *as_hex = (char *) &string_loc;
+        int64_t pattern_offset = search(data, liFileSize.QuadPart, as_hex, 4, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: auto_diag: could not retrieve music limit test function\n");
+            UnmapViewOfFile(lpBasePtr);
+            CloseHandle(hMap);
+            CloseHandle(hFile);
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x1F;
+        *limit = *(uint32_t*)patch_addr;
+    }
+
+    UnmapViewOfFile(lpBasePtr);
+    CloseHandle(hMap);
+    CloseHandle(hFile);
+
+    return true;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -5488,6 +5610,30 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (g_game_dll_fn == NULL)
             g_game_dll_fn = strdup("popn22.dll");
+
+        if ( strcmp(g_game_dll_fn, "popn22.dll") == 0 )
+        {
+            //ensure you're not running popn22.dll from the modules subfolder
+            char filename[MAX_PATH];
+            if ( GetModuleFileName(GetModuleHandle(g_game_dll_fn), filename, MAX_PATH+1) != 0 )
+            {
+                if ( strstr(filename, "\\modules\\popn22.dll") != NULL )
+                {
+                    LOG("WARNING: running popn22.dll from \"modules\" subfolder is not recommended with popnhax. Please copy dlls back to contents folder\n");
+                }
+            } else {
+                LOG("WARNING: auto_diag: Cannot retrieve module path (%ld)\n", GetLastError());
+            }
+
+            //ensure there isn't a more recent version in modules subfolder
+            uint32_t modules_limit, current_limit;
+            if ( get_music_limit(&current_limit)
+              && get_music_limit_from_file("modules\\popn22.dll", &modules_limit)
+              && (modules_limit > current_limit) )
+            {
+                LOG("ERROR: a newer version of popn22.dll seems to be present in modules subfolder (%d vs %d songs). Please copy dlls back to contents folder\n", modules_limit, current_limit);
+            }
+        }
 
         if (g_config_fn == NULL)
         {
@@ -5573,10 +5719,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             char translation_path[64] = "";
 
             /* parse */
-            if (config.force_datecode[0] != '\0')
+            if ( g_datecode_override != NULL )
             {
 
-                sprintf(translation_folder, "_%s%s", config.force_datecode, "_tr");
+                sprintf(translation_folder, "_%s%s", g_datecode_override, "_tr");
                 sprintf(translation_path, "%s%s", "data_mods\\", translation_folder);
                 if (access(translation_path, F_OK) != 0)
                 {
