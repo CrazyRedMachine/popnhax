@@ -695,7 +695,7 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
 
     //hook result screen to replace 3 functions
     {
-        int64_t first_loc = search(data, dllSize, "\xBF\x07\x00\x00\x00\xC6\x85\x61\xD3", 9, 0);
+        int64_t first_loc = search(data, dllSize, "\x10\xBF\x07\x00\x00\x00\xC6\x85", 8, 0);
         if (first_loc == -1) {
             LOG("popnhax: local_favorites: cannot find result screen function\n");
             return false;
@@ -1035,7 +1035,7 @@ bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
     {
         g_categformat = config->custom_category_format;
     }
-	else
+    else
         g_categformat = "%s";
 
     if (!patch_custom_categ(dllFilename))
@@ -1046,11 +1046,13 @@ bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
         print_databases();
     }
 
-    if ( config->custom_track_title_format[0] != '\0' )
-    {
+    if ( config->game_version < 26 && config->custom_track_title_format2[0] != '\0' )
+        g_customformat = config->custom_track_title_format2;
+    else if ( config->custom_track_title_format[0] != '\0' )
         g_customformat = config->custom_track_title_format;
+
+    if ( g_customformat != NULL )
         patch_custom_track_format(dllFilename);
-    }
 
     if (config->custom_exclude_from_version)
         LOG("popnhax: Customs excluded from version folders\n"); //musichax_core_init took care of it

@@ -63,6 +63,7 @@ struct popnhax_config {
     char custom_category_title[16];
     char custom_category_format[64];
     char custom_track_title_format[64];
+    char custom_track_title_format2[64];
 };
 
 #endif

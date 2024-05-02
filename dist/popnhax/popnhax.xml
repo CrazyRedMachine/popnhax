@@ -152,8 +152,10 @@
     <custom_category_title __type="str">Customs</custom_category_title>
     <!-- Format used for category title (in BM2DXFontScript format, refer to popnhax_tools documentation)  -->
     <custom_category_format __type="str">[ol:4][olc:d92f0d]%s</custom_category_format>
-    <!-- Format used for custom song titles on song select (Note: colors not working for kaimei and unilab, but rotation does, e.g.: * [rz:3]%s[/rz] ) -->
+    <!-- Format used for custom song titles on song select (Note: colors not working for kaimei and above, but rotation does, e.g. "* [rz:3]%s[/rz]" ) -->
     <custom_track_title_format __type="str"></custom_track_title_format>
+    <!-- Optional secondary format used for older games only (Full colors supported, e.g. "[ol:4][olc:d92f0d]%s") -->
+    <custom_track_title_format2 __type="str"></custom_track_title_format2>
 
   <!-- Translation -->
     <!-- Disable .dict string replacements and .ips patches -->

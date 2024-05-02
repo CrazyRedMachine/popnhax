@@ -32,7 +32,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "1.11.beta2"
+#define PROGRAM_VERSION "1.11"
 
 const char *g_game_dll_fn = NULL;
 const char *g_config_fn   = NULL;
@@ -201,6 +201,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, custom_category
                  "/popnhax/custom_category_format")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, custom_track_title_format,
                  "/popnhax/custom_track_title_format")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, custom_track_title_format2,
+                 "/popnhax/custom_track_title_format2")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, local_favorites,
                  "/popnhax/local_favorites")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, ignore_music_limit,
@@ -5539,7 +5541,7 @@ static bool get_music_limit_from_file(const char *filepath, uint32_t *limit){
     }
 
     char *data = (char *)lpBasePtr;
-    uint32_t delta = 0;
+    int32_t delta = 0;
 
     //first retrieve .rdata virtual and raw addresses to compute delta
     {
