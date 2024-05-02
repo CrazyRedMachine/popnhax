@@ -14,17 +14,15 @@ include popnhax/Module.mk
 #
 
 zipdir          := $(BUILDDIR)/zip
+popnhax_version := $(shell grep "define PROGRAM_VERSION" popnhax/dllmain.cc | cut -d'"' -f2)
 
-$(zipdir)/:
-	mkdir -p $@
+$(BUILDDIR)/popnhax_$(popnhax_version).zip: \
+	build/bin/avs2_1508-32/popnhax.dll
+	@echo ... $@
+	@mkdir -p $(zipdir)
+	@cp -a -p build/bin/avs2_1508-32/popnhax.dll $(zipdir)
+	@cp -r -a -p dist/popnhax/* $(zipdir)
+	@cd $(zipdir) \
+	&& zip -r ../popnhax_$(popnhax_version).zip ./*
 
-$(BUILDDIR)/popnhax.zip: \
-		build/bin/avs2_1508-32/popnhax.dll \
-		dist/popnhax/popnhax.xml \
-		dist/popnhax/D3d9.dll \
-		dist/popnhax/ifs_hook.dll \
-		| $(zipdir)/
-	echo ... $@
-	zip -j $@ $^
-
-all: $(BUILDDIR)/popnhax.zip
+all: $(BUILDDIR)/popnhax_$(popnhax_version).zip

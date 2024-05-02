@@ -150,7 +150,7 @@
     <custom_categ_max_songid __type="u16">0</custom_categ_max_songid>
     <!-- Category title for customs -->
     <custom_category_title __type="str">Customs</custom_category_title>
-    <!-- Format used for category title (in BM2DXFontScript format, refer to popnhax_tools documentation)  -->
+    <!-- Format used for category title (in BM2DXFontScript format, refer to BM2DXFontScript.md in popnhax_tools repo)  -->
     <custom_category_format __type="str">[ol:4][olc:d92f0d]%s</custom_category_format>
     <!-- Format used for custom song titles on song select (Note: colors not working for kaimei and above, but rotation does, e.g. "* [rz:3]%s[/rz]" ) -->
     <custom_track_title_format __type="str"></custom_track_title_format>

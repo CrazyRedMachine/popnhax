@@ -917,7 +917,7 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
             }
 
             //force loading background for unilab
-            m->mask |= 0x100;
+            //m->mask |= 0x100;
 
             if ( config->custom_categ
               && config->custom_exclude_from_version
