@@ -146,8 +146,8 @@
   <!-- Custom category options -->
     <!-- minimum songid for a song to be seen as "custom" -->
     <custom_categ_min_songid __type="u16">4000</custom_categ_min_songid>
-    <!-- maximum songid for a song to be seen as "custom" (0 = no limit) -->
-    <custom_categ_max_songid __type="u16">0</custom_categ_max_songid>
+    <!-- maximum songid for a song to be seen as "custom" (0 = no limit, not recommended since "random" category will use fake song ids in the 65400+ range) -->
+    <custom_categ_max_songid __type="u16">65400</custom_categ_max_songid>
     <!-- Category title for customs -->
     <custom_category_title __type="str">Customs</custom_category_title>
     <!-- Format used for category title (in BM2DXFontScript format, refer to BM2DXFontScript.md in popnhax_tools repo)  -->

@@ -695,7 +695,7 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
 
     //hook result screen to replace 3 functions
     {
-        int64_t first_loc = search(data, dllSize, "\x10\xBF\x07\x00\x00\x00\xC6\x85", 8, 0);
+        int64_t first_loc = search(data, dllSize, "\xBF\x07\x00\x00\x00\xC6\x85", 7, 0);
         if (first_loc == -1) {
             LOG("popnhax: local_favorites: cannot find result screen function\n");
             return false;
