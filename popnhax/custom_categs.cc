@@ -250,7 +250,7 @@ static bool subcateg_has_songid(uint32_t songid, subcategory_s* subcateg)
 {
     for ( uint32_t i = 0; i < subcateg->size; i++ )
     {
-        if ( subcateg->songlist[i] == songid )
+        if ( (subcateg->songlist[i] & 0x0000FFFF) == songid )
             return true;
     }
     return false;
