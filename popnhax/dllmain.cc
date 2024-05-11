@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <sys/stat.h>
 #include <io.h>
 #define F_OK 0
 #define access _access
@@ -303,8 +304,64 @@ void asm_patch_datecode_libavs() {
     real_asm_patch_datecode_libavs();
 }
 
+/* ----------- r2nk226 ----------- */
+struct REC {
+    uint32_t timestamp;
+    uint8_t judge;
+    uint8_t button;
+    uint8_t flag;
+    uint8_t pad[1];
+    int32_t timing;
+    uint32_t recid;
+} ;
+static REC *recbinArray_loaded = NULL;
+static REC *recbinArray_writing = NULL;
+//struct SRAN {
+//    uint32_t chart_addr;
+//    uint8_t button;
+//    uint8_t pad[3];
+//} ;
+//static SRAN *s_list = NULL;
+//static uint16_t s_count;
+uint32_t player_option_offset = 0;
+uint32_t **player_options_addr = 0;
+uint32_t *button_addr = 0;
+uint32_t **usbpad_addr = 0;
+int16_t p_version = 0;
+uint8_t speed = 5;
+uint32_t new_speed = 100;
+uint32_t rec_musicid = 0;
+uint16_t rec_SPflags = 0;
+uint32_t rec_options = 0;
+uint8_t rec_hispeed = 10;
+uint8_t spec = 0;
+uint32_t judge_bar_func = 0;
+uint32_t playsramsound_func = 0;
+uint32_t date_func = 0;
+//uint32_t noteque_func = 0;
+uint32_t *p_note = 0;
+uint32_t j_win_addr = 0;
+uint32_t g_auto_flag = 0;
+uint32_t *input_func = 0;
+uint32_t *ran_func = 0;
+uint32_t chartbase_addr = 0;
+bool r_ran = false;
+bool regul_flag = false;
+bool is_resultscreen_flag = false;
+bool disp = false;
+bool use_sp_flag = false;
+bool stop_input = true;
+bool stop_recchange = true;
+bool p_record = false;
+bool find_recdata = false;
+bool rec_reload = false;
+bool recsavefile = false;
+/* --------------------------------- */
+
 void (*real_omnimix_patch_jbx)();
 void omnimix_patch_jbx() {
+    __asm("mov %0, byte ptr [edi+4]\n":"=a"(spec): :);
+
     __asm("mov al, 'X'\n");
     __asm("mov byte [edi+4], al\n");
     real_omnimix_patch_jbx();
@@ -831,6 +888,19 @@ uint32_t g_addr_icca;
 void (*real_option_screen)();
 void quickexit_option_screen()
 {
+    /* r2nk226 
+        for record reloading */
+    if (rec_reload) {
+        __asm("push eax\n");
+        rec_reload = false;
+        g_return_to_options = false;
+        stop_recchange = true;
+        **usbpad_addr = 0;
+        __asm("pop eax\n");
+        goto reload;
+    }
+    /* --------------------------------- */
+
     quickexit_option_screen_cleanup();
 
     __asm("push ebx\n");
@@ -849,6 +919,7 @@ void quickexit_option_screen()
     __asm("jne real_option_screen\n");
 
     /* numpad 8 is held, rewrite transition pointer */
+reload:
     __asm("pop edi\n");
     __asm("pop ecx\n");
     __asm("pop edx\n");
@@ -930,27 +1001,169 @@ void backtosongselect_option_screen_yellow_auto_leave()
     real_backtosongselect_option_screen_yellow_auto_leave();
 }
 
-static bool r_ran;
-static bool regul_flg;
-//static bool dj_auto;
-static bool ex_res_flg;
-static bool disp = 0;
-static bool use_sp_flg;
-uint32_t ori_plop = 0;
-uint32_t *g_plop_addr;
-uint32_t add_stage_addr;
+void get_recPlayoptions() {
+    uint32_t *g_options_addr;
+    uint32_t *g_musicid_addr;
+    uint8_t *g_rechispeed_addr;
+    uint8_t stage_no = 0;
+    uint32_t option_offset = 0;
+
+    stage_no = *(uint8_t*)(**player_options_addr +0x0E);
+    option_offset = player_option_offset * stage_no;
+
+    g_musicid_addr = (uint32_t*)(**player_options_addr +0x20 +option_offset);
+    rec_musicid = *g_musicid_addr;
+
+    g_options_addr = (uint32_t*)(**player_options_addr +0x34 +option_offset);
+    rec_options = *g_options_addr;
+
+    g_rechispeed_addr = (uint8_t*)(**player_options_addr +0x2A +option_offset);
+    rec_hispeed = (uint8_t)*g_rechispeed_addr;
+
+    rec_SPflags = (new_speed << 8) | ((uint8_t)regul_flag << 4) | speed;
+}
+
+void save_recSPflags() {
+    uint32_t *g_coolgreat_addr;
+    uint32_t *g_goodbad_addr;
+    uint32_t val = 0;
+    uint8_t stage_no = 0;
+    uint32_t option_offset = 0;
+    uint32_t size = LOWORD(recbinArray_writing[0].timestamp);
+
+    stage_no = *(uint8_t*)(**player_options_addr +0x0E);
+    option_offset = player_option_offset * stage_no;
+    g_coolgreat_addr = (uint32_t*)(**player_options_addr +0x64 +option_offset);
+    g_goodbad_addr = (uint32_t*)(**player_options_addr +0x68 +option_offset);
+
+    if (p_version == 4) {
+        rec_options ^= 0x01000000; // guidese_flag reverse
+    }
+
+    recbinArray_writing[0].timestamp |= ((uint32_t)rec_SPflags << 16);
+    uint32_t count_check = *g_coolgreat_addr + *g_goodbad_addr;
+    count_check = LOWORD(count_check) + HIWORD(count_check);
+    if (count_check != size) {
+        uint32_t check_cool = 0;
+        uint32_t check_great = 0;
+        uint32_t check_good = 0;
+        uint32_t check_bad = 0;
+        for (uint32_t i=0; i < size; i++) {
+            if (recbinArray_writing[i+2].judge == 2) {
+                check_cool++;
+            } else if ((recbinArray_writing[i+2].judge == 3) || (recbinArray_writing[i+2].judge == 4)) {
+                check_great++;
+            } else if ((recbinArray_writing[i+2].judge == 5) || (recbinArray_writing[i+2].judge == 6)) {
+                check_good++;
+            } else if ((recbinArray_writing[i+2].judge == 1) || (recbinArray_writing[i+2].judge == 7) || (recbinArray_writing[i+2].judge == 8) || (recbinArray_writing[i+2].judge == 9)) {
+                check_bad++;
+            }
+        }
+        uint32_t cg = (check_great << 16) | check_cool;
+        uint32_t gb = (check_bad << 16) | check_good;
+        recbinArray_writing[0].recid = cg;
+        recbinArray_writing[0].timing = gb;
+        val = cg ^ gb ^ recbinArray_writing[0].timestamp;
+    } else {
+        recbinArray_writing[0].recid =  *g_coolgreat_addr;
+        recbinArray_writing[0].timing = *g_goodbad_addr;
+        val = *g_coolgreat_addr ^ *g_goodbad_addr ^ recbinArray_writing[0].timestamp;
+    }
+
+    val = ~(val ^ 0x672DE);
+    recbinArray_writing[0].judge = LOBYTE(val);
+    recbinArray_writing[0].button = (uint8_t)(LOWORD(val) >> 8);
+    recbinArray_writing[0].flag = (uint8_t)(HIWORD(val) & 0xFF);
+    recbinArray_writing[0].pad[0] = (uint8_t)(HIWORD(val) >> 8);
+    recbinArray_writing[1].timestamp = rec_options;
+    recbinArray_writing[1].judge = rec_hispeed;
+    recbinArray_writing[1].button = (uint8_t)~recbinArray_writing[0].button;
+    recbinArray_writing[1].flag = (uint8_t)~recbinArray_writing[0].flag;
+
+	uint16_t *button_no = *(uint16_t **)button_addr;
+    uint8_t bt00 = *button_no;
+	uint32_t bt14 = 0;
+    uint32_t bt58 = 0;
+    uint32_t i = 0;
+    do
+    {
+        button_no++;
+        bt14 |= *button_no << (i*8);
+        ++i;
+    } while (i < 4);
+    i=0;
+    do
+    {
+        button_no++;
+        bt58 |= *button_no << (i*8);
+        ++i;
+    } while (i < 4);
+	
+    printf("bt00(%02x) bt14(%08X) bt58(%08X)\n", bt00, bt14, bt58);
+
+    recbinArray_writing[1].pad[0] = bt00;
+	recbinArray_writing[1].timing = bt14;
+	recbinArray_writing[1].recid = bt58;
+    /* .rec file format
+        random,timing,gauge,guide_se,speed,(00),(00),bt_0-bt_8
+                                    */
+    stop_input = false;
+}
+
+void (*real_option_screen_simple)();
+void quickexit_option_screen_simple() {
+    /* for record reloading */
+    if (rec_reload) {
+        rec_reload = false;
+        g_return_to_options = false;
+    /* rewrite transition pointer */
+        //__asm("pop edi\n");
+        __asm("pop ecx\n");
+        __asm("pop edx\n");
+        __asm("xor edx, edx\n");
+        __asm("mov ecx, %0\n"::"c"(g_startsong_addr));
+        __asm("push edx\n");
+        __asm("push ecx\n");
+        //__asm("push edi\n");
+    }
+    real_option_screen_simple();
+}
+
 void (*restore_op)();
-void restore_plop()
-{
-    __asm("push esi\n");
-    __asm("push ebx\n");
-    __asm("mov eax, [%0]\n"::"a"(*g_plop_addr));
-    __asm("mov ebx, %0\n"::"b"(ori_plop));
-    __asm("mov byte ptr [eax+0x34], bl\n");
-    __asm("pop ebx\n");
-    __asm("pop esi\n");
+void restore_playoptions() {
+    **usbpad_addr = 1;
+    if (!p_record) {
+        uint32_t *restore_addr;
+
+        uint8_t stage_no = *(uint8_t*)(**player_options_addr +0x0E);
+        uint32_t option_offset = player_option_offset * stage_no;
+
+        restore_addr = (uint32_t*)(**player_options_addr +0x34 +option_offset);
+        *restore_addr = rec_options;
+
+        #if DEBUG == 1
+            LOG("popnhax: restore_addr is 0x%X\n", **player_options_addr);
+        #endif
+        /*
+        __asm("push ebx\n");
+        __asm("mov eax, [%0]\n"::"a"(*g_plop_addr));
+        __asm("mov ebx, %0\n"::"b"(rec_options));
+        __asm("mov byte ptr [eax+0x34], bl\n");
+        __asm("pop ebx\n");
+        */
+        /*
+        if (s_list != NULL) {
+            free(s_list);
+            s_list = NULL;
+            LOG("popnhax: S-Random_list memory free.\n");
+        }
+        */
+        //stop_recchange = true;
+    //    if (!p_record) save_recSPflags();
+    }
     restore_op();
 }
+/* --------------------------------- */
 
 
 /*
@@ -969,6 +1182,10 @@ numpad values:
 void (*real_game_loop)();
 void quickexit_game_loop()
 {
+    /* ----------- r2nk226 ----------- */
+    stop_input = false;
+    /* --------------------------------- */
+
     __asm("push ebx\n");
 
     __asm("push ecx\n");
@@ -988,7 +1205,7 @@ void quickexit_game_loop()
     __asm("jne call_real\n");
 
     /* numpad 8 is pressed: quick retry if pfree is active */
-    use_sp_flg = 0;
+    use_sp_flag = false;
 
     __asm("push eax");
     __asm("call %0"::"a"(popn22_is_normal_mode));
@@ -1009,7 +1226,7 @@ void quickexit_game_loop()
 
     g_return_to_options = true;
 
-    /* numpad 7 or 9 is pressed */
+    /* numpad 8 or 9 is pressed */
     __asm("leave_song:\n");
     __asm("mov eax, 1\n");
     __asm("pop ebx\n");
@@ -1019,12 +1236,13 @@ void quickexit_game_loop()
     __asm("call_real:\n");
     __asm("pop ebx\n");
 
-/* r2nk226 ついかテスト */
-    if (regul_flg|r_ran){
-        use_sp_flg = 1;
+/* ----------- r2nk226 ----------- */
+    if (regul_flag || r_ran || p_record) {
+        use_sp_flag = true;
     }
-    ex_res_flg = 0;
-    disp = 1;
+    is_resultscreen_flag = false;
+    disp = true;
+/* --------------------------------- */
     real_game_loop();
 
 }
@@ -1083,11 +1301,17 @@ void quickexit_result_loop()
     __asm("mov ebx, %0\n": :"b"(g_transition_addr));
     __asm("mov dword ptr[ebx], 0xFFFFFFFC\n"); //quit session
 
-    disp = 0;// 7.9 message off
+    /* ----------- r2nk226 ----------- */
+    disp = false; // 8.9 message off
+    speed = 5;
+    new_speed = 100;
+    stop_input = true;
+    stop_recchange = true;
 
     __asm("call_real_result:\n");
-// r2nk226#1109 ついかテスト
-    ex_res_flg = 1;
+
+    is_resultscreen_flag = true;
+    /* --------------------------------- */
     real_result_loop();
 }
 
@@ -3386,6 +3610,7 @@ void patch_enhanced_poll() {
     g_poll_offset = buttonGetMillis(g_poll_index);
     __asm("sub esi, %0\n": :"b"(g_poll_offset));
     g_offset_fix[g_poll_index] = g_poll_offset;
+
     real_enhanced_poll();
 }
 
@@ -4182,181 +4407,1090 @@ void patch_numpad0_options() {
     real_numpad0_options();
 }
 
-/* r2nk226 */
+/* ----------- r2nk226 ----------- */
+/* popn23 or less Check */
+static bool version_check() {
+    bool old_db = false;
+    int32_t shift = -9;
+    int64_t pre_gchartaddr = 0;
 
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
 
-/* playerdata */
-static bool get_addr_pldata(uint32_t *res)
-{
-    static uint32_t addr = 0;
-
-    if (addr != 0)
+    /* check Part 1: (21-23 , 24-27) */
     {
-        *res = addr;
+        int64_t pattern_offset = search(data, dllSize, 
+            "\x70\x64\x61\x74\x61\x5F\x66\x69\x6C\x65\x6E\x61\x6D\x65", 14, 0); // "pdata_filename"
+        if (pattern_offset == -1) {
+            old_db = true;
+            shift = -4;
+            #if DEBUG == 1
+                LOG("popnhax: 'pdata_filename' was not found. popn23 or less\n");
+            #endif
+        }
+    }
+
+    /* check Part 2: prepare for g_chartbase_addr */
+    {
+        pre_gchartaddr = search(data, dllSize, "\x8A\xC8\xBA", 3, 0);
+        if (pre_gchartaddr == -1) {
+            #if DEBUG == 1
+                LOG("popnhax: chart_baseaddr was not found\n");
+            #endif
+            return false;
+        }
+    }
+
+    /* check Part 3: po21-po23 */
+    if (old_db) {
+        {
+            uint32_t* check_E8 = (uint32_t *)((int64_t)data + pre_gchartaddr -5);
+            uint8_t val = *check_E8;
+
+            if (val == 0xE8) {
+                LOG("popnhax: pop'n 21 sunny park\n");
+                p_version = 1;
+                shift = -9;
+            }
+        }
+
+        {
+            if (p_version == 0) {
+                int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x03\x77\x6B", 5, 0);
+                if (pattern_offset == -1) {
+                    LOG("popnhax: pop'n 23 eclale\n");
+                    p_version = 3;
+                } else {
+                    LOG("popnhax: pop'n 22 lapistoria\n");
+                    p_version = 2;
+                }
+            }
+        }
+    } else {
+        //old_db = false;
+        int64_t pattern_offset = search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: pop'n 24 - pop'n 26 (not Unilabo) \n");
+            p_version = 4;
+        } else {
+            LOG("popnhax: pop'n 27 Unilabo\n");
+            p_version = 7;
+        }
+    }
+    
+    uint32_t *g_chartbase_addr;
+    g_chartbase_addr = (uint32_t *)((int64_t)data + pre_gchartaddr + shift);
+    chartbase_addr = *g_chartbase_addr;
+
+    if (p_version == 0) {
+        LOG("popnhax: Unknown pop'n version.\n");
+        return false;
+    }
+
+    #if DEBUG == 1
+        LOG("debug : chartbase_addr is 0x%X\n", chartbase_addr);
+    #endif
+
+    return true;
+}
+
+char *ifsname_ptr = 0;
+void (*get_ifs_name)();
+void get_ifs_filename() {
+    __asm("mov %0, eax\n":"=a"(ifsname_ptr): :);
+
+    get_ifs_name();
+}
+
+uint32_t elapsed_time = 0;
+void (*get_elapsed_time_hook)();
+void get_elapsed_time() {
+    __asm("mov %0, eax\n":"=a"(elapsed_time): :);
+
+    get_elapsed_time_hook();
+}
+
+bool check_recdatafile(uint32_t check_notes) {
+    uint32_t check_cool = 0;
+    uint32_t check_great = 0;
+    uint32_t check_good = 0;
+    uint32_t check_bad = 0;
+    uint32_t val = 0;
+    for (uint32_t i=0; i < check_notes; i++) {
+        if (recbinArray_loaded[i+2].judge == 2) {
+            check_cool++;
+        } else if ((recbinArray_loaded[i+2].judge == 3) || (recbinArray_loaded[i+2].judge == 4)) {
+            check_great++;
+        } else if ((recbinArray_loaded[i+2].judge == 5) || (recbinArray_loaded[i+2].judge == 6)) {
+            check_good++;
+        } else if ((recbinArray_loaded[i+2].judge == 1) || (recbinArray_loaded[i+2].judge == 7) || (recbinArray_loaded[i+2].judge == 8) || (recbinArray_loaded[i+2].judge == 9)) {
+            check_bad++;
+        }
+    }
+    uint32_t cg = (check_great << 16) | check_cool;
+    uint32_t gb = (check_bad << 16) | check_good;
+    val = recbinArray_loaded[0].judge | (recbinArray_loaded[0].button >> 8) | (recbinArray_loaded[0].flag >> 16) | (recbinArray_loaded[0].pad[0] >> 24);
+    
+    val = val ^ cg ^ gb ^ 0x672DE ^ recbinArray_loaded[0].timestamp;
+
+    #if DEBUG == 1
+        LOG("popnhax: recbin: cool(%d), great(%d), good(%d), bad(%d)\n",
+                 check_cool, check_great, check_good, check_bad);
+        LOG("popnhax: recbin:cg is %08X. gb is %08X. val is %08X.\n", cg, gb, val);
+        
+        uint32_t judge_1 = 0;
+        uint32_t judge_7 = 0;
+        uint32_t judge_8 = 0;
+        uint32_t judge_9 = 0;
+        uint32_t judge_B = 0;
+        uint32_t judge_C = 0;
+        for (uint32_t i=0; i < check_notes; i++) {
+            if (recbinArray_loaded[i+2].judge == 1) {
+                judge_1++;
+            } else if (recbinArray_loaded[i+2].judge == 7) {
+                judge_7++;
+            } else if (recbinArray_loaded[i+2].judge == 8) {
+                judge_8++;
+            } else if (recbinArray_loaded[i+2].judge == 9) {
+                judge_9++;
+            } else if (recbinArray_loaded[i+2].judge == 0x0B) {
+                judge_B++;
+            } else if (recbinArray_loaded[i+2].judge == 0x0C) {
+                judge_C++;
+            }
+        }
+        LOG("popnhax: recbin: judge_1(%d), judge_7(%d), judge_8(%d), judge_9(%d), judge_B(%d), judge_C(%d)\n",
+                 judge_1, judge_7, judge_8, judge_9, judge_B, judge_C);
+
+    #endif
+
+    uint16_t c_err = 0;
+    if (recbinArray_loaded[0].recid != cg) {
+        c_err |= 1;
+    }
+    if ((uint32_t)recbinArray_loaded[0].timing != gb) {
+        c_err |= 2;
+    }
+    if (recbinArray_loaded[1].button != (uint8_t)~recbinArray_loaded[0].button) {
+        c_err |= 4;
+    }
+    if (recbinArray_loaded[1].flag != (uint8_t)~recbinArray_loaded[0].flag) {
+        c_err |= 8;
+    }
+    if (val == 0) {
+        c_err |= 0x10;
+    }
+    if (c_err != 0) {
+        LOG("popnhax: This file has been modified. (%X)\n", c_err);
+        return false;
+    } else {
+        #if DEBUG == 1
+            LOG("popnhax: recbin: check ok!\n");
+        #endif
+    }
+    
+    return true;
+}
+
+bool recording_memoryset() {
+    uint32_t size = sizeof(struct REC) * 0xC80;
+    if (recbinArray_writing == NULL) {
+        recbinArray_writing = (struct REC*)malloc(size);
+        if (recbinArray_writing == NULL) {
+            return false;
+        }
+
+    #if DEBUG == 1
+        LOG("popnhax: record: default size set.\n");
+        LOG("popnhax: recbinArray_writing addr is 0x%p\n", recbinArray_writing);
+    #endif
+
+    }
+
+    memset(recbinArray_writing, 0, size);
+    recbinArray_writing[0].recid = chartbase_addr;
+    return true;
+}
+
+void recid2str(char* mrecid) {
+    const char *m_diff[8] = {"ep", "np", "hp", "op", "NN", "NH", "HN", "HH"};
+    uint16_t m_idx = HIWORD(rec_musicid);
+    uint16_t m_id = LOWORD(rec_musicid);
+    uint8_t pattern = 0; // default (ep)
+        switch (m_idx) {
+            case 0x0101:
+                pattern = 1;
+                break;
+            case 0x0202:
+                pattern = 2;
+                break;
+            case 0x0303:
+                pattern = 3;
+                break;
+            case 0x0404:
+                pattern = 4;
+                break;
+            case 0x0405:
+                pattern = 5;
+                break;
+            case 0x0504:
+                pattern = 6;
+                break;
+            case 0x0505:
+                pattern = 7;
+                break;
+        }
+        snprintf(mrecid, 10, "%04d(%s)", m_id, m_diff[pattern]);
+        LOG("popnhax: m_id(%04d), m_idx(%04X), mrecid(%s)\n", m_id, m_idx, mrecid);
+}
+
+static bool record_playdata_start() {
+    const char *filename = NULL;
+    
+    SearchFile s;
+    char recid[10];
+
+    if (recbinArray_loaded == NULL && recbinArray_writing == NULL) {
+        find_recdata = false;
+
+        get_recPlayoptions();
+        recid2str(recid);
+
+        char currentDirectory[FILENAME_MAX];
+        if (_getcwd(currentDirectory, sizeof(currentDirectory)) == NULL) {
+            LOG("popnhax: currentDirectory not found.\n");
+            return false;
+        }
+
+        char folderPath[FILENAME_MAX];
+        snprintf(folderPath, sizeof(folderPath), "%s\\rec", currentDirectory);
+
+        struct stat st;
+        if (stat(folderPath, &st) != 0) {
+            mkdir(folderPath);
+            LOG("popnhax: make dir. (rec)\n");
+        }
+
+        s.search("rec", "bin", false);
+        auto result = s.getResult();
+    //    LOG("popnhax: record start : found %d bin files in rec\n", result.size());
+        for (uint16_t i = 0; i < result.size(); i++) {
+            filename = result[i].c_str() +4;
+            //LOG("%d : %s\n", i, filename);
+            if (strstr(result[i].c_str(), (char*)recid) != NULL) {
+                LOG("popnhax: record: found matching recmusicid, end search\n");
+                LOG("popnhax: record: filename = %s\n", filename);
+                find_recdata = true;
+                break;
+            }
+        }
+
+        FILE *recbin;
+        uint32_t size;
+        uint32_t rec_elements;
+
+        // recorddata.bin load -> recbinArray_loaded
+        if (find_recdata) {
+            char filePath[FILENAME_MAX];
+            snprintf(filePath, sizeof(filePath), "%s\\rec\\%s", currentDirectory, filename);
+                
+            recbin = fopen(filePath, "rb");
+            if (recbin == NULL) {
+                LOG("popnhax: record: filePath is %s\n", filePath);
+                LOG("popnhax: record: cannot open %s\n", filename);
+                return false;
+            }
+
+            fseek(recbin, 0, SEEK_END);
+            size = ftell(recbin);
+            fseek(recbin, 0, SEEK_SET);
+
+            rec_elements = size / sizeof(struct REC);
+
+            recbinArray_loaded = (struct REC*)malloc(size);
+            if (recbinArray_loaded == NULL) {
+                LOG("popnhax: record: memory allocation failure.\n");
+                return false;
+            }
+            
+            memset(recbinArray_loaded, 0, size);
+            fread(recbinArray_loaded, sizeof(struct REC), rec_elements, recbin);
+            fclose(recbin);
+
+            #if DEBUG == 1
+                LOG("popnhax: recbinArray_loaded addr is 0x%p\n", recbinArray_loaded);
+            #endif
+
+            // check notes.
+            uint32_t check_notes = LOWORD(recbinArray_loaded[0].timestamp);
+            if (rec_elements -2 != check_notes) {
+                LOG("popnhax: record: error in notes. recnotes(%02X)\n", rec_elements);
+                find_recdata = false;
+                stop_recchange = true;
+            }
+            if (check_recdatafile(check_notes)) {
+                recbinArray_loaded[0].recid = chartbase_addr;
+                recbinArray_loaded[0].timing = 0;
+                //find_recdata = true;
+                stop_recchange = false; // recmode_select enabled.
+                __asm("mov eax, 0x20\n");
+                __asm("push 0\n");
+                __asm("call %0\n"::"D"(playsramsound_func));
+                __asm("add esp, 4\n");
+            } else {
+                find_recdata = false;
+                stop_recchange = true;
+            }
+        } else {
+            // find_recdata = false
+            LOG("popnhax: record: matching recmusicid not found.\n");
+        }
+        
+        // next step: for recbinArray_writing
+        if(!recording_memoryset()) {
+            LOG("popnhax: record: memory allocation failure.\n");
+        }
+    }
+    return true;
+}
+
+void (*real_musicselect)();
+void hook_musicselect() {
+    uint32_t ecxsafe;
+    __asm("mov %0, ecx\n":"=c"(ecxsafe): :);
+    // flag reset
+    disp = false;
+    find_recdata = false;
+    p_record = false;
+    recsavefile = false;
+    is_resultscreen_flag = false;
+    stop_input = false;
+    stop_recchange = true;
+//    speed = 5;
+//    new_speed = 100;
+//    regul_flag = false;
+//    r_ran = false;
+    use_sp_flag = false;
+    **usbpad_addr = 1;
+
+    if (recbinArray_loaded != NULL) {
+        free(recbinArray_loaded);
+        recbinArray_loaded = NULL;
+
+        #if DEBUG == 1
+            LOG("popnhax: load data memory free.\n");
+        #endif
+    }
+    if (recbinArray_writing != NULL) {
+        free(recbinArray_writing);
+        recbinArray_writing = NULL;
+
+        #if DEBUG == 1
+            LOG("popnhax: recording data memory free.\n");
+        #endif
+    }
+    __asm("mov ecx, %0\n"::"c"(ecxsafe));
+
+    real_musicselect();
+}
+
+void rec_id_check() {
+    __asm("push ecx\n");
+    __asm("push ebp\n");
+    __asm("mov eax, dword ptr [%0]\n"::"a"(p_note));
+    __asm("mov esi, [eax]\n");
+    __asm("mov eax, [%0]\n"::"a"(&recbinArray_loaded));
+    __asm("mov ebp, eax\n");
+    __asm("xor al, al\n");
+    __asm("mov ecx, dword ptr [esi+0x04]\n");
+    __asm("sub ecx, dword ptr [ebp+0x0C]\n");
+    __asm("mov ebp, dword ptr [ebp+0x04]\n");
+    __asm("cmp word ptr [ebp+0x0C], cx\n");
+    __asm("jne rec_id_nomatch\n");
+        
+    // redID matched.
+    __asm("movzx ecx, byte ptr [ebp+0x04]\n"); // judge
+    __asm("cmp dword ptr [esp+0x08+0x04], 0x01\n"); // bad_check flag
+    __asm("jne long_check\n");
+    __asm("cmp ecx, 0x07\n"); // bad_check 7 - B
+    __asm("jl long_check\n");
+    __asm("xor ebx, ebx\n");
+    __asm("or word ptr [esi+0x18], 0x02\n");
+    __asm("cmp ecx, 0x09\n");
+    __asm("jne long_check\n");
+    __asm("mov ebx, 0x02\n");
+    __asm("xor ecx, ecx\n");
+        
+    __asm("long_check:\n");
+    __asm("mov eax, dword ptr [esi+0x04]\n");
+    __asm("cmp dword ptr [eax+0x08], 0\n"); // long check
+    __asm("jbe id_match_end\n");
+
+    __asm("long_start:\n");
+    __asm("cmp ecx, 0x07\n"); // bad_check 7 - B
+    __asm("ja id_match_end\n"); 
+    __asm("mov byte ptr [esi+0x60], cl\n");   // save long_judge
+	    
+    __asm("id_match_end:\n");
+	__asm("cmp cl, 0\n");
+    __asm("setne al\n");
+
+	__asm("rec_id_nomatch:\n");
+	__asm("pop ebp\n");
+    __asm("pop ecx\n");
+}
+
+void call_guidese() {
+    uint8_t *g_guidese_addr;
+    uint8_t stage_no = 0;
+    uint32_t option_offset = 0;
+
+    stage_no = *(uint8_t*)(**player_options_addr +0x0E);
+    option_offset = player_option_offset * stage_no;
+    g_guidese_addr = (uint8_t*)(**player_options_addr +0x37 +option_offset);
+    __asm("movzx ecx, %0\n"::"a"(*g_guidese_addr));
+    __asm("cmp cl, 0\n");
+    __asm("je call_end\n");
+    __asm("mov eax, dword ptr [esp+0x08]\n"); // judge+button
+    __asm("and eax, 0x00FF\n"); // judge only
+    __asm("cmp al, 0x02\n");
+    __asm("jne se_continue\n");
+    //COOL
+    __asm("push 0\n");
+    __asm("jmp se_call\n");
+    __asm("se_continue:\n");
+    __asm("cmp al, 0x04\n");
+    __asm("je GOOD\n");
+    __asm("cmp al, 0x03\n");
+    __asm("je GOOD\n");
+    __asm("cmp al, 0x06\n");
+    __asm("je GREAT\n");
+    __asm("cmp al, 0x05\n");
+    __asm("je GREAT\n");
+    __asm("jmp call_end\n");
+
+    __asm("GREAT:\n");
+    __asm("push 0x13880\n");
+    __asm("jmp se_call\n");
+    __asm("GOOD:\n");
+    __asm("push 0x0EA60\n");
+    __asm("se_call:\n");
+    if (p_version == 7) {
+        __asm("dec ecx\n");
+    }
+    __asm("mov eax, 0x21\n");
+    __asm("add eax, ecx\n");
+    __asm("call %0\n"::"D"(playsramsound_func));
+    __asm("add esp, 4\n");
+    __asm("call_end:\n");
+}
+
+void (*hook_playfirst)();
+void play_firststep() {
+    __asm("push eax\n");
+    if (g_auto_flag == 0 && p_record) { 
+        __asm("push ebp\n");
+        __asm("push ecx\n");
+        __asm("push ebx\n");
+        __asm("mov eax, [%0]\n"::"a"(&recbinArray_loaded));
+        __asm("mov ebp, eax\n");
+        __asm("movzx ecx, word ptr [ebp+0x08]\n");      // play_counter 
+        __asm("cmp edi, 0\n");                          // edi = elapsed time
+        __asm("jne p1_start\n");
+        __asm("mov word ptr [ebp+0x08], 0\n");         // play_counter reset
+
+        __asm("p1_end:\n");
+        __asm("xor eax, eax\n");
+        __asm("jmp p1_endmerge\n");
+
+        __asm("p1_start:\n");
+        __asm("cmp word ptr [ebp], cx\n");              // [ebp] = rec_counter
+        __asm("jle p1_end\n");
+        __asm("add ecx, ecx\n");
+        __asm("lea eax, dword ptr [ebp+ecx*8+0x20]\n");
+        __asm("mov dword ptr [ebp+0x04], eax\n");
+
+        __asm("debug_skip:\n");   // test_skip
+        __asm("cmp word ptr [eax+0x06], 0x0101\n");
+        __asm("je countup\n");
+
+        __asm("cmp byte ptr [eax+0x06], 0xE2\n");
+        __asm("jne skip_check\n");
+        __asm("cmp edi, dword ptr [eax]\n");
+        __asm("jl p1_end\n");                  // elapsed time < Timing -> return
+
+        // E2�̓����O���������Ƃ̃o�O�H��GOOD�������邱�Ƃ�����̂��Č��c
+        __asm("movzx ecx, word ptr [eax+0x04]\n");
+        __asm("push edx\n");
+        __asm("push ecx\n");
+        call_guidese();
+        __asm("add esp, 4\n");
+        __asm("pop edx\n");
+        __asm("mov eax, dword ptr [ebp+0x04]\n");
+
+        __asm("countup:\n");
+        __asm("inc word ptr [ebp+0x08]\n");
+        __asm("add dword ptr [ebp+0x04], 0x10\n");
+        __asm("jmp p1_end\n");
+
+        __asm("skip_check:\n"); // judge=1 (poor)
+        __asm("movzx ecx, byte ptr [eax+0x04]\n");
+        __asm("cmp cl, 0x01\n");
+        __asm("jle countup\n");     // 0.1 -> skip
+        __asm("cmp cl, 0x0A\n");    // A.B~ -> skip_test 
+        __asm("jge countup\n");
+
+        __asm("p1_idcheck:\n");
+        __asm("push 0\n");      // id-checkOnly
+        rec_id_check();
+        __asm("add esp, 4\n");
+        __asm("test al, al\n");
+        __asm("je p1_end\n");
+        // id matched
+        __asm("mov eax, dword ptr [ebp+0x04]\n");
+
+        __asm("input_continue:\n");
+        __asm("mov eax, dword ptr [eax+0x08]\n");   // inputTiming
+        __asm("neg eax\n");
+        __asm("p1_endmerge:\n");
+        __asm("pop ebx\n");
+        __asm("pop ecx\n");
+        __asm("pop ebp\n");
+        __asm("add ecx, eax\n");
+    }
+    __asm("pop eax\n");
+    hook_playfirst();
+}
+
+void (*last_auto_flag_check)();
+void play_secondstep() {
+    if (g_auto_flag == 1) {
+        __asm("mov al, 0x01\n");
+    } else if (g_auto_flag == 0) {
+        if (p_record) {
+            __asm("push edi\n");
+            __asm("cmp ebx, 0x02\n");                   // long_end_flag
+            __asm("jne p2_start\n");   
+
+            //__asm("p2_long_end_flow:\n");
+            __asm("movzx eax, byte ptr [esi+0x12]\n");  // button
+            __asm("movzx ecx, byte ptr [esi+0x60]\n");  // saved_judge
+            __asm("shl ax, 8\n");
+            __asm("or eax, ecx\n");
+            __asm("push eax\n");                        // send judge 
+            __asm("call %0\n"::"a"(judge_bar_func));
+            __asm("add esp, 4\n");
+            __asm("mov ebx, 0x01\n");
+            __asm("jmp p2_end\n");                      // no call guideSE
+
+            __asm("p2_start:\n");
+            __asm("mov edi, [%0]\n"::"D"(&recbinArray_loaded));
+            __asm("mov eax, dword ptr [edi+0x04]\n");
+
+            __asm("p2_continue:\n");
+            __asm("movzx eax, word ptr [eax+0x04]\n");  // judge+button
+            __asm("push eax\n");                        // send judge 
+            __asm("call %0\n"::"a"(judge_bar_func));
+            __asm("pop eax\n");
+            __asm("inc word ptr [edi+0x08]\n");         // play_count
+            __asm("add dword ptr [edi+0x04], 0x10\n");
+            __asm("push eax\n");                        // send judge
+            call_guidese();
+            __asm("add esp, 4\n");
+
+            __asm("p2_end:\n");
+            __asm("mov eax, [%0]\n"::"a"(p_note));
+            __asm("mov esi, [eax]\n");
+            __asm("mov ecx, esi\n"); // p_note
+            __asm("pop edi\n");
+            __asm("xor al, al\n");
+        }
+    } 
+    last_auto_flag_check();
+}
+
+void (*first_auto_flag_check)();
+void play_thirdstep() {
+    __asm("push edx\n");
+    __asm("movzx eax, al\n");
+    __asm("mov %0, eax\n":"=a"(g_auto_flag): :);
+    if (g_auto_flag == 1) {
+        __asm("mov al, 1\n"); // for DEMO play
+    } else if (g_auto_flag == 0) {
+        if (p_record) {
+         // playback record
+            __asm("mov edx, [%0]\n"::"d"(&recbinArray_loaded));
+            __asm("mov ebx, [esi+0x04]\n");
+            __asm("cmp dword ptr [ebx+0x08], 0\n"); // long check
+            __asm("mov ebx, 0x01\n");
+            __asm("jbe id_check\n");
+            
+            __asm("movzx eax, word ptr [esi+0x18]\n"); // flag
+            __asm("test al, 0x80\n"); // long_end check
+            __asm("jne p3_long_end\n");
+
+            __asm("id_check:\n");
+            __asm("push 1\n"); // recID & bad_check
+            rec_id_check();
+            __asm("add esp, 4\n");
+            __asm("cmp ebx, 0x02\n");
+            __asm("jne p3_return\n");
+            
+            __asm("inc word ptr [edx+0x08]\n");
+            __asm("or word ptr [esi+0x18], 2\n");
+            __asm("mov ebx, dword ptr [edx+0x04]\n");
+            __asm("add dword ptr [edx+0x04], 0x10\n");
+            __asm("movzx ebx, word ptr [ebx+0x04]\n");  // button&judge
+            __asm("push ebx\n");
+            __asm("call %0\n"::"a"(judge_bar_func));
+            __asm("add esp, 4\n");
+            __asm("xor al, al\n");
+            __asm("mov ebx, 0x02\n");
+            __asm("jmp p3_return\n");
+
+            __asm("p3_long_end:\n");
+            __asm("push 0\n");
+            rec_id_check();
+            __asm("add esp, 4\n");
+            __asm("cmp al, bl\n");
+            __asm("jne p3_end\n");
+            __asm("inc word ptr [edx+0x08]\n"); // play_counter
+            __asm("add dword ptr [edx+0x04], 0x10\n");
+            
+            __asm("p3_end:\n");
+            __asm("mov eax, ebx\n");
+        } else if (!p_record) {
+            __asm("xor al, al\n"); // recording
+        }
+    }
+    __asm("p3_return:\n");
+    __asm("pop edx\n");
+    first_auto_flag_check();
+}
+
+void (*long_end_flow)();
+void play_fourthstep() {
+    // movzx dx, byte ptr [esi+0x12]     // button
+    // movzx ecx, byte ptr [esi+0x60]    // 0 (for long_bar clear)
+    // shl dx, 8                         // 0xYY00 : YY = buttonNo.
+    __asm("mov ebx, 0x02\n");            // long_end_flag. play_secondstep will catch it
+    __asm("xor ecx, ecx\n");             // saved judge clear
+
+    __asm("p4_continue:\n");
+    if (g_auto_flag == 1) {
+        __asm("dec ebx\n");
+    }
+    long_end_flow();
+}
+
+void (*get_judge)();
+void record_playdata() {
+    if (!p_record && stop_recchange) {
+        // ax = ebp = judge+button
+        if (elapsed_time > 0) {
+            __asm("push ecx\n");
+            __asm("mov ecx, ebp\n"); // judge+button
+            __asm("push ebp\n");
+            __asm("push ebx\n");
+
+            __asm("mov eax, dword ptr [%0]\n"::"a"(&recbinArray_writing));
+            __asm("mov ebp, eax\n");
+            __asm("mov ebx, %0\n"::"b"(elapsed_time));
+
+            __asm("rec1_start:\n");
+            __asm("cmp cl, 0x0B\n");        // ��ł�
+            __asm("jne rec1_calc_addr\n");  // �󂶂�Ȃ��Ȃ炻�̂܂܋L�^����
+            __asm("cmp esi, 0\n");          // [esi]=p_note
+            __asm("jmp rec1_end\n");        // ��ł���p_note�������Ă�ꍇ�����O��ł��������΂�
+
+            __asm("rec1_calc_addr:\n");
+            __asm("mov eax, ecx\n");        // judge+button -> eax
+            __asm("movzx ecx, word ptr [ebp]\n");  // rec_counter
+            __asm("add ecx, ecx\n");
+            __asm("lea ecx, dword ptr [ebp+ecx*8+0x20]\n");
+            __asm("mov dword ptr [ebp+0x04], ecx\n");
+            __asm("mov dword ptr [ecx], ebx\n");        // elapsed time
+            __asm("mov dword ptr [ecx+0x04], eax\n");   // judge+button
+
+            __asm("rec1_continue:\n");  // [ebx]==edi==buttonNo.
+            __asm("mov eax, dword ptr [%0]\n"::"a"(j_win_addr));
+            __asm("mov eax, dword ptr [eax+edi*8+4]\n");
+            __asm("mov dword ptr [ecx+0x08], eax\n");     // input timing
+            __asm("test esi, esi\n");   // [esi]=p_note
+            __asm("jne rec1_recid\n"); // 
+            __asm("mov dword ptr [ecx+0x08], esi\n");
+            __asm("mov dword ptr [ecx+0x0C], esi\n");
+            __asm("jmp rec1_countup\n");
+
+            __asm("rec1_recid:\n");
+            __asm("mov eax, dword ptr [esi+0x04]\n");     // [p_note + 4] -> chart_addr
+            __asm("sub eax, dword ptr [ebp+0x0C]\n");     // chart_addr - baseaddr -> recID
+            __asm("mov dword ptr [ecx+0x0C], eax\n");     // recID
+
+            __asm("rec1_testcheck:\n");
+            __asm("mov eax, dword ptr [esi+0x18]\n");  // flags
+            __asm("mov byte ptr [ecx+0x06], al\n");
+
+            // long bad
+            __asm("test al, 0x80\n");
+            __asm("je rec1_countup\n");
+            __asm("test al, 0x02\n");
+            __asm("je rec1_countup\n");
+            __asm("mov byte ptr [ecx+0x07], 0xFF\n");
+
+            __asm("rec1_countup:\n");
+            __asm("inc word ptr [ebp]\n");
+                
+            __asm("rec1_end:\n");
+            __asm("pop ebx\n");
+            __asm("pop ebp\n");
+            __asm("pop ecx\n");
+            __asm("mov eax, ebp\n"); // judge+button
+        }
+    }
+    get_judge();
+}
+
+void (*get_poor)();
+void record_playdata_poor() {
+    if (!p_record && stop_recchange && !g_auto_flag) {
+        // (g_auto_flag = true) -> demo screen
+        __asm("push ecx\n");
+        __asm("push ebx\n");
+        __asm("push edx\n");
+        __asm("push edi\n");
+     //__asm("rec2_start:\n");
+        __asm("mov edi, %0\n"::"D"(elapsed_time));
+        __asm("mov ebx, dword ptr [%0]\n"::"b"(&recbinArray_writing));
+        __asm("movzx ecx, word ptr [ebx]\n");           // rec_counter
+        __asm("add ecx, ecx\n");
+        __asm("lea eax, dword ptr [ebx+ecx*8+0x20]\n");
+        __asm("mov dword ptr [ebx+0x04], eax\n");       // rec_addr
+        __asm("inc word ptr [ebx]\n");                  // rec_counter
+        __asm("mov word ptr [eax+0x04], dx\n");         // poor_judge+button
+        __asm("mov word ptr [eax+0x06], 0x0101\n");     // skip_test flag
+        __asm("mov dword ptr [eax], edi\n");            // elapsed time
+        __asm("mov edx, dword ptr [esi+0x04]\n");       // p_note+4 -> chart_addr
+        __asm("mov ecx, dword ptr [ebx+0x0C]\n");       // chartbase_addr
+        __asm("sub edx, ecx\n");
+        __asm("mov dword ptr [eax+0x0C], edx\n");       // recID
+        __asm("pop edi\n");
+        __asm("pop edx\n");
+        __asm("pop ebx\n");
+        __asm("pop ecx\n");
+    }
+    get_poor();
+}
+
+/*
+int compare_sran(const void* a, const void* b) {
+    return ((struct SRAN*)a)->chart_addr - ((struct SRAN*)b)->chart_addr;
+}
+*/
+/*
+uint16_t s_countmax;
+bool srandom_set() {
+    s_countmax = HIWORD(recbinArray_loaded[0].timing);
+    uint32_t size = s_countmax * sizeof(struct SRAN);
+
+    s_list = (struct SRAN*)malloc(size);
+    if (s_list == NULL) {
+        LOG("popnhax: s_list malloc error\n");
+        return false;
+    }
+    memset(s_list, 0, size);
+
+    uint32_t i,j = 0;
+    uint16_t binsize = LOWORD(recbinArray_loaded[0].timestamp) +1;
+
+    for (i = 1; i < binsize; i++) {
+        if (recbinArray_loaded[i].flag == 1) {
+            s_list[j].chart_addr = recbinArray_loaded[i].recid + chartbase_addr;
+            s_list[j].button = recbinArray_loaded[i].button;
+            j++;
+        }
+        //if (j > s_countmax) break;
+    }
+    qsort(s_list, s_countmax, sizeof(struct SRAN), compare_sran);
+
+    LOG("popnhax: s_list_addr is 0x%p. s_countmax is %d\n", s_list, s_countmax);
+
+    return true;
+}
+*/
+/* 
+void (*real_noteque_addr)();
+void noteque_rewrite() {
+    if (p_record && s_list != NULL) {
+        __asm("push edx\n");
+        __asm("push ebx\n");
+        __asm("push ecx\n");
+        __asm("mov eax, %0\n": :"a"(&s_count));
+        __asm("movzx ecx, word ptr [eax]\n");
+        __asm("mov ebx, dword ptr [%0]\n"::"b"(&s_list));
+        __asm("lea ebx, dword ptr [ebx+ecx*8]\n");
+        __asm("cmp ebp, [ebx]\n");
+        __asm("je s_continue\n");
+            LOG("popnhax: s_list noteque_hook error!\n");
+            p_record = false;
+            __asm("jmp que_end\n");
+        __asm("s_continue:\n");
+            __asm("movzx ecx, byte ptr [ebx+0x04]\n");
+            __asm("inc word ptr [eax]\n");
+        __asm("que_end:\n");
+            __asm("movzx eax, cl\n");
+            __asm("pop ecx\n");
+            __asm("pop ebx\n");
+            __asm("pop edx\n");
+    }
+    __asm("movzx eax, cl\n");
+    real_noteque_addr();
+}
+*/
+
+int compare(const void* a, const void* b) {
+    struct REC* elementA = (struct REC*)a;
+    struct REC* elementB = (struct REC*)b;
+
+    if (elementA->timestamp != elementB->timestamp) {
+        return elementA->timestamp - elementB->timestamp;
+    } else {
+        return elementB->recid - elementA->recid;
+    }
+}
+
+void load_recPlayoptions() {
+    uint32_t temp = 0;
+    uint32_t rec_cmp = 0;
+
+    rec_reload = false;
+
+    temp = recbinArray_loaded[0].timestamp +1;
+    rec_cmp = (temp >> 24); // HIBYTE(temp)
+    if (new_speed != rec_cmp) {
+    //    LOG("popnhax: new_speed(%d) , rec_cmp(%d)\n", new_speed, rec_cmp);
+        rec_reload = true;
+        stop_recchange = true;
+        g_return_to_options = true;
+    }
+    new_speed = rec_cmp;
+
+    temp = temp >> 16;
+    speed = temp & 0xF;
+    rec_cmp = (temp & 0xF0) >> 4;
+    if (regul_flag != (uint8_t)rec_cmp) {
+    //    LOG("popnhax: regul_flag(%d) , rec_cmp(%d)\n", regul_flag, rec_cmp);
+        rec_reload = true;
+        stop_recchange = true;
+        g_return_to_options = true;
+    }
+    regul_flag = rec_cmp;
+
+    uint32_t *g_options_addr;
+    uint8_t *g_rechispeed_addr;
+    uint8_t stage_no = 0;
+    uint32_t option_offset = 0;
+
+    stage_no = *(uint8_t*)(**player_options_addr +0x0E);
+    option_offset = player_option_offset * stage_no;
+
+    g_options_addr = (uint32_t*)(**player_options_addr +0x34 +option_offset);
+    *g_options_addr = (uint32_t)recbinArray_loaded[1].timestamp;
+
+    rec_options = *g_options_addr;
+    if (p_version == 4) {
+        rec_options ^= 0x01000000; // guidese_flag reverse
+    }
+    g_rechispeed_addr = (uint8_t*)(**player_options_addr +0x2A +option_offset);
+    *g_rechispeed_addr = recbinArray_loaded[1].judge;
+    
+}
+
+bool recdata_save() {
+    const char *filename = NULL;
+    SearchFile s;
+
+    char recid[10];
+    char recdate[15];
+
+    if (!p_record) {
+        // (p_record) 0,record 1,playback
+        save_recSPflags();
+
+        uint32_t size = LOWORD(recbinArray_writing[0].timestamp);
+        qsort(recbinArray_writing +2, size, sizeof(struct REC), compare);
+
+        recid2str(recid);
+
+        char currentDirectory[FILENAME_MAX];
+        if (_getcwd(currentDirectory, sizeof(currentDirectory)) == NULL) {
+            LOG("popnhax: currentDirectory not found.\n");
+            return false;
+        }
+
+        char folderPath[FILENAME_MAX];
+        snprintf(folderPath, sizeof(folderPath), "%s\\rec", currentDirectory);
+
+        struct stat st;
+        if (stat(folderPath, &st) != 0) {
+            mkdir(folderPath);
+            LOG("popnhax: make dir. (rec)\n");
+        }
+        
+        __asm("mov esi, %0\n"::"S"(recdate));
+        __asm("call %0\n"::"a"(date_func));
+    
+        filename = (char*)recid;
+
+        char filePath[FILENAME_MAX];
+        snprintf(filePath, sizeof(filePath), "%s\\rec\\%s-%s_%s.bin",
+                             currentDirectory, filename, recdate, ifsname_ptr);
+        FILE* output_file = fopen(filePath, "wb");
+        if (output_file == NULL) {
+            LOG("popnhax: output_file create error.\n");
+            return false;
+        }
+        fwrite(recbinArray_writing, sizeof(struct REC), size +2 , output_file);
+        fclose(output_file);
+        LOG("popnhax: recording data save done.\n");
+        LOG("popnhax: savefilePath is %s\n", filePath);
+
+        #if DEBUG == 1
+            LOG("popnhax: recid =%s\n", recid);
+            LOG("popnhax: recdate =%s\n", recdate);
+        #endif
+        
         return true;
     }
-
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
-    int64_t pattern_offset = search(data, dllSize, "\x14\xFF\xE2\xC3\xCC\xCC", 6, 0); // +10hからポインタ群がある
-    if (pattern_offset == -1) {
-        return false;
-    }
-
-    addr = *(uint32_t *) ((int64_t)data + pattern_offset + 0x31);// 取りたいのは+31hのとこ
-    g_plop_addr = (uint32_t *) ((int64_t)data + pattern_offset + 0x31);
-
-#if DEBUG == 1
-    LOG("pldata is %x\n", addr);
-#endif
-    *res = addr;
-    return true;
+    return false;
 }
 
-/* Unilab Check */
-static bool unilab_check()
-{
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
-    int64_t pattern_offset = search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
-    if (pattern_offset == -1) {
-            return false;
+void prepare_for_play_record() {
+    stop_recchange = true;
+    get_recPlayoptions();
+    
+    if (p_record) {
+        if (recbinArray_loaded == NULL) {
+            LOG("popnhax: record: recbin load error. (2)\n");
+            p_record = false;
+        } else {
+            r_ran = false;
+            load_recPlayoptions();
+            **usbpad_addr = 0;
         }
-    LOG("popnhax: guidese : Unilabooooooo\n");
-    return true;
+    /*    if ((uint8_t)rec_options == 3) {
+            // S-Random �̏���
+            s_count = 0;
+            if(!srandom_set()) {
+                LOG("popnhax: error! S-random set.\n");
+            }
+        }
+    } else
+    */
+    } else if (!p_record) {
+        if(!recording_memoryset()) {
+            LOG("popnhax: record: memory allocation failure. (2)\n");
+        }
+    }
+
 }
 
-/* INPUT numkey */
-uint32_t *input_func;
-static bool get_addr_numkey()
-{
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
-    int64_t pattern_offset = search(data, dllSize, "\x85\xC9\x74\x08\x8B\x01\x8B\x40\x24\x52\xFF\xD0", 12, 0);
-    if (pattern_offset == -1) {
-        return false;
-    }
-
-    input_func = (uint32_t *) ((int64_t)data + pattern_offset + 26);
-#if DEBUG == 1
-    LOG("INPUT num addr %p\n", input_func);
-#endif
-    return true;
+void (*real_optionloop_after_pressing_red)();
+void hook_optionloop_after_pressing_red() {
+    __asm("push ebp\n");
+    __asm("push ebx\n");
+    __asm("push edx\n");
+    prepare_for_play_record();
+    __asm("pop edx\n");
+    __asm("pop ebx\n");
+    __asm("pop ebp\n");
+    real_optionloop_after_pressing_red();
 }
 
-/* R-RANDOM address */
-uint32_t *g_ran_addr;
-uint32_t *btaddr;
-uint32_t *ran_func;
-static bool get_addr_random()
-{
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize); // hook \x83\xC4\x04\xB9\x02\x00\x00\x00 button \x03\xC5\x83\xF8\x09\x7C\xDE
-
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\xB9\x02\x00\x00\x00", 8, 0);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        g_ran_addr = (uint32_t *) ((int64_t)data + pattern_offset -0x13);
-
-    }
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x51\x55\x56\xC7\x44\x24\x08\x00\x00\x00", 10, 0);
-        if (pattern_offset == -1) {
-            return false;
-        }
-        ran_func = (uint32_t *) ((int64_t)data + pattern_offset);
-    }
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x03\xC5\x83\xF8\x09\x7C\xDE", 7, 0);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        btaddr = (uint32_t *) ((int64_t)data + pattern_offset -20);
-
-    }
-#if DEBUG == 1
-    LOG("popnhax: get_addr_random: g_ran_addr is %p\n", g_ran_addr);
-    LOG("popnhax: get_addr_random: ran_func is %p\n", ran_func);
-    LOG("popnhax: get_addr_random: btaddr is %x\n", *btaddr);
-#endif
-    return true;
+void (*real_optionloop_after_pressing_yellow)();
+void hook_optionloop_after_pressing_yellow() {
+    __asm("push ebp\n");
+    __asm("push ebx\n");
+    __asm("push edx\n");
+    prepare_for_play_record();
+    __asm("pop edx\n");
+    __asm("pop ebx\n");
+    __asm("pop ebp\n");
+    real_optionloop_after_pressing_yellow();
 }
 
 /* R-RANDOM hook */
 void (*real_get_random)();
-void r_random()
-{
-    if (r_ran){
-        __asm("mov eax, [%0]\n"::"a"(*g_plop_addr));
-        __asm("mov al, byte ptr [eax+0x34]\n"); //+34がプレイオプション0正規、1ミラー、2乱、3S乱
-        __asm("cmp al, 2\n");
-        __asm("jae call_rran_end\n"); /* jae=jnc 正規とミラーのみ処理 */
-        __asm("movzx eax, al\n");
-        __asm("nop\n":"=a"(ori_plop)::); //もとのオプション退避
+void r_random() {
+    uint8_t orig_plop = (uint8_t)rec_options; // & 0xFF;
+    uint16_t *bt_0;
+    uint16_t *v6;
+    uint16_t v7;
+    uint16_t v9;
+
+    if (p_record) {
+        // load lanes from rec.bin
+        uint8_t *load_button = &recbinArray_loaded[1].pad[0];
+        uint32_t bt = *(uint32_t *)button_addr;
+        uint32_t i = 0;
+        do
+        {
+            *(uint16_t *)(bt + 2*i) = *load_button;
+            ++i;
+            load_button++;
+        } while (i < 9);
+
+    } else if (!p_record && r_ran) {
+        uint8_t *g_options_addr;
+        uint8_t stage_no = 0;
+        uint32_t option_offset = 0;
+
+        stage_no = *(uint8_t*)(**player_options_addr +0x0E);
+        option_offset = player_option_offset * stage_no;
+
+        g_options_addr = (uint8_t*)(**player_options_addr +0x34 +option_offset);
+        *g_options_addr = 1;
+
         __asm("push 0\n");
-        __asm("mov ebx, %0\n"::"b"(*btaddr)); //mov ebx,1093A124
-        __asm("call %0\n"::"a"(ran_func)); //call 100B3B80
+        __asm("mov ebx, %0\n"::"b"(*button_addr)); 
+        __asm("call %0\n"::"a"(ran_func));
         __asm("add esp, 4\n");
-        /* 1093A124 にレーンNOランダム生成されるから
-            0番目の数字を加算って処理をする
-            0の場合は1番目の数字を加算        */
-        __asm("lea ebx, dword ptr [%0]\n"::"b"(*btaddr));
-        __asm("cmp word ptr [ebx], 0\n");
-        __asm("jne lane_no\n");
-        __asm("add ebx, 2\n");
-        __asm("lane_no:\n");
-        __asm("movzx ebx, word ptr [ebx]\n");
 
-        __asm("push ebx\n"); //加算数値を退避
+        bt_0 = *(uint16_t **)button_addr;
+        if (*bt_0 == 0) bt_0++;
+        v9 = *bt_0; // start No.
 
-        __asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
-
-        /* lane create base*/
-        if (ori_plop == 0){
-            __asm("mov edx, [%0]\n"::"d"(*g_plop_addr));
-            __asm("mov byte ptr [edx+0x34], 1\n"); // ここでプレイオプションに1を書き込む。正規だけミラー偽装あとで戻すこと
-            __asm("xor ecx, ecx\n");
-            __asm("lane_seiki:\n");
-            //__asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
-            __asm("mov word ptr [eax+ecx*2], cx\n"); //mov word ptr [0x1093A124 + eax*2], cx
-            __asm("inc ecx\n");
-            __asm("cmp ecx,9\n");
-            __asm("jl lane_seiki\n");
-            //__asm("jmp next_lane\n");
-        } else if (ori_plop == 1){
-            __asm("xor ecx, ecx\n");
-            __asm("lane_mirror:\n");
-            __asm("mov edx, 8\n");
-            __asm("sub edx, ecx\n");
-            //__asm("lea eax, dword ptr [%0]\n"::"a"(*btaddr));
-            __asm("mov word ptr [eax+ecx*2], dx\n");//mov word ptr [0x1093A124 + eax*2], dx
-            __asm("inc ecx\n");
-            __asm("cmp ecx,9\n");
-            __asm("jl lane_mirror\n");
+        // 0:regular 1:mirror 2:random 3:S-random
+        if (orig_plop == 0) {        
+            uint32_t bt = *(uint32_t *)button_addr;
+            uint32_t i = 0;
+            do
+            {
+                *(uint16_t *)(bt + 2*i) = i;
+                ++i;
+            } while (i < 9);
+        } else if (orig_plop == 1) {
+            uint32_t bt = *(uint32_t *)button_addr;
+            uint32_t i = 0;
+            do
+            {
+                *(uint16_t *)(bt + 2*i) = 8 - i;
+                ++i;
+            } while (i < 9);
         }
-
-        __asm("pop ebx\n"); //ebxに加算する数字が入ってる
-        __asm("next_lane:\n");
-        __asm("lea ebp, [eax + edi*2]\n");
-        __asm("movzx edx, word ptr [ebp]\n");
-        __asm("add dx, bx\n");
-        __asm("cmp dx, 9\n");
-        __asm("jc no_in\n");
-        __asm("sub dx, 9\n");
-
-        __asm("no_in:\n");
-        __asm("mov word ptr [ebp], dx\n");
-        __asm("inc edi\n");
-        __asm("cmp edi,9\n");
-        __asm("jl next_lane\n");
-        __asm("call_rran_end:\n");
+        // startNo + BaseNo -> R-ran
+        uint32_t bt = *(uint32_t *)button_addr;
+        uint32_t i = 0;
+        do
+        {
+            v6 = (uint16_t *)(bt + 2*i);
+            v7 = v9 + *v6;
+            if (v7 >= 9) {
+                v7 -= 9;
+            }
+            *v6 = v7;
+            ++i;
+        } while (i < 9);
     }
     real_get_random();
 }
@@ -4367,207 +5501,188 @@ uint32_t *font_color;
 uint32_t *font_rend_func;
 static bool get_rendaddr()
 {
-    static uint32_t addr = 0;
-
-    if (addr != 0)
-    {
-        return true;
-    }
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x3b\xC3\x74\x13\xC7\x00\x02\x00\x00\x00\x89\x58\x04\x89\x58\x08", 16, 0);
+        int64_t pattern_offset = search(data, dllSize,
+             "\x3b\xC3\x74\x13\xC7\x00\x02\x00\x00\x00\x89\x58\x04\x89\x58\x08", 16, 0);
         if (pattern_offset == -1) {
             return false;
         }
         g_rend_addr = (uint32_t *)((int64_t)data + pattern_offset -4);
-        font_color = (uint32_t *)((int64_t)data + pattern_offset +36);
+        font_color = (uint32_t *)((int64_t)data + pattern_offset +0x24);
     }
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x0C\x8D\x44\x24\x10", 24, 0);
+        int64_t pattern_offset = search(data, dllSize,
+             "\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x0C\x8D\x44\x24\x10", 24, 0);
         if (pattern_offset == -1) {
             return false;
         }
-
         font_rend_func = (uint32_t *)((int64_t)data + pattern_offset +16);
     }
 
     #if DEBUG == 1
-        LOG("popnhax: get_rendaddr: g_rend_addr is %x\n", *g_rend_addr);
-        LOG("popnhax: get_rendaddr: font_color is %x\n", *font_color);
-        LOG("popnhax: get_rendaddr: font_rend_func is %p\n", font_rend_func);
+        LOG("popnhax: get_rendaddr: g_rend_addr is 0x%X\n", *g_rend_addr);
+        LOG("popnhax: get_rendaddr: font_color is 0x%X\n", *font_color);
+        LOG("popnhax: get_rendaddr: font_rend_func is 0x%p\n", font_rend_func);
     #endif
 
     return true;
 }
 
-/* speed change */
-uint32_t *g_2dx_addr;
-uint32_t *g_humen_addr;
-uint32_t *g_soflan_addr;
-static bool get_speedaddr()
-{
-    static uint32_t addr = 0;
-
-    if (addr != 0)
-    {
-        return true;
-    }
-    DWORD dllSize = 0;
-    char *data = getDllData(g_game_dll_fn, &dllSize);
-
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x0C\x8B\xC3\x8D\x7C\x24", 8, 0);
-        if (pattern_offset == -1) {
-            return false;
+/* 2dx speed change */
+uint32_t *g_2dx_buffer = 0;
+char *g_2dx_str = NULL;
+const char *sdsystem = "/data/sd/system";
+void wavheader_rewrite () {
+    /* [edi] = xx.2dx
+    0x00 - 0x17 : 2dx header /x32/x44/x58/x39...
+    0x18 (4byte) : Chunk ID (RIFFheader) /x52/x49/x46/x46
+    0x1C (4byte) : Chunk Data Size
+    0x20 (4byte) : RIFF Type /x57/x41/x56/x45
+    0x24 (4byte) : Chunk ID /x66/x6D/x74/x20
+    0x28 (4byte) : Chunk Data Size
+    0x2C (2byte) : Compression Code , 0x0002=MS ADPCM
+    0x2E (2byte) : Number of Channels , 0x0002=stereo
+    0x30 (4byte) : Sample Rate , 0x0000AC44=44100Hz
+    0x34 (4byte) : byte/sec 
+    */
+    disp = false;
+    uint32_t temp = 0;
+    double mul = 0;
+    if(strncmp(g_2dx_str, sdsystem, 15) != 0) {
+        if(strncmp(g_2dx_str, sdsystem, 9) == 0) {
+            if (g_2dx_buffer == NULL) {
+                LOG("popnhax: g_2dx_buffer is NULL\n");
+                new_speed = 100;
+                speed = 5;
+                use_sp_flag = true;
+                //goto speed_end;
+            } else {
+                mul = (double)(((double)new_speed)/100);
+                temp = *(g_2dx_buffer + 0x0C);  //0x0C*4=0x30 SampleRate
+                temp = (uint32_t)((double)temp*mul);
+                *(g_2dx_buffer + 0x0C) = temp;
+                // next step
+                temp = *(g_2dx_buffer + 0x0D);  //0x0D*4=0x34 byte per sec.
+                temp = (uint32_t)((double)temp*mul);
+                *(g_2dx_buffer + 0x0D) = temp;
+                
+                use_sp_flag = true;
+            }
         }
-
-        g_2dx_addr = (uint32_t *)((int64_t)data + pattern_offset +16);
-
     }
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x74\x24\x18\x8D\x0C\x5B\x8B\x54\x8E\xF4", 11, 0);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        g_humen_addr = (uint32_t *)((int64_t)data + pattern_offset);
-
-    }
-    {
-        int64_t pattern_offset = search(data, dllSize, "\x0F\xBF\xC5\x83\xC4\x0C\x66\x89\x6E\x08", 10, 0);
-        if (pattern_offset == -1) {
-            return false;
-        }
-
-        g_soflan_addr = (uint32_t *)((int64_t)data + pattern_offset +10);
-
-    }
-    #if DEBUG == 1
-        LOG("popnhax: get_speedaddr: g_2dx_addr is %p\n", g_2dx_addr);
-        LOG("popnhax: get_speedaddr: g_humen_addr is %p\n", g_humen_addr);
-        LOG("popnhax: get_speedaddr: g_soflan_addr is %p\n", g_soflan_addr);
-    #endif
-    return true;
+//speed_end:
+//    LOG("popnhax : 2dx speed change done.\n");
 }
 
-void (*real_get_bpm)();
-void regul_speed()
-{
-    if (regul_flg){
-        __asm("mov bp, 0x64\n"); //BPM 100
-        __asm("mov [esi+8], bp\n");
-    }
-    __asm("movsx eax, bp\n");
-    real_get_bpm();
-}
-
-static uint32_t speed;
 void (*real_2dx_addr)();
-void ex_2dx_speed()
-{
-    if (speed == 1){
-        __asm("mov dword ptr [edi+0x30], 0x89D0\n");// 44100Hz -> 35280Hz
-        __asm("mov ecx, dword ptr [edi+0x34]\n");
-        __asm("shl ecx, 0x02\n");
-        __asm("mov eax, 0x33333334\n");
-        __asm("mul ecx\n");
-        __asm("mov eax, edx\n");
-        __asm("shr eax, 0x1F\n");
-        __asm("add eax, edx\n");
-        __asm("mov dword ptr [edi+0x34], eax\n");
-    } else if(speed == 2){
-        __asm("mov dword ptr [edi+0x30], 0x72D8\n");// 44100Hz -> 29400Hz
-        __asm("mov ecx, dword ptr [edi+0x34]\n");
-        __asm("shl ecx, 0x01\n");
-        __asm("mov eax, 0x55555556\n");
-        __asm("mul ecx\n");
-        __asm("mov eax, edx\n");
-        __asm("shr eax, 0x1F\n");
-        __asm("add eax, edx\n");
-        __asm("mov dword ptr [edi+0x34], eax\n");
+void ex_2dx_speed() {
+    __asm("mov eax, ebp\n");
+    __asm("mov %0, dword ptr [eax]\n":"=a"(g_2dx_str): :);
+    __asm("mov %0, edi\n":"=D"(g_2dx_buffer): :);
+    
+    if(new_speed !=100) {
+        wavheader_rewrite();
     }
+
     real_2dx_addr();
 }
 
-void ex_chart()
-{
-    use_sp_flg = 1;
-    __asm("mov al, byte ptr [esp+0x448]\n");
-    __asm("cmp al, 1\n");
-    __asm("mov ecx, dword ptr [esp+0x30]\n");
-    __asm("jne call_ex\n");
-    __asm("lea ecx, dword ptr [ecx+ecx*2]\n");
-    __asm("shr ecx, 1\n");
-    __asm("call_ex:\n");
-    __asm("lea ecx, dword ptr [ecx-0x6C]\n");
-    __asm("mov eax, 0x15555556\n");
-    __asm("mul ecx\n");
-    __asm("mov eax, edx\n");
-    __asm("shr eax, 0x1F\n");
-    __asm("add eax, edx\n");
-    __asm("xor ecx, ecx\n");
-    __asm("mov ebp, dword ptr [esp+0x2C]\n");
-    __asm("lea ebx, dword ptr [ebp+0x6c]\n");
-}
+/* chart speed change */
+uint32_t chart_rows_count = 0;
+void chart_rewrite() {
+    struct CHART {
+        uint32_t timestamp;
+        uint16_t operation;
+        uint16_t data;
+        uint32_t duration;
+    } ;
 
-void (*real_humen_addr)();
-void ex_humen_speed()
-{
-    if (speed == 1){
-        __asm("push ebx\n");
-        ex_chart();
-        __asm("call_loop:\n");
-        __asm("lea ebx, dword ptr [ebx+0xC]\n");
-        __asm("mov edx, dword ptr [ebx]\n");
-        __asm("lea edx, dword ptr [edx+edx*4]\n");
-        __asm("shr edx, 2\n");
-        __asm("mov dword ptr [ebx], edx\n");
-        __asm("mov edx, dword ptr [ebx+8]\n");
-        __asm("cmp edx, 0\n");
-        __asm("je long_pop\n");
-        __asm("lea edx, dword ptr [edx+edx*4]\n");
-        __asm("shr edx, 2\n");
-        __asm("mov dword ptr [ebx+8], edx\n");
-        __asm("long_pop:\n");
-        __asm("inc ecx\n");
-        __asm("cmp eax, ecx\n");
-        __asm("jnle call_loop\n");
-        __asm("pop ebx\n");
-    } else if (speed == 2){
-        __asm("push ebx\n");
-        ex_chart();
-        __asm("call_loop2:\n");
-        __asm("lea ebx, dword ptr [ebx+0xC]\n");
-        __asm("mov edx, dword ptr [ebx]\n");
-        __asm("lea edx, dword ptr [edx+edx*2]\n");
-        __asm("shr edx, 1\n");
-        __asm("mov dword ptr [ebx], edx\n");
-        __asm("mov edx, dword ptr [ebx+8]\n");
-        __asm("cmp edx, 0\n");
-        __asm("je long_pop2\n");
-        __asm("lea edx, dword ptr [edx+edx*2]\n");
-        __asm("shr edx, 1\n");
-        __asm("mov dword ptr [ebx+8], edx\n");
-        __asm("long_pop2:\n");
-        __asm("inc ecx\n");
-        __asm("cmp eax, ecx\n");
-        __asm("jnle call_loop2\n");
-        __asm("pop ebx\n");
+    double mul = 0;
+    double mul_2dx =0;
+	uint32_t i, size;
+	struct CHART* chart_temp;
+
+    size = sizeof(struct CHART) * chart_rows_count;
+    chart_temp = (struct CHART*)malloc(size);
+    if (chart_temp == NULL || new_speed == 0) {
+        LOG("popnhax: chart rewrite error(%d).\n", new_speed);
+        new_speed = 100;
+        speed = 5;
+        regul_flag = false;
+        goto chart_speed_end;
     }
-    real_humen_addr();
+
+    memcpy(chart_temp, (uint32_t*)chartbase_addr, size);
+
+    mul = (double)(100/((double)new_speed));
+    mul_2dx = (double)(((double)new_speed)/100);
+
+	for (i = 0; i < chart_rows_count; i++) {
+        chart_temp[i].timestamp = (uint32_t)((double)chart_temp[i].timestamp*mul);
+        if (chart_temp[i].duration > 0) {
+            chart_temp[i].duration = (uint32_t)((double)chart_temp[i].duration*mul);
+        }
+        if (chart_temp[i].operation == 0x0445) {
+            uint16_t bpm_orig = 0;
+            bpm_orig = chart_temp[i].data;
+            if (regul_flag) {
+                chart_temp[i].data = 0x64; // BPM set to 100
+            } else {
+                chart_temp[i].data = (uint16_t)((double)chart_temp[i].data*mul_2dx);
+            }
+            LOG("popnhax: BPM change %d -> %d \n", bpm_orig, chart_temp[i].data);
+        }
+    }
+        
+    memcpy((uint32_t*)chartbase_addr, chart_temp, size);
+
+    #if DEBUG == 1
+        LOG("popnhax: chartbase_addr is 0x%X\n", chartbase_addr);
+        LOG("popnhax: chart_temp_addr is 0x%p\n", chart_temp);
+    #endif
+
+	free(chart_temp);
+
+chart_speed_end:
+    use_sp_flag = true;
+	LOG("popnhax: chart speed change done.\n");
+
+    #if DEBUG == 1
+        LOG("popnhax: chart mul is %f\n", mul);
+        LOG("popnhax: 2dx mul is %f\n", mul_2dx);
+    #endif
 }
 
-/*
-void (*add_stage_ext)();
-void clear_flg(){
-    disp = 0;
-    use_sp_flg = 0;
-    add_stage_ext();
+void (*real_chart_addr)();
+void ex_chart_speed() {
+    __asm("mov %0, ebx\n":"=b"(chart_rows_count): :); // rows * 0x0C = chart_size
+    disp = false;
+    is_resultscreen_flag = false;
+    stop_input = true; // Because the timing of loading charts and 2dx is different
+    recsavefile = false;
+
+    if (find_recdata) {
+        // When find_recdata is true, record preparation is skipped.
+        stop_recchange = false;
+        recbinArray_loaded[0].timing = 0;
+        if(!recording_memoryset()) {
+            LOG("popnhax: record: memory allocation failure.\n");
+        }
+    } else {
+        record_playdata_start();
+    }
+
+    if (new_speed !=100 || regul_flag) {
+        chart_rewrite();
+    }
+
+    real_chart_addr();
 }
-*/
+
 #define COLOR_WHITE        0x00
 #define COLOR_GREEN        0x10
 #define COLOR_DARK_GREY    0x20
@@ -4578,143 +5693,419 @@ void clear_flg(){
 #define COLOR_LIGHT_PURPLE 0x70
 #define COLOR_BLACK        0xA0
 #define COLOR_ORANGE       0xC0
+
+/* ----------- r2nk226 ----------- */
+void flag_reset() {
+    r_ran = false;
+    regul_flag = false;
+    is_resultscreen_flag = false;
+    disp = false;
+    use_sp_flag = false;
+    stop_input = true;
+    stop_recchange = true;
+    p_record = false;
+    find_recdata = false;
+    rec_reload = false;
+    speed = 5;
+    new_speed = 100;
+
+    if (recbinArray_loaded != NULL) {
+        free(recbinArray_loaded);
+        recbinArray_loaded = NULL;
+        LOG("popnhax: reset: load data memory free.\n");
+    }
+    if (recbinArray_writing != NULL) {
+        free(recbinArray_writing);
+        recbinArray_writing = NULL;
+        LOG("popnhax: reset: recording data memory free.\n");
+    }
+
+}
+
+const char dmenu_1[] = "is_resultscreen_flag >> %d";
+const char dmenu_2[] = "disp >> %d";
+const char dmenu_3[] = "use_sp_flag >> %d";
+const char dmenu_4[] = "stop_input >> %d";
+const char dmenu_5[] = "stop_recchange >> %d";
+const char dmenu_6[] = "p_record >> %d";
+const char dmenu_7[] = "find_recdata >> %d";
+const char dmenu_8[] = "speed >> %d";
+const char dmenu_9[] = "rec_reload >> %d";
+const char dmenu_10[] = "recsavefile >> %d";
+const char dmenu_11[] = "rec_SPflags >> %02X";
+const char dmenu_12[] = "rec_options >> %04X";
+const char dmenu_13[] = "rec_hispeed >> %d";
+void r2nk_debug() {
+    __asm("push ebp\n");
+
+    __asm("mov ebp, 0xD0\n");
+    __asm("movzx ecx, %0\n"::"c"(spec));
+    __asm("cmp ecx, 0x42\n");
+    __asm("je shift_x\n");
+    
+    __asm("sub ebp, 0x40\n");
+    __asm("shift_x:\n");
+
+    __asm("call_dmenu9:\n");
+    __asm("movzx eax, %0\n"::"a"(rec_reload));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_9));
+    __asm("push 0x110\n");
+    __asm("push ebp\n");
+    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu1:\n");
+    __asm("movzx eax, %0\n"::"a"(is_resultscreen_flag));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_1));
+    __asm("push 0x120\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu2:\n");
+    __asm("movzx eax, %0\n"::"a"(disp));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_2));
+    __asm("push 0x130\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu3:\n");
+    __asm("movzx eax, %0\n"::"a"(use_sp_flag));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_3));
+    __asm("push 0x140\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu4:\n");
+    __asm("movzx eax, %0\n"::"a"(stop_input));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_4));
+    __asm("push 0x150\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu5:\n");
+    __asm("movzx eax, %0\n"::"a"(stop_recchange));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_5));
+    __asm("push 0x160\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu6:\n");
+    __asm("movzx eax, %0\n"::"a"(p_record));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_6));
+    __asm("push 0x170\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu7:\n");
+    __asm("movzx eax, %0\n"::"a"(find_recdata));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_7));
+    __asm("push 0x180\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu8:\n");
+    __asm("movzx eax, %0\n"::"a"(speed));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_8));
+    __asm("push 0x190\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu10:\n");
+    __asm("movzx eax, %0\n"::"a"(recsavefile));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_10));
+    __asm("push 0x1A0\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu11:\n");
+    __asm("movzx eax, %0\n"::"a"(rec_SPflags));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_11));
+    __asm("push 0x1B0\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu12:\n");
+    __asm("push %0\n"::"a"(rec_options));
+    __asm("push %0\n"::"D"(dmenu_12));
+    __asm("push 0x1C0\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("call_dmenu13:\n");
+    __asm("movzx eax, %0\n"::"a"(rec_hispeed));
+    __asm("push eax\n");
+    __asm("push %0\n"::"D"(dmenu_13));
+    __asm("push 0x1D0\n");
+    __asm("push ebp\n");
+    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("call %0\n"::"a"(font_rend_func));
+    __asm("add esp, 0x10\n");
+
+    __asm("pop ebp\n");
+}
 void enhanced_polling_stats_disp_sub();
 const char menu_1[] = "--- Practice Mode ---";
-//const char menu_2[] = "DJAUTO (numpad5) >> %s";
-const char menu_2[] = "Scores are not recorded."; //NO CONTEST 表現がわからん
-const char menu_3[] = "REGUL SPEED (numpad4) >> %s";
-const char menu_4[] = "R-RANDOM (numpad6) >> %s";
-const char menu_5[] = "SPEED (numpad5) >> %s";
-//const char menu_6[] = "menu display on/off (numpad9)";
-const char menu_7[] = "quick retry (numpad8)";
-const char menu_8[] = "quick retire (numpad9)";
-const char menu_6[] = "quit pfree mode (numpad9)";
-const char menu_on[] = "ON";
-const char menu_off[] = "OFF";
-const char sp100[] = "100%";
-const char sp80[] = "80%"; //1.25倍
-const char sp67[] = "66.6%";//1.5倍
-const char *flg_1; //dj_auto
-const char *flg_2; //regul speed
-const char *flg_3; //r-random
+const char menu_2[] = "Scores are not recorded."; //NO CONTEST
+const char menu_3[] = "REGUL SPEED (pad4) >> %s";
+const char menu_4[] = "R-RANDOM (pad6) >> %s";
+//const char menu_5[] = "SPEED (pad5) >> %s";
+const char *menu_6_str[2] = {"quick retire (pad9)", "quit pfree mode (pad9)"};
+const char menu_7[] = "quick retry (pad8)";
+const char *menu_9_str[2] = {"RECORD (pad00) >> %s", "SAVE FILE (pad00)%s"};
+const char *menu_10_str[3] = {"No data.", "Record Available.", "OK"};
+const char menu_12[] = "SPEED (pad5) >> %d%%";
+const char *onoff_str[2] = {"OFF", "ON"};
+const char *recplay_str[3] = {"rec", "play", " "};
 void (*real_aging_loop)();
-void new_menu()
-{
-    __asm("mov ecx, 4\n");
-    __asm("call %0\n"::"a"(input_func));
-    __asm("test al, al\n");
-    __asm("je SW_4\n");
-    regul_flg ^= 1;
-    __asm("SW_4:\n");
-    flg_2 = menu_off;
-    if (regul_flg){
-        flg_2 = menu_on;
-    }
-
-    __asm("mov ecx, 6\n");
-    __asm("call %0\n"::"a"(input_func));
-    __asm("test al, al\n");
-    __asm("je SW_6\n");
-    r_ran ^= 1;
-    __asm("SW_6:\n");
-    flg_3 = menu_off;
-    if (r_ran){
-        flg_3 = menu_on;
-    }
-
-    __asm("mov ecx, 5\n");
-    __asm("call %0\n"::"a"(input_func));
-    __asm("test al, al\n");
-    __asm("je SW_5\n");
-    speed++;
-    __asm("SW_5:\n");
-
+void new_menu() {
     __asm("mov eax, [%0]\n"::"a"(*g_rend_addr));
     __asm("cmp eax, 0\n");
     __asm("je call_menu\n");
-    __asm("mov dword ptr [eax], 2\n");
+    __asm("mov dword ptr [eax], 1\n");
     __asm("mov dword ptr [eax+4], 1\n");
     __asm("mov dword ptr [eax+8], 0\n");
     __asm("mov dword ptr [eax+0x34], 1\n");
 
+    __asm("movzx ecx, %0\n"::"c"(spec));
+    __asm("sub ecx, 0x42\n");
+    __asm("sete cl\n");
+    __asm("add byte ptr [eax+4], cl\n");
+
+    __asm("lea ecx, dword ptr [%0+2]\n"::"a"(input_func));
+    __asm("mov ecx, dword ptr [ecx]\n");
+    __asm("mov ecx, dword ptr [ecx]\n");
+    __asm("cmp ecx, 0\n");
+    __asm("je menu_continue\n");
+    __asm("cmp dword ptr [ecx+0x80], 5\n");
+    __asm("je menu_continue\n");
+    flag_reset();
+    __asm("menu_continue:\n");
+    if (!stop_recchange) {
+        if (find_recdata) {
+            __asm("mov ecx, 0x0B\n");
+            __asm("call %0\n"::"a"(input_func));
+            __asm("test al, al\n");
+            __asm("je SW_00\n");
+            p_record ^= 1;
+            __asm("SW_00:\n");
+        }
+    } else if (stop_recchange && is_resultscreen_flag && !recsavefile) {
+        __asm("mov ecx, 0x0B\n");
+        __asm("call %0\n"::"a"(input_func));
+        __asm("test al, al\n");
+        __asm("je notsave\n");
+            if(recdata_save()) {
+                recsavefile = true;
+            }
+        __asm("notsave:\n");
+    }
+
+    if (!stop_input) {
+        __asm("mov ecx, 4\n");
+        __asm("call %0\n"::"a"(input_func));
+        __asm("test al, al\n");
+        __asm("je SW_4\n");
+        regul_flag ^= 1;
+        __asm("SW_4:\n");
+
+        __asm("mov ecx, 6\n");
+        __asm("call %0\n"::"a"(input_func));
+        __asm("test al, al\n");
+        __asm("je SW_6\n");
+        r_ran ^= 1;
+        __asm("SW_6:\n");
+
+        __asm("mov ecx, 5\n");
+        __asm("call %0\n"::"a"(input_func));
+        __asm("test al, al\n");
+        __asm("je SW_5\n");
+        speed++;
+        if (speed > 10) {
+            speed = 0;
+            new_speed = 150;
+        }
+        new_speed = 150 - (speed * 10);
+        __asm("SW_5:\n");
+    }
 
 //Practice Mode--
     __asm("call_menu:\n");
     __asm("push %0\n"::"a"(menu_1));
     __asm("push 0x150\n");
-    __asm("push 0x2C0\n");
+    __asm("push 0x2E0\n");
     __asm("mov esi, %0\n"::"a"(*font_color+COLOR_BLUE));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x0C\n");
 
 //NO CONTEST
-if (use_sp_flg){
+if (use_sp_flag) {
     __asm("push %0\n"::"a"(menu_2));
-    __asm("push 0x164\n");
-    __asm("push 0x2C0\n");
+    __asm("push 0x160\n");
+    __asm("push 0x2E0\n");
     __asm("mov esi, %0\n"::"a"(*font_color+COLOR_YELLOW));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x0C\n");
 }
 
+//Record playdata
+    if (is_resultscreen_flag && !p_record) {
+        __asm("push %0\n"::"a"(recplay_str[2]));
+        __asm("push %0\n"::"a"(menu_9_str[1]));
+        __asm("push 0x170\n");
+        __asm("push 0x2E0\n");
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_YELLOW));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+    } else {
+        __asm("push %0\n"::"a"(recplay_str[p_record]));
+        __asm("push %0\n"::"a"(menu_9_str[0]));
+        __asm("push 0x170\n");
+        __asm("push 0x2E0\n");
+        if (stop_recchange) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
+        } else {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED)); // rec_mode
+            if (p_record) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN)); // play_mode
+            }
+        }
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+    }
+
+    if (recsavefile) {
+        __asm("push %0\n"::"a"(menu_10_str[2]));
+        __asm("push 0x180\n");
+        __asm("push 0x2E0\n");
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x0C\n");
+    } else {
+        __asm("push %0\n"::"a"(menu_10_str[find_recdata]));
+        __asm("push 0x180\n");
+        __asm("push 0x2E0\n");
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_YELLOW));
+        if (find_recdata) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
+        }
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x0C\n");
+    }
+
 //REGUL SPEED no-soflan
-    __asm("push %0\n"::"D"(flg_2));
+    __asm("push %0\n"::"D"(onoff_str[regul_flag]));
     __asm("push %0\n"::"a"(menu_3));
-    __asm("push 0x178\n");
-    __asm("push 0x2C0\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("push 0x190\n");
+    __asm("push 0x2E0\n");
+    if (stop_input) {
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
+    } else {
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_WHITE));
+        if (regul_flag) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        }
+    }
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
 
 //R-RANDOM
-    __asm("push %0\n"::"D"(flg_3));
+    __asm("push %0\n"::"D"(onoff_str[r_ran]));
     __asm("push %0\n"::"a"(menu_4));
-    __asm("push 0x18C\n");
-    __asm("push 0x2C0\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+    __asm("push 0x1A0\n");
+    __asm("push 0x2E0\n");
+    if (stop_input) {
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
+    } else {
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_WHITE));
+        if (r_ran) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        }
+    }
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
 
-//SPEED 変更
-    __asm("nop\n"::"a"(sp100));
-    if (speed == 1){
-        __asm("nop\n"::"a"(sp80));
-    } else if (speed == 2){
-        __asm("nop\n"::"a"(sp67));
-    } else if(speed >= 3){
-        speed = 0;
+//SPEED
+    __asm("push %0\n"::"D"(new_speed));
+    __asm("push %0\n"::"a"(menu_12));
+    __asm("push 0x1B0\n");
+    __asm("push 0x2E0\n");
+    if (stop_input) {
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
+    } else {
+        if (new_speed == 100) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_WHITE));
+        } else if (new_speed < 100) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_YELLOW));
+        } else {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        }
     }
-    __asm("push eax\n");
-    __asm("push %0\n"::"a"(menu_5));
-    __asm("push 0x1A0\n");
-    __asm("push 0x2C0\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x10\n");
 
 /* quick menu on/off */
-    if (disp){
+    if (disp) {
 
 //quick retry
         __asm("push %0\n"::"a"(menu_7));
-        __asm("push 0x1B4\n");
-        __asm("push 0x2C0\n");
+        __asm("push 0x1C0\n");
+        __asm("push 0x2E0\n");
         __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
         __asm("call %0\n"::"a"(font_rend_func));
         __asm("add esp, 0x0C\n");
 
 //quick retire & exit
-        __asm("nop\n"::"a"(menu_8));
-        if (ex_res_flg){
-        __asm("nop\n"::"a"(menu_6));
-        }
-        __asm("push eax\n");
-        __asm("push 0x1C8\n");
-        __asm("push 0x2C0\n");
-    //    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
+        __asm("push %0\n"::"a"(menu_6_str[is_resultscreen_flag]));
+        __asm("push 0x1D0\n");
+        __asm("push 0x2E0\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
         __asm("call %0\n"::"a"(font_rend_func));
         __asm("add esp, 0x0C\n");
+    
     }
+    __asm("mov eax, [%0]\n"::"a"(*g_rend_addr));
+    __asm("mov dword ptr [eax], 2\n");
+    __asm("mov dword ptr [eax+4], 1\n");
+    __asm("mov dword ptr [eax+8], 0\n");
+    __asm("mov dword ptr [eax+0x34], 1\n");
+
+#if DEBUG == 1
+    r2nk_debug();
+#endif
 
     if (config.enhanced_polling && config.enhanced_polling_stats)
         enhanced_polling_stats_disp_sub();
@@ -4727,9 +6118,10 @@ static bool patch_practice_mode()
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    /* AGING MODE to Practice Mode */
     {
-        int64_t pattern_offset = search(data, dllSize-0x100000, "\x83\xEC\x40\x53\x56\x57", 6, 0x100000);
+        /* AGING MODE to Practice Mode */
+        int64_t pattern_offset = search(data, dllSize-0x100000,
+                         "\x83\xEC\x40\x53\x56\x57", 6, 0x100000);
 
         if (pattern_offset == -1) {
             LOG("popnhax: cannot retrieve aging loop\n");
@@ -4737,56 +6129,125 @@ static bool patch_practice_mode()
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 6;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)new_menu,
+                      (void **)&real_aging_loop);
+        
+        #if DEBUG == 1
+            LOG("popnhax: practice_mode: aging_hook addr is 0x%llX\n", patch_addr);
+        #endif
+    }
+    {
         if (!get_rendaddr())
         {
             LOG("popnhax: Cannot find address for drawing\n");
             return false;
         }
-        if (!get_addr_numkey())
-        {
-            LOG("popnhax: Cannot find address for number pad\n");
-            return false;
-        }
-
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)new_menu,
-                      (void **)&real_aging_loop);
-
-        uint32_t addr_pldata;
-        if (!get_addr_pldata(&addr_pldata))
-        {
-            LOG("popnhax: cannot retrieve pldata address for guidese\n");
-            return false;
-        }
     }
-
     {
-        if (!get_speedaddr())
-        {
-            LOG("popnhax: Cannot find address for speed change\n");
+        /* INPUT numkey */
+        int64_t pattern_offset = search(data, dllSize,
+             "\x85\xC9\x74\x08\x8B\x01\x8B\x40\x24\x52\xFF\xD0", 12, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: Cannot find input_func address\n");
             return false;
         }
-        MH_CreateHook((LPVOID)g_2dx_addr, (LPVOID)ex_2dx_speed,
-        (void **)&real_2dx_addr);
-        MH_CreateHook((LPVOID)g_humen_addr, (LPVOID)ex_humen_speed,
-        (void **)&real_humen_addr);
-        MH_CreateHook((LPVOID)g_soflan_addr, (LPVOID)regul_speed,
-        (void **)&real_get_bpm);
+
+        input_func = (uint32_t *)((int64_t)data + pattern_offset + 0x1A);
+
+        #if DEBUG == 1
+            LOG("popnhax: InputNumPad_addr is 0x%p\n", input_func);
+        #endif
+    }
+    {
+        /* player_options_addr */
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x14\xFF\xE2\xC3\xCC\xCC", 6, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: Cannot find player_options_addr\n");
+            return false;
+        }
+        player_options_addr = (uint32_t **)((int64_t)data + pattern_offset + 0x31);
+    }
+    /* speed change */
+    {
+        // first step : 2dx hook
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x83\xC4\x0C\x8B\xC3\x8D\x7C\x24", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: Cannot find 2dxLoad address\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset +0x10;
+        
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)ex_2dx_speed,
+                    (void **)&real_2dx_addr);
+
+        #if DEBUG == 1
+            LOG("popnhax: 2dxHook_addr is 0x%llX\n", patch_addr);
+        #endif
+    }
+    {
+        // second step : chart hook
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x8B\x74\x24\x18\x8D\x0C\x5B\x8B\x54\x8E\xF4", 11, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: Cannot find chartLoad address\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)ex_chart_speed,
+                    (void **)&real_chart_addr);
+
+        #if DEBUG == 1
+            LOG("popnhax: chartHook_addr is 0x%llX\n", patch_addr);
+        #endif
     }
 
     LOG("popnhax: speed hook enabled\n");
 
+    /* r_random hook */
     {
-        if (!get_addr_random())
-        {
-            LOG("popnhax: Random LANE addr was not found\n");
+        // random_function_addr
+        int64_t pattern_offset = search(data, dllSize,
+             "\x51\x55\x56\xC7\x44\x24\x08\x00\x00\x00", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: Cannot find random_function address\n");
+            return false;
+        }
+        ran_func = (uint32_t *)((int64_t)data + pattern_offset);
+    }
+    {
+        // button_addr
+        int64_t pattern_offset = search(data, dllSize,
+                     "\x03\xC5\x83\xF8\x09\x7C\xDE", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: Cannot find button address\n");
+            return false;
+        }
+        button_addr = (uint32_t *)((int64_t)data + pattern_offset -0x14);
+    }
+    {
+        // r-ran hook addr
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x83\xC4\x04\xB9\x02\x00\x00\x00", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: Cannot find address for r-ran hook addr\n");
             return false;
         }
 
-        MH_CreateHook((LPVOID)g_ran_addr, (LPVOID)r_random,
-        (void **)&real_get_random);
+        uint64_t patch_addr = (int64_t)data + pattern_offset -0x13;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)r_random,
+                    (void **)&real_get_random);
     }
     {
-        int64_t pattern_offset = search(data, dllSize, "\x5E\x8B\xE5\x5D\xC2\x04\x00\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x55\x8B\xEC\x83\xE4\xF8\x51\x56\x8B\xF1\x8B", 32, 0);
+        // restore player options
+        int64_t pattern_offset = search(data, dllSize,
+                     "\x5E\x8B\xE5\x5D\xC2\x04\x00\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x55\x8B\xEC\x83\xE4\xF8\x51\x56\x8B\xF1\x8B", 32, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find address for restore addr\n");
             return false;
@@ -4794,18 +6255,320 @@ static bool patch_practice_mode()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset -11;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)restore_plop,
-                      (void **)&restore_op);
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)restore_playoptions,
+                    (void **)&restore_op);
     }
 
+    #if DEBUG == 1
+        LOG("popnhax: get_addr_random: ran_func_addr is 0x%p\n", ran_func);
+        LOG("popnhax: get_addr_random: button_addr is 0x%X\n", *button_addr);
+    #endif
+
     LOG("popnhax: R-Random hook enabled\n");
-/*
-    //add_stage に フラグオフ追加 (char *)"\x31\xC0\x40\xC3", 4
-    {
-        MH_CreateHook((LPVOID)(add_stage_addr+0x12), (LPVOID)clear_flg,
-                      (void **)&add_stage_ext);
+
+    return true;
+}
+
+/* ----------------------- */
+/*    add a new feature    */
+/* ----------------------- */
+static bool patch_record_mode(bool quickretire)
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    /* If quickretire is not installed, it must be installed for reloading */
+    if (!quickretire) {
+        {
+        /* hook quick retire transition to go back to option select instead */
+            int64_t pattern_offset = search(data, dllSize,
+                     "\x8B\xE8\x8B\x47\x30\x83\xF8\x17", 8, 0);
+
+            if (pattern_offset == -1) {
+                LOG("popnhax: quick retry: cannot retrieve screen transition function\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_screen_transition,
+                        (void **)&real_screen_transition);
+        }
+        /* retrieve songstart function pointer for quick retry */
+        {
+            int64_t pattern_offset = search(data, dllSize,
+                     "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: record reload: cannot retrieve song start function\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset - 4;
+            g_startsong_addr = *(uint32_t*)(patch_addr);
+        }
+        /* instant launch song with numpad 8 on option select (hold 8 during song for quick retry) */
+        {
+            int64_t pattern_offset = search(data, dllSize,
+                     "\x8B\xF0\x83\x7E\x0C\x00\x0F\x84", 8, 0);
+
+            if (pattern_offset == -1) {
+                LOG("popnhax: quick retry: cannot retrieve option screen loop\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset - 0x0F;
+            MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen_simple,
+                        (void **)&real_option_screen_simple);
+        }
+
+        LOG("popnhax: record reload: reloading enabled.\n");
+
     }
-*/
+    /* record_mode hook */
+    {
+        //??_7CMusicSelectScene@@6B@
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x8B\x44\x24\x04\x56\x57\x50\x8B\xF9", 9, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: MusicSelectScene_addr was not found.\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+    
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_musicselect,
+                      (void **)&real_musicselect);
+    }
+    {
+        // g_elapsed_time
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x02\x8B\xF0\x7C", 4, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: elapsed_time_addr was not found.\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset +1;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)get_elapsed_time,
+                      (void **)&get_elapsed_time_hook);
+    }
+    /*
+    {
+        // NoteQue_func
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x0F\xB6\xC1\x88\x4F\x11\x88\x4F\x12", 9, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: noteque_func_addr was not found.\n");
+            return false;
+        }
+        
+        uint64_t patch_addr = (int64_t)data + pattern_offset +3;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)noteque_rewrite,
+                      (void **)&real_noteque_addr);
+    }
+    */
+    {
+        // ifs_name
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x83\xC4\x04\x50\x8B\xC7\x85\xDB", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: ifs_name_ptr was not found.\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)get_ifs_filename,
+                      (void **)&get_ifs_name);
+    }
+    {
+        // for reload
+        int64_t pattern_offset = search(data, dllSize,
+                 "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: record reload: cannot retrieve song start function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset -0x14;
+        
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_optionloop_after_pressing_red,
+                      (void **)&real_optionloop_after_pressing_red);
+    }
+    {
+        // next step (after pressing yellow)
+        int64_t pattern_offset = search(data, dllSize,
+             "\x8B\x55\x00\x8B\x82\x9C\x00\x00\x00\x6A\x01\x8B\xCD\xFF\xD0\x80\xBD", 17, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: record reload: cannot retrieve option screen yellow leave addr\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset +0x2C;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_optionloop_after_pressing_yellow,
+                      (void **)&real_optionloop_after_pressing_yellow);
+    }
+    {
+        // play1_addr(judge start)
+        int64_t pattern_offset = search(data, dllSize,
+                 "\xC1\xE8\x07\x24\x01\x8A\xD8", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: recmode_forplay1_addr was not found.\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_firststep,
+                      (void **)&hook_playfirst);
+    }
+    {
+        // play3_addr (first_auto_flag_check)
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x84\xC0\x0F\x84\x08\x01\x00\x00", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: recmode_forplay3_addr was not found.\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_thirdstep,
+                      (void **)&first_auto_flag_check);
+    
+        // play2_addr (last_auto_flag_check) , p_note
+        int64_t pattern_offset_p2 = search(data, dllSize,
+                 "\x84\xC0\x74\x53", 4, pattern_offset);
+        if (pattern_offset_p2 == -1) {
+            LOG("popnhax: recmode_forplay2_addr was not found.\n");
+            return false;
+        }
+
+        p_note = (uint32_t*)((int64_t)data + pattern_offset_p2 +6);
+        uint64_t patch_addr_p2 = (int64_t)data + pattern_offset_p2;
+
+        MH_CreateHook((LPVOID)(patch_addr_p2), (LPVOID)play_secondstep,
+                      (void **)&last_auto_flag_check);
+    }
+    {
+        // play4_addr(long_end_flow)
+        int64_t pattern_offset = search(data, dllSize,
+             "\x83\xC4\x04\xEB\x2E\xBA\x80\x00\x00\x00", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: recmode_forplay4_addr was not found.\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset -11;
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_fourthstep,
+                      (void **)&long_end_flow);
+    }
+    {
+        // rec1_addr, judge_bar_func
+        int64_t pattern_offset = search(data, dllSize,
+                 "\xE3\x00\x00\x83\xC4\x0C\x80\x7C\x24", 9, 0);
+        if (pattern_offset == -1) {
+            //next search
+            pattern_offset = search(data, dllSize,
+                 "\xE4\x00\x00\x83\xC4\x0C\x80\x7C\x24", 9, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: recmode_addr was not found.\n");
+                return false;
+            }
+        }
+
+        uint32_t *tmp_addr = (uint32_t*)((int64_t)data + pattern_offset -1);
+        judge_bar_func = (uint32_t)((int64_t)data +pattern_offset + *tmp_addr +3);
+        uint64_t patch_addr = (int64_t)data + pattern_offset -2;
+        
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)record_playdata,
+                      (void **)&get_judge);
+    }
+    {
+        // rec2_addr
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x24\x0F\x66\x0F\xB6\xC8\x66\xC1", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: recmode_addr2 was not found.\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset +0x10;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)record_playdata_poor,
+                      (void **)&get_poor);
+    }
+    /* other functions */
+    {
+        // PlaySramSound func
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x51\x56\x8B\xF0\x85\xF6\x74\x6C\x6B\xC0\x2C", 11, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: PlaySramSound_addr was not found.\n");
+            return false;
+        }
+        playsramsound_func = (uint32_t)((int64_t)data + pattern_offset);
+    }
+    {
+        // j_win_addr
+        int64_t pattern_offset = search(data, dllSize,
+                     "\x84\xC0\x74\x18\x8B\x04\xFD", 7, 0);
+        if (pattern_offset == -1) {        
+            LOG("popnhax: j_win_addr was not found.\n");
+            return false;
+        }
+        j_win_addr = (uint32_t)((int64_t)data + pattern_offset +7);
+    }
+    {
+        // for rec_date
+        int64_t pattern_offset = search(data, dllSize, "\x83\xEC\x2C\x6A\x00", 5, 0);
+        if (pattern_offset == -1) {
+                LOG("popnhax: date_func was not found.\n");
+                return false;
+        }
+        date_func = (uint32_t)((int64_t)data + pattern_offset);
+    }
+    {
+        // for no-pfree
+        int64_t pattern_offset = search(data, dllSize,
+             "\x83\xF8\x04\x0F\xB6\xC1\x75\x13\x69\xC0", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: record: player-option offset: not found.\n");
+            return false;
+        }
+        uint32_t *temp_addr = (uint32_t *)((int64_t)data + pattern_offset +0x0A);
+        player_option_offset = *temp_addr;
+    }
+    {
+        // usbPadReadLast   
+        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: record: cannot find usbPadRead call (1)\n");
+            return false;
+        }
+        pattern_offset = search(data, dllSize-pattern_offset-1, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, pattern_offset+1);
+        if (pattern_offset == -1) {
+            LOG("popnhax: record: cannot find usbPadRead call (2)\n");
+            return false;
+        }
+        usbpad_addr = (uint32_t**)((int64_t)data + pattern_offset -0x21);
+    }
+
+    #if DEBUG == 1
+        LOG("popnhax: record: p_note is 0x%p, value is 0x%X\n", p_note, *p_note);
+        LOG("popnhax: record: usbpad_addr is 0x%p, value is 0x%X\n", usbpad_addr, **usbpad_addr);
+        LOG("popnhax: record: player_option_offset value is 0x%X\n", player_option_offset);
+        LOG("popnhax: record: j_win_addr is 0x%X\n", j_win_addr);
+        LOG("popnhax: record: judge_bar_func is 0x%X\n", judge_bar_func);
+        LOG("popnhax: record: playsramsound_func is 0x%X\n", playsramsound_func);
+        LOG("popnhax: record: date_func_addr is 0x%X\n", date_func);
+        // LOG("popnhax: record: noteque_func_addr is 0x%X\n", noteque_func);
+    #endif
+
+    LOG("popnhax: record: rec_mode enabled.\n");
+
     return true;
 }
 
@@ -5797,9 +7560,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             }
         }
 
+/* ----------- r2nk226 ----------- */
         if (config.practice_mode) {
+            version_check();
             patch_practice_mode();
+            // record_mode must be usaneko or later
+            if (p_version >= 4) {
+                patch_record_mode(config.quick_retire);
+            }
         }
+/* --------------------------------- */
 
         if (config.audio_source_fix) {
             patch_audio_source_fix();
