@@ -267,8 +267,11 @@ static void add_song_to_subcateg(uint32_t songid, subcategory_s* subcateg)
         subcateg->songlist[subcateg->size-1] |= 0x00060000; // game wants this otherwise only easy difficulty will appear
 
         // Also add it to the "ALL SONGS" subcategory
-        subcategories[0].songlist = (uint32_t *) realloc(subcategories[0].songlist, sizeof(uint32_t)*(++subcategories[0].size));
-        subcategories[0].songlist[subcategories[0].size-1] = subcateg->songlist[subcateg->size-1];
+        if ( !subcateg_has_songid(songid, &subcategories[0]) )
+        {
+            subcategories[0].songlist = (uint32_t *) realloc(subcategories[0].songlist, sizeof(uint32_t)*(++subcategories[0].size));
+            subcategories[0].songlist[subcategories[0].size-1] = subcateg->songlist[subcateg->size-1];
+        }
     }
 }
 
