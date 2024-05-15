@@ -275,7 +275,7 @@ static void add_song_to_subcateg(uint32_t songid, subcategory_s* subcateg)
     }
 }
 
-static subcategory_s* get_subcateg(char *title)
+static subcategory_s* get_subcateg(const char *title)
 {
     for (uint32_t i = 0; i < g_subcateg_count; i++)
     {
@@ -908,6 +908,12 @@ static char *get_folder_name(const char* path) {
     return categ_name;
 }
 
+
+bool is_excluded_folder(const char *input_filename)
+{
+  return (input_filename[strlen("data_mods/")] == '_');
+}
+
 static void parse_musicdb(const char *input_filename) {
     char *title = get_folder_name(input_filename);
 
@@ -933,6 +939,7 @@ static void parse_musicdb(const char *input_filename) {
             add_song_to_subcateg(songid, subcateg);
         }
     }
+    free(title);
 }
 
 static void load_databases() {
@@ -948,8 +955,10 @@ static void load_databases() {
 
     for(uint16_t i=0;i<result.size();i++)
     {
-        if ( strstr(result[i].c_str(), "musicdb") == NULL )
+        if ( (strstr(result[i].c_str(), "musicdb") == NULL)
+          || is_excluded_folder(result[i].c_str()) )
             continue;
+
         parse_musicdb(result[i].c_str());
     }
 }
@@ -1009,7 +1018,7 @@ bool patch_exclude(const char *game_dll_fn)
 bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
 {
     g_min_id = config->custom_categ_min_songid;
-    g_max_id = config->custom_categ_max_songid;
+    //g_max_id = config->custom_categ_max_songid; //handled during injection already
     uint8_t mode = config->custom_categ;
 
     char icon_path[64];

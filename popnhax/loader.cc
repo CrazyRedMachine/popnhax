@@ -7,6 +7,7 @@
 #include "util/patch.h"
 #include "util/log.h"
 #include "xmlhelper.h"
+#include "custom_categs.h"
 
 #include "tableinfo.h"
 #include "loader.h"
@@ -855,6 +856,10 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
                                 sizeof(idxStr));
             uint32_t idx = atoi(idxStr);
 
+if (idx > g_max_id)
+{
+    g_max_id = idx;
+}
             // Get an existing music entry in memory
             // If it exists, return the existing entry
             // If it doesn't exist, create a new entry in memory
@@ -921,6 +926,7 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
 
             if ( config->custom_categ
               && config->custom_exclude_from_version
+              && !is_excluded_folder(input_filename)
               && idx >= config->custom_categ_min_songid
               && (config->custom_categ_max_songid == 0 || idx <= config->custom_categ_max_songid) )
             {
