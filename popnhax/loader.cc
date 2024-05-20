@@ -4,6 +4,7 @@
 #include <windows.h>
 
 #include "imports/avs.h"
+#include "util/bst.h"
 #include "util/patch.h"
 #include "util/log.h"
 #include "xmlhelper.h"
@@ -856,16 +857,32 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
                                 sizeof(idxStr));
             uint32_t idx = atoi(idxStr);
 
-if (idx > g_max_id)
-{
-    g_max_id = idx;
-}
             // Get an existing music entry in memory
             // If it exists, return the existing entry
             // If it doesn't exist, create a new entry in memory
             // Update the data in-place and make all parameters optional
             music_entry *m = get_music(idx);
-            bool is_fresh = m == NULL;
+            bool is_fresh = m == NULL; // ie. not part of internal songdb
+            bool is_gone = ( m != NULL && strcmp((const char*) m->title_ptr, "\x81\x5D") == 0); // removed entries all have this title (SJIS "-")
+
+            // Update customs/omni songid list
+            if ( is_fresh || is_gone )
+            {
+                //TODO: remove g_max_id entirely
+                if (idx > g_max_id)
+                {
+                    g_max_id = idx;
+                }
+
+                if ( bst_search(g_customs_bst, idx) == NULL )
+                {
+                    g_customs_bst = bst_insert(g_customs_bst, idx);
+                    //LOG("%d inserted into customs bst\n", idx);
+                    //TODO: handle custom category creation here as well while we're at it (beware: maybe we should still consider !is_gone charts as custom?)
+                } else {
+                    //LOG("%d already present in customs bst\n", idx);
+                }
+            }
 
             if (is_fresh) {
                 // Default music entry
@@ -920,9 +937,6 @@ if (idx > g_max_id)
                     m->mask |= CHART_MASKS[i];
                 }
             }
-
-            //force loading background for unilab
-            //m->mask |= 0x100;
 
             if ( config->custom_categ
               && config->custom_exclude_from_version

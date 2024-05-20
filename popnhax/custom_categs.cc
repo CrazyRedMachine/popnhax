@@ -19,12 +19,16 @@
 #include "minhook/hde32.h"
 #include "minhook/include/MinHook.h"
 
+#include "custom_categs.h"
+
 #define F_OK 0
 
 uint8_t g_game_version;
 uint32_t g_playerdata_ptr_addr; //pointer to the playerdata memory zone (offset 0x08 is popn friend ID as ascii (12 char long), offset 0x1A5 is "is logged in" flag)
 char *g_current_friendid;
 uint32_t g_current_songid;
+
+bst_t *g_customs_bst = NULL;
 
 void (*add_song_in_list)();
 //game code takes array start address from offset 0xC and the address after the list end from offset 0x10
@@ -57,7 +61,8 @@ uint32_t favorites_struct_addr = (uint32_t)&favorites_struct;
 
 bool is_a_custom(uint32_t songid)
 {
-	return (songid >= g_min_id && (g_max_id==0 || g_max_id >= songid));
+	return (bst_search(g_customs_bst, songid) != NULL);
+//	return (songid >= g_min_id && (g_max_id==0 || g_max_id >= songid));
 }
 
 void add_song_to_favorites()
