@@ -55,6 +55,11 @@ uint32_t favorites_count = 0;
 songlist_t favorites_struct;
 uint32_t favorites_struct_addr = (uint32_t)&favorites_struct;
 
+bool is_a_custom(uint32_t songid)
+{
+	return (songid >= g_min_id && (g_max_id==0 || g_max_id >= songid));
+}
+
 void add_song_to_favorites()
 {
     favorites = (uint32_t *) realloc(favorites, sizeof(uint32_t)*(favorites_count+5));
@@ -258,8 +263,7 @@ static bool subcateg_has_songid(uint32_t songid, subcategory_s* subcateg)
 
 static void add_song_to_subcateg(uint32_t songid, subcategory_s* subcateg)
 {
-    if ( songid >= g_min_id
-     && (g_max_id == 0 || songid <= g_max_id)
+    if ( is_a_custom(songid)
      && !subcateg_has_songid(songid, subcateg) )
     {
         subcateg->songlist = (uint32_t *) realloc(subcateg->songlist, sizeof(uint32_t)*(++subcateg->size));
@@ -505,12 +509,15 @@ void hook_categ_reinit_songlist()
 void (*real_categ_build_songlist)();
 void hook_categ_build_songlist()
 {
-    __asm("cmp eax, _g_min_id\n");
-    __asm("jb categ_skip_add\n");
-    __asm("cmp dword ptr _g_max_id, 0\n");
-    __asm("je add_my_song\n");
-    __asm("cmp eax, _g_max_id\n");
-    __asm("ja categ_skip_add\n");
+    __asm("push edx\n");
+    __asm("push ecx\n");
+    __asm("push eax\n");
+    __asm("call %P0" : : "i"(is_a_custom));
+    __asm("test eax, eax\n");
+    __asm("pop eax\n");
+    __asm("pop ecx\n");
+    __asm("pop edx\n");
+    __asm("jz categ_skip_add\n");
 
     __asm("add_my_song:\n");
     __asm("push eax\n");
@@ -570,12 +577,16 @@ void hook_song_printf()
     __asm("push eax\n");
     __asm("push ebx\n");
     __asm("mov eax, [esp+0x50]\n");
-    __asm("cmp eax, _g_min_id\n");
-    __asm("jb print_regular_song\n");
-    __asm("cmp dword ptr _g_max_id, 0\n");
-    __asm("je print_custom_song\n");
-    __asm("cmp eax, _g_max_id\n");
-    __asm("ja print_regular_song\n");
+
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("push eax\n");
+    __asm("call %P0" : : "i"(is_a_custom));
+    __asm("test eax, eax\n");
+    __asm("pop eax\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("jz print_regular_song\n");
 
     __asm("print_custom_song:\n");
 
@@ -595,12 +606,16 @@ void hook_artist_printf()
     __asm("push eax\n");
     __asm("push ebx\n");
     __asm("mov eax, [esp+0x50]\n");
-    __asm("cmp eax, _g_min_id\n");
-    __asm("jb print_regular_artist\n");
-    __asm("cmp dword ptr _g_max_id, 0\n");
-    __asm("je print_custom_artist\n");
-    __asm("cmp eax, _g_max_id\n");
-    __asm("ja print_regular_artist\n");
+
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("push eax\n");
+    __asm("call %P0" : : "i"(is_a_custom));
+    __asm("test eax, eax\n");
+    __asm("pop eax\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("jz print_regular_artist\n");
 
     __asm("print_custom_artist:\n");
 
@@ -977,12 +992,18 @@ void hook_after_getlevel()
 {
     __asm("push ebx\n");
     __asm("mov ebx, dword ptr [esp+0x04]\n");
-    __asm("cmp ebx, _g_min_id\n");
-    __asm("jb real_level\n");
-    __asm("cmp dword ptr _g_max_id, 0\n");
-    __asm("je force_level_0\n");
-    __asm("cmp ebx, _g_max_id\n");
-    __asm("ja real_level\n");
+
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("push ebx\n");
+    __asm("call %P0" : : "i"(is_a_custom));
+    __asm("test eax, eax\n");
+    __asm("pop ebx\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+    __asm("jz real_level\n");
 
     __asm("force_level_0:\n");
     __asm("mov eax, 0x00\n");
