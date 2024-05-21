@@ -821,10 +821,32 @@ void parse_charadb(const char *input_filename, const char *target) {
     free(config_xml);
 }
 
+//extract folder name (cut "data_mods")
+static char *get_folder_name(const char* path) {
+    size_t len = (size_t)(strchr(path+10, '\\')-(path+10));
+    char *categ_name = (char*) malloc(len+1);
+    strncpy(categ_name, path+10, len);
+    categ_name[len] = '\0';
+    return categ_name;
+}
+
+static bool is_excluded_folder(const char *input_filename)
+{
+  return (input_filename[strlen("data_mods/")] == '_');
+}
+
 void parse_musicdb(const char *input_filename, const char *target, struct popnhax_config *config) {
     if (!file_exists(input_filename)) {
         printf("Couldn't find %s, skipping...\n", input_filename);
         return;
+    }
+
+    char *subcateg_title = NULL;
+    subcategory_s *subcateg = NULL;
+    if (config->custom_categ == 2)
+    {
+        subcateg_title = get_folder_name(input_filename);
+        subcateg = get_subcateg(subcateg_title); //will return a new one if not found
     }
 
     property *config_xml = load_prop_file(input_filename);
@@ -878,7 +900,11 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
                 {
                     g_customs_bst = bst_insert(g_customs_bst, idx);
                     //LOG("%d inserted into customs bst\n", idx);
-                    //TODO: handle custom category creation here as well while we're at it (beware: maybe we should still consider !is_gone charts as custom?)
+                    //TODO: (beware: maybe we should still consider !is_gone charts as custom?)
+                    if (config->custom_categ == 2)
+                    {
+                        add_song_to_subcateg(idx, subcateg);
+                    }
                 } else {
                     //LOG("%d already present in customs bst\n", idx);
                 }
@@ -1023,6 +1049,11 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
     }
 
     free(config_xml);
+
+    if (config->custom_categ == 2)
+    {
+        free(subcateg_title);
+    }
 }
 
 void load_databases(const char *target_datecode, struct popnhax_config *config) {
@@ -1040,6 +1071,9 @@ void load_databases(const char *target_datecode, struct popnhax_config *config) 
         printf("(charadb) Loading %s...\n", result[i].c_str());
         parse_charadb(result[i].c_str(), target_datecode);
     }
+
+    if (config->custom_categ == 2)
+        init_subcategories();
 
     for(uint16_t i=0;i<result.size();i++)
     {

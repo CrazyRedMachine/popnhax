@@ -23,6 +23,13 @@
 
 #define F_OK 0
 
+//game code takes array start address from offset 0xC and the address after the list end from offset 0x10
+typedef struct songlist_s {
+    uint32_t dummy[3];
+    uint32_t array_start;
+    uint32_t array_end;
+} songlist_t;
+
 uint8_t g_game_version;
 uint32_t g_playerdata_ptr_addr; //pointer to the playerdata memory zone (offset 0x08 is popn friend ID as ascii (12 char long), offset 0x1A5 is "is logged in" flag)
 char *g_current_friendid;
@@ -31,12 +38,6 @@ uint32_t g_current_songid;
 bst_t *g_customs_bst = NULL;
 
 void (*add_song_in_list)();
-//game code takes array start address from offset 0xC and the address after the list end from offset 0x10
-typedef struct songlist_s {
-    uint32_t dummy[3];
-    uint32_t array_start;
-    uint32_t array_end;
-} songlist_t;
 
 bool g_subcategmode = false;
 uint32_t g_min_id = 4000;
@@ -243,12 +244,6 @@ uint32_t songlist_count = 0;
 songlist_t songlist_struct;
 uint32_t songlist_struct_addr = (uint32_t)&songlist_struct;
 
-typedef struct {
-    char *name;
-    uint32_t size;
-    uint32_t *songlist;
-} subcategory_s;
-
 subcategory_s* subcategories;
 uint32_t g_subcateg_count = 0;
 //subcategories[0] is the "ALL SONGS" virtual subcategory,
@@ -266,7 +261,7 @@ static bool subcateg_has_songid(uint32_t songid, subcategory_s* subcateg)
     return false;
 }
 
-static void add_song_to_subcateg(uint32_t songid, subcategory_s* subcateg)
+void add_song_to_subcateg(uint32_t songid, subcategory_s* subcateg)
 {
     if ( is_a_custom(songid)
      && !subcateg_has_songid(songid, subcateg) )
@@ -284,7 +279,7 @@ static void add_song_to_subcateg(uint32_t songid, subcategory_s* subcateg)
     }
 }
 
-static subcategory_s* get_subcateg(const char *title)
+subcategory_s* get_subcateg(const char *title)
 {
     for (uint32_t i = 0; i < g_subcateg_count; i++)
     {
@@ -292,7 +287,15 @@ static subcategory_s* get_subcateg(const char *title)
         if (strcmp(title, subcategories[i+1].name) == 0)
             return &(subcategories[i+1]);
     }
-    return NULL;
+
+    //not found, allocate a new one
+    subcategories = (subcategory_s*)realloc(subcategories, sizeof(subcategory_s)*((++g_subcateg_count)+1));
+    subcategory_s *subcateg = &(subcategories[g_subcateg_count]);
+    subcateg->name = strdup(title);
+    subcateg->songlist = NULL;
+    subcateg->size = 0;
+
+    return subcateg;
 }
 
 void (*categ_inject_songlist)();
@@ -511,6 +514,7 @@ void hook_categ_reinit_songlist()
     real_categ_reinit_songlist();
 }
 
+// in simple category mode, the game itself builds the full list by checking songids on the fly
 void (*real_categ_build_songlist)();
 void hook_categ_build_songlist()
 {
@@ -919,68 +923,13 @@ sprintf(formatted_title, g_categformat, g_categname);
     return true;
 }
 
-//extract folder name (cut "data_mods")
-static char *get_folder_name(const char* path) {
-    size_t len = (size_t)(strchr(path+10, '\\')-(path+10));
-    char *categ_name = (char*) malloc(len+1);
-    strncpy(categ_name, path+10, len);
-    categ_name[len] = '\0';
-    return categ_name;
-}
-
-
-bool is_excluded_folder(const char *input_filename)
-{
-  return (input_filename[strlen("data_mods/")] == '_');
-}
-
-static void parse_musicdb(const char *input_filename) {
-    char *title = get_folder_name(input_filename);
-
-    subcategory_s *subcateg = get_subcateg(title);
-    if ( subcateg == NULL )
-    {
-        subcategories = (subcategory_s*)realloc(subcategories, sizeof(subcategory_s)*((++g_subcateg_count)+1));
-        subcateg = &(subcategories[g_subcateg_count]);
-        subcateg->name = strdup(title);
-        subcateg->songlist = NULL;
-        subcateg->size = 0;
-    }
-
-    property* musicdb = load_prop_file(input_filename);
-    //iterate over all music id
-    property_node *prop = NULL;
-    if ((prop = property_search(musicdb, NULL, "/database/music"))) {
-        for (; prop != NULL; prop = property_node_traversal(prop, TRAVERSE_NEXT_SEARCH_RESULT)) {
-            char idxStr[256] = {};
-            property_node_refer(musicdb, prop, "id@", PROPERTY_TYPE_ATTR, idxStr,
-                                sizeof(idxStr));
-            uint32_t songid = atoi(idxStr);
-            add_song_to_subcateg(songid, subcateg);
-        }
-    }
-    free(title);
-}
-
-static void load_databases() {
-    SearchFile s;
-    g_subcateg_count = 0;
-    subcategories = (subcategory_s*)realloc(subcategories, sizeof(subcategory_s)*(1));
-    subcategories[0].name = strdup("ALL SONGS");
-    subcategories[0].songlist = NULL;
-    subcategories[0].size = 0;
-
-    s.search("data_mods", "xml", true);
-    auto result = s.getResult();
-
-    for(uint16_t i=0;i<result.size();i++)
-    {
-        if ( (strstr(result[i].c_str(), "musicdb") == NULL)
-          || is_excluded_folder(result[i].c_str()) )
-            continue;
-
-        parse_musicdb(result[i].c_str());
-    }
+void init_subcategories() {
+        g_subcategmode = true;
+        g_subcateg_count = 0;
+        subcategories = (subcategory_s*)realloc(subcategories, sizeof(subcategory_s)*(1));
+        subcategories[0].name = strdup("ALL SONGS");
+        subcategories[0].songlist = NULL;
+        subcategories[0].size = 0;
 }
 
 static void print_databases() {
@@ -1059,11 +1008,8 @@ bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
         g_categicon = "cate_13";
     }
 
-    if (mode == 2)
+    if (mode == 1)
     {
-        g_subcategmode = true;
-        load_databases();
-    } else {
         songlist = (uint32_t*)calloc(1,5); //for some reason it crashes without that 4 cells extra margin
     }
 
