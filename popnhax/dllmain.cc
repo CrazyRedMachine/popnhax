@@ -4494,7 +4494,19 @@ static bool version_check() {
     return true;
 }
 
-char *ifsname_ptr = 0;
+const char *popkun_change = "system27/gmcmh.ifs";
+void (*gm_ifs_load)();
+void loadtexhook() {
+    if(p_record) {
+        __asm("cmp dword ptr [eax+0x0B], 0x2E6E6D63\n"); // gm 'cmn.' ifs
+        __asm("jne change_skip\n");
+        __asm("mov %0, eax\n"::"a"(popkun_change));
+        __asm("change_skip:\n");
+    }
+    gm_ifs_load();
+}
+
+char *ifsname_ptr = NULL;
 void (*get_ifs_name)();
 void get_ifs_filename() {
     __asm("mov %0, eax\n":"=a"(ifsname_ptr): :);
@@ -6554,6 +6566,25 @@ static bool patch_record_mode(bool quickretire)
             return false;
         }
         usbpad_addr = (uint32_t**)((int64_t)data + pattern_offset -0x21);
+    }
+    {
+        // recmode pop-kun change
+        int64_t pattern_offset = search(data, dllSize,
+             "\x5E\x83\xC4\x10\xC3\x51\xE8", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: record: ifs load address not found.\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset +13;
+        
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)loadtexhook,
+                      (void **)&gm_ifs_load);
+
+        #if DEBUG == 1
+            LOG("popnhax: record: loadtexhook_addr is 0x%llX\n", patch_addr);
+        #endif
+    
     }
 
     #if DEBUG == 1
