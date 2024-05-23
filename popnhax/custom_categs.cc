@@ -36,12 +36,11 @@ char *g_current_friendid;
 uint32_t g_current_songid;
 
 bst_t *g_customs_bst = NULL;
+bool g_exclude_omni = false;
 
 void (*add_song_in_list)();
 
 bool g_subcategmode = false;
-uint32_t g_min_id = 4000;
-uint32_t g_max_id = 0;
 
 const char *g_categicon;
 const char *g_categformat;
@@ -62,8 +61,12 @@ uint32_t favorites_struct_addr = (uint32_t)&favorites_struct;
 
 bool is_a_custom(uint32_t songid)
 {
-	return (bst_search(g_customs_bst, songid) != NULL);
-//	return (songid >= g_min_id && (g_max_id==0 || g_max_id >= songid));
+    return (bst_search(g_customs_bst, songid) != NULL);
+}
+
+bool is_excluded_from_level(uint32_t songid)
+{
+    return ( is_a_custom(songid) && ( g_exclude_omni || songid >= 3000 ) );
 }
 
 void add_song_to_favorites()
@@ -769,7 +772,7 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
     return true;
 }
 
-static bool patch_custom_categ(const char *game_dll_fn) {
+static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
 
     DWORD dllSize = 0;
     char *data = getDllData(game_dll_fn, &dllSize);
@@ -914,22 +917,21 @@ static bool patch_custom_categ(const char *game_dll_fn) {
 
 char formatted_title[128];
 sprintf(formatted_title, g_categformat, g_categname);
-    LOG("popnhax: custom %s \"%s\" injected (for songids ", g_subcategmode? "subcategories":"category", formatted_title);
-    if (g_max_id)
-        LOG("between %d and %d (incl.))\n", g_min_id, g_max_id);
-    else
-        LOG("%d and up)\n", g_min_id);
+    LOG("popnhax: custom %s \"%s\" injected", g_subcategmode? "subcategories":"category", formatted_title);
+    if (min_id)
+        LOG(" (for songids >= %d)", min_id);
+    LOG("\n");
 
     return true;
 }
 
 void init_subcategories() {
-        g_subcategmode = true;
-        g_subcateg_count = 0;
-        subcategories = (subcategory_s*)realloc(subcategories, sizeof(subcategory_s)*(1));
-        subcategories[0].name = strdup("ALL SONGS");
-        subcategories[0].songlist = NULL;
-        subcategories[0].size = 0;
+    g_subcategmode = true;
+    g_subcateg_count = 0;
+    subcategories = (subcategory_s*)realloc(subcategories, sizeof(subcategory_s)*(1));
+    subcategories[0].name = strdup("ALL SONGS");
+    subcategories[0].songlist = NULL;
+    subcategories[0].size = 0;
 }
 
 static void print_databases() {
@@ -951,7 +953,7 @@ void hook_after_getlevel()
     __asm("push ecx\n");
     __asm("push edx\n");
     __asm("push ebx\n");
-    __asm("call %P0" : : "i"(is_a_custom));
+    __asm("call %P0" : : "i"(is_excluded_from_level));
     __asm("test eax, eax\n");
     __asm("pop ebx\n");
     __asm("pop edx\n");
@@ -992,8 +994,6 @@ bool patch_exclude(const char *game_dll_fn)
 
 bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
 {
-    g_min_id = config->custom_categ_min_songid;
-    //g_max_id = config->custom_categ_max_songid; //handled during injection already
     uint8_t mode = config->custom_categ;
 
     char icon_path[64];
@@ -1022,7 +1022,7 @@ bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
     else
         g_categformat = "%s";
 
-    if (!patch_custom_categ(dllFilename))
+    if (!patch_custom_categ(dllFilename, config->custom_categ_min_songid))
         return false;
 
     if (mode == 2)
@@ -1040,8 +1040,12 @@ bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
 
     if (config->custom_exclude_from_version)
         LOG("popnhax: Customs excluded from version folders\n"); //musichax_core_init took care of it
+
     if (config->custom_exclude_from_level)
+    {
+        g_exclude_omni = config->exclude_omni;
         patch_exclude(dllFilename);
+    }
 
     return true;
 }

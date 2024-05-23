@@ -131,7 +131,7 @@
                 THREAD_PRIORITY_TIME_CRITICAL  15                             -->
     <enhanced_polling_priority __type="s8">1</enhanced_polling_priority>
 
-  <!-- Song db patches -->
+  <!-- Song db patches (requires patch_db) -->
     <!-- Auto select patch file from data_mods folder based on music limit, or datecode otherwise (will detect datecode from ea3-config or force_datecode option) -->
     <patch_xml_auto __type="bool">1</patch_xml_auto>
     <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
@@ -143,11 +143,13 @@
     <!-- Do not perform music limit checks for patch_xml_auto (not recommended) -->
     <ignore_music_limit __type="bool">0</ignore_music_limit>
 
-  <!-- Custom category options -->
-    <!-- minimum songid for a song to be seen as "custom" -->
-    <custom_categ_min_songid __type="u16">4000</custom_categ_min_songid>
-    <!-- maximum songid for a song to be seen as "custom" (0 = no limit, not recommended since "random" category will use fake song ids in the 65400+ range) -->
-    <custom_categ_max_songid __type="u16">65400</custom_categ_max_songid>
+  <!-- Custom category options (requires patch_db) -->
+    <!-- Also exclude omnimix (song id < 3000) tracks from version/level (requires custom_exclude_from_level or custom_exclude_from_version) -->
+    <exclude_omni __type="bool">0</exclude_omni>
+    <!-- New chart added to existing song moves the song to custom folder -->
+    <partial_entries __type="bool">0</partial_entries>
+    <!-- Minimum songid for a song to be seen as "custom" (e.g. use 4000 for real customs only) -->
+    <custom_categ_min_songid __type="u16">0</custom_categ_min_songid>
     <!-- Category title for customs -->
     <custom_category_title __type="str">Customs</custom_category_title>
     <!-- Format used for category title (in BM2DXFontScript format, refer to BM2DXFontScript.md in popnhax_tools repo)  -->

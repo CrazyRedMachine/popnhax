@@ -188,10 +188,12 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S8, struct popnhax_config, base_offset,
                  "/popnhax/base_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, custom_categ,
                  "/popnhax/custom_categ")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, exclude_omni,
+                 "/popnhax/exclude_omni")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, partial_entries,
+                 "/popnhax/partial_entries")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, custom_categ_min_songid,
                  "/popnhax/custom_categ_min_songid")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, custom_categ_max_songid,
-                 "/popnhax/custom_categ_max_songid")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, custom_exclude_from_version,
                  "/popnhax/custom_exclude_from_version")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, custom_exclude_from_level,

@@ -888,19 +888,12 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
             bool is_gone = ( m != NULL && strcmp((const char*) m->title_ptr, "\x81\x5D") == 0); // removed entries all have this title (SJIS "-")
 
             // Update customs/omni songid list
-            if ( is_fresh || is_gone )
+            if ( is_fresh || is_gone || config->partial_entries )
             {
-                //TODO: remove g_max_id entirely
-                if (idx > g_max_id)
-                {
-                    g_max_id = idx;
-                }
-
-                if ( bst_search(g_customs_bst, idx) == NULL )
+                if ( idx >= config->custom_categ_min_songid && bst_search(g_customs_bst, idx) == NULL )
                 {
                     g_customs_bst = bst_insert(g_customs_bst, idx);
                     //LOG("%d inserted into customs bst\n", idx);
-                    //TODO: (beware: maybe we should still consider !is_gone charts as custom?)
                     if (config->custom_categ == 2)
                     {
                         add_song_to_subcateg(idx, subcateg);
@@ -967,8 +960,8 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
             if ( config->custom_categ
               && config->custom_exclude_from_version
               && !is_excluded_folder(input_filename)
-              && idx >= config->custom_categ_min_songid
-              && (config->custom_categ_max_songid == 0 || idx <= config->custom_categ_max_songid) )
+              && idx >= config->custom_categ_min_songid 
+              && ( is_fresh || config->exclude_omni ) )
             {
                 m->cs_version = 0;
                 m->folder = 0;

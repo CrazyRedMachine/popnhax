@@ -17,7 +17,6 @@ struct popnhax_config {
     bool score_challenge;
     uint8_t custom_categ;
     uint16_t custom_categ_min_songid;
-    uint16_t custom_categ_max_songid;
     bool custom_exclude_from_version;
     bool custom_exclude_from_level;
     bool force_hd_timing;
@@ -64,6 +63,8 @@ struct popnhax_config {
     char custom_category_format[64];
     char custom_track_title_format[64];
     char custom_track_title_format2[64];
+    bool exclude_omni;
+    bool partial_entries;
 };
 
 #endif
