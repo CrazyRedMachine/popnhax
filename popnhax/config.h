@@ -65,6 +65,7 @@ struct popnhax_config {
     char custom_track_title_format2[64];
     bool exclude_omni;
     bool partial_entries;
+    bool high_framerate;
 };
 
 #endif

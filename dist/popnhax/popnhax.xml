@@ -18,6 +18,10 @@
     <!-- Handle favorites through data_mods/<game>.<friendID>.fav files (Note: allows UNLIMITED favorites as well as favorites without an account/server) -->
     <local_favorites __type="bool">0</local_favorites>
 
+  <!-- Framerate -->
+    <!-- Maximize framerate and fix animation speed for a smoother experience (lower visual latency) -->
+    <high_framerate __type="bool">0</high_framerate>
+
   <!-- Classic patches -->
     <!-- Prevent crash on boot when using a different default audio source (aka HDMI audio patch) -->
     <audio_source_fix __type="bool">0</audio_source_fix>

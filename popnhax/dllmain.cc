@@ -210,6 +210,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, local_favorite
                  "/popnhax/local_favorites")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, ignore_music_limit,
                  "/popnhax/ignore_music_limit")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, high_framerate,
+                 "/popnhax/high_framerate")
 PSMAP_END
 
 enum BufferIndexes {
@@ -7437,6 +7439,34 @@ static bool get_music_limit_from_file(const char *filepath, uint32_t *limit){
     return true;
 }
 
+static bool patch_afp_framerate()
+{
+    DEVMODE lpDevMode;
+    memset(&lpDevMode, 0, sizeof(DEVMODE));
+    lpDevMode.dmSize = sizeof(DEVMODE);
+    lpDevMode.dmDriverExtra = 0;
+
+    if ( EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &lpDevMode) != 0 )
+    {
+        DWORD framerate = lpDevMode.dmDisplayFrequency;
+        float new_value = 1./framerate;
+
+        char *as_hex = (char*)&new_value;
+
+        if ( !find_and_patch_hex(g_game_dll_fn, "\x82\x9D\x88\x3C", 4, 0, as_hex, 4) )
+        {
+            LOG("popnhax: high_framerate: cannot patch animation speed\n");
+            return false;
+        }
+
+        LOG("popnhax: high_framerate: patched animation speed for %ldHz\n", framerate); 
+        return true;
+    }
+
+    LOG("popnhax: high_framerate: could not retrieve display mode\n"); 
+    return false;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -7815,6 +7845,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.guidese_off)
             option_guide_se_off();
+
+        if (config.high_framerate)
+        {
+            patch_afp_framerate();
+            config.fps_uncap = true;
+        }
 
         if (config.fps_uncap)
             patch_fps_uncap();
