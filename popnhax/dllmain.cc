@@ -33,7 +33,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "1.12.dev.pollfix"
+#define PROGRAM_VERSION "1.12.dev"
 
 const char *g_game_dll_fn = NULL;
 const char *g_config_fn   = NULL;
@@ -212,6 +212,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, ignore_music_l
                  "/popnhax/ignore_music_limit")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, high_framerate,
                  "/popnhax/high_framerate")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, high_framerate_limiter,
+                 "/popnhax/high_framerate_limiter")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, high_framerate_fps,
                  "/popnhax/high_framerate_fps")
 PSMAP_END
@@ -4429,7 +4431,49 @@ static bool patch_hd_resolution(uint8_t mode) {
     return true;
 }
 
-static bool patch_fps_uncap() {
+static bool patch_fps_uncap(uint16_t fps) {
+
+    if (fps != 0)
+    {
+        /* TODO: fix in spicetools and remove this */
+        uint8_t count = 0;
+        while (find_and_patch_hex(NULL, "\x55\x31\xC0\x89\xE5\x57\x8B\x4D\x08\x8D\x79\x04\xC7\x01\x00\x00\x00\x00\x83\xE7\xFC\xC7\x41\x24\x00\x00\x00\x00\x29\xF9\x83\xC1\x28\xC1\xE9\x02\xF3\xAB\x8B\x7D\xFC\xC9\xC3", 43, 0, "\x31\xC0\xC3", 3))
+        {
+            count++;
+        }
+
+        if (count)
+        {
+            LOG("popnhax: frame_limiter: patched %u instance(s) of memset(a1, 0, 40) (bad usbPadReadLast io hook)\n", count);
+        }
+
+        uint8_t ft = (1000 + (fps / 2)) / fps; // rounded 1000/fps
+        int8_t delta = 16-ft;
+        int8_t newval = -1*delta-2;
+
+        /* enforce fps rate */
+        if (!find_and_patch_hex(g_game_dll_fn, "\x7E\x07\xB9\x0C\x00\x00\x00\xEB\x09\x85\xC9", 11, -1, "\xFF", 1))
+        {
+            LOG("popnhax: frame_limiter: cannot patch frame limiter\n");
+            return false;
+        }
+        if (!find_and_patch_hex(g_game_dll_fn, "\x7E\x07\xB9\x0C\x00\x00\x00\xEB\x09\x85\xC9", 11, 2, "\x90\x90\x90\x90\x90", 5))
+        {
+            LOG("popnhax: frame_limiter: cannot patch frame limiter\n");
+            return false;
+        }
+
+        /* adjust sleep time (original code is "add -2", replace with "add newval") */
+        if (!find_and_patch_hex(g_game_dll_fn, "\x6A\x00\x83\xC1\xFE\x51\xFF", 7, 4, (char *)&newval, 1))
+        {
+            LOG("popnhax: frame_limiter: cannot patch frame limiter\n");
+            return false;
+        }
+
+        LOG("popnhax: fps capped to %u fps (%ums frame time, new val %d)\n", fps, ft, newval);
+        return true;
+    }
+
     if (!find_and_patch_hex(g_game_dll_fn, "\x7E\x07\xB9\x0C\x00\x00\x00\xEB\x09\x85\xC9", 11, 0, "\xEB\x1C", 2))
     {
         LOG("popnhax: fps uncap: cannot find frame limiter\n");
@@ -7862,7 +7906,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         }
 
         if (config.fps_uncap)
-            patch_fps_uncap();
+            patch_fps_uncap(config.high_framerate_limiter ? config.high_framerate_fps : 0);
 
         if (config.enhanced_polling)
         {

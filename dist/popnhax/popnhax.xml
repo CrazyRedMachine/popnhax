@@ -19,7 +19,7 @@
     <local_favorites __type="bool">0</local_favorites>
 
   <!-- Framerate -->
-    <!-- Maximize framerate and fix animation speed for a smoother experience (lower visual latency) -->
+    <!-- Fix animation speed at higher framerate for a smoother experience (lower visual latency) -->
     <high_framerate __type="bool">0</high_framerate>
 
   <!-- Classic patches -->
@@ -134,10 +134,12 @@
     <enhanced_polling_priority __type="s8">1</enhanced_polling_priority>
 
   <!-- Framerate -->
-    <!-- Disable the builtin frame limiter (faster/smoother animations at 120fps+) -->
-    <fps_uncap __type="bool">0</fps_uncap>
-    <!-- Reference fps value for high_framerate animation speed (0: auto) -->
+    <!-- Reference fps value for high_framerate animation speed (0: use monitor refreshrate and disable frame limiter) -->
     <high_framerate_fps __type="u16">0</high_framerate_fps>
+    <!-- Tune the builtin frame limiter the closest to high_framerate_fps -->
+    <high_framerate_limiter __type="bool">1</high_framerate_limiter>
+    <!-- Disable the builtin frame limiter -->
+    <fps_uncap __type="bool">0</fps_uncap>
 
   <!-- Song db patches (requires patch_db) -->
     <!-- Auto select patch file from data_mods folder based on music limit, or datecode otherwise (will detect datecode from ea3-config or force_datecode option) -->
@@ -154,7 +156,7 @@
   <!-- Custom category options (requires patch_db) -->
     <!-- Also exclude omnimix (song id < 3000) tracks from version/level (requires custom_exclude_from_level or custom_exclude_from_version) -->
     <exclude_omni __type="bool">0</exclude_omni>
-    <!-- New chart added to existing song moves the song to custom folder -->
+    <!-- Any new chart added to an existing song moves the song to the customs folder -->
     <partial_entries __type="bool">0</partial_entries>
     <!-- Minimum songid for a song to be seen as "custom" (e.g. use 4000 for real customs only) -->
     <custom_categ_min_songid __type="u16">0</custom_categ_min_songid>

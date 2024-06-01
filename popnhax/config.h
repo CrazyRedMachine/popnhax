@@ -66,6 +66,7 @@ struct popnhax_config {
     bool exclude_omni;
     bool partial_entries;
     bool high_framerate;
+    bool high_framerate_limiter;
     uint16_t high_framerate_fps;
 };
 
