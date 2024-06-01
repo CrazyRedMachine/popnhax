@@ -124,8 +124,6 @@
     <keysound_offset __type="s8">0</keysound_offset>
     <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
     <beam_brightness __type="s8">0</beam_brightness>
-    <!-- Disable the builtin frame limiter (faster/smoother animations at 120fps+) -->
-    <fps_uncap __type="bool">0</fps_uncap>
     <!-- 1000Hz polling thread priority (for enhanced_polling only, might cause crashes on some systems if set too high)
          values THREAD_PRIORITY_LOWEST        -2
                 THREAD_PRIORITY_BELOW_NORMAL  -1
@@ -134,6 +132,12 @@
                 THREAD_PRIORITY_HIGHEST        2
                 THREAD_PRIORITY_TIME_CRITICAL  15                             -->
     <enhanced_polling_priority __type="s8">1</enhanced_polling_priority>
+
+  <!-- Framerate -->
+    <!-- Disable the builtin frame limiter (faster/smoother animations at 120fps+) -->
+    <fps_uncap __type="bool">0</fps_uncap>
+    <!-- Reference fps value for high_framerate animation speed (0: auto) -->
+    <high_framerate_fps __type="u16">0</high_framerate_fps>
 
   <!-- Song db patches (requires patch_db) -->
     <!-- Auto select patch file from data_mods folder based on music limit, or datecode otherwise (will detect datecode from ea3-config or force_datecode option) -->

@@ -212,6 +212,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, ignore_music_l
                  "/popnhax/ignore_music_limit")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, high_framerate,
                  "/popnhax/high_framerate")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, high_framerate_fps,
+                 "/popnhax/high_framerate_fps")
 PSMAP_END
 
 enum BufferIndexes {
@@ -7439,32 +7441,39 @@ static bool get_music_limit_from_file(const char *filepath, uint32_t *limit){
     return true;
 }
 
-static bool patch_afp_framerate()
+static bool patch_afp_framerate(uint16_t fps)
 {
-    DEVMODE lpDevMode;
-    memset(&lpDevMode, 0, sizeof(DEVMODE));
-    lpDevMode.dmSize = sizeof(DEVMODE);
-    lpDevMode.dmDriverExtra = 0;
+    DWORD framerate = fps;
 
-    if ( EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &lpDevMode) != 0 )
+    if ( framerate == 0 )
     {
-        DWORD framerate = lpDevMode.dmDisplayFrequency;
-        float new_value = 1./framerate;
+        DEVMODE lpDevMode;
+        memset(&lpDevMode, 0, sizeof(DEVMODE));
+        lpDevMode.dmSize = sizeof(DEVMODE);
+        lpDevMode.dmDriverExtra = 0;
 
-        char *as_hex = (char*)&new_value;
-
-        if ( !find_and_patch_hex(g_game_dll_fn, "\x82\x9D\x88\x3C", 4, 0, as_hex, 4) )
+        if ( EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &lpDevMode) == 0 )
         {
-            LOG("popnhax: high_framerate: cannot patch animation speed\n");
+            LOG("popnhax: high_framerate: could not retrieve display mode\n");
             return false;
         }
 
-        LOG("popnhax: high_framerate: patched animation speed for %ldHz\n", framerate); 
-        return true;
+        framerate = lpDevMode.dmDisplayFrequency;
+    } else {
+        LOG("popnhax: high_framerate: force %ldHz\n", framerate); 
     }
 
-    LOG("popnhax: high_framerate: could not retrieve display mode\n"); 
-    return false;
+    float new_value = 1./framerate;
+    char *as_hex = (char*)&new_value;
+
+    if ( !find_and_patch_hex(g_game_dll_fn, "\x82\x9D\x88\x3C", 4, 0, as_hex, 4) )
+    {
+        LOG("popnhax: high_framerate: cannot patch animation speed for %ldHz\n", framerate);
+        return false;
+    }
+
+    LOG("popnhax: high_framerate: patched animation speed for %ldHz\n", framerate);
+    return true;
 }
 
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
@@ -7848,7 +7857,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.high_framerate)
         {
-            patch_afp_framerate();
+            patch_afp_framerate(config.high_framerate_fps);
             config.fps_uncap = true;
         }
 
