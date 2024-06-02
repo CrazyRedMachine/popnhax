@@ -33,7 +33,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "1.11d"
+#define PROGRAM_VERSION "1.12.dev.pollfix"
 
 const char *g_game_dll_fn = NULL;
 const char *g_config_fn   = NULL;
@@ -3609,20 +3609,48 @@ int usbPadReadHook(uint32_t *pad_bits)
 
 uint32_t g_offset_fix[9] = {0};
 uint8_t g_poll_index = 0;
-uint32_t g_poll_offset = 0;
 void (*real_enhanced_poll)();
 void patch_enhanced_poll() {
     /* eax contains button being checked [0-8]
      * esi contains delta about to be evaluated
      * we need to do esi -= buttonGetMillis([%eax]); to fix the offset accurately */
-    __asm("nop\n");
-    __asm("nop\n");
-    __asm("mov %0, al\n":"=m"(g_poll_index): :);
-    g_poll_offset = buttonGetMillis(g_poll_index);
-    __asm("sub esi, %0\n": :"b"(g_poll_offset));
-    g_offset_fix[g_poll_index] = g_poll_offset;
+    __asm("push edx\n");
 
-    real_enhanced_poll();
+    __asm("mov %0, al\n":"=m"(g_poll_index): :);
+
+    /* reimplem buttonGetMillis(), result in ebx */
+    __asm("xor ebx,ebx\n");
+    __asm("mov edx,dword ptr ds:[eax*4+%0]\n"::"d"(g_button_state));
+    __asm("cmp edx,0xFFFFFFFF\n");
+    __asm("je button_state_empty\n");
+
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("call %P0" : : "i"(timeGetTime));
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("cmp edx,eax\n");
+
+    __asm("jbe button_has_been_pressed\n");
+
+    __asm("restore_eax:\n");
+    __asm("movzx eax, %0\n": :"d"(g_poll_index));
+
+    /* leave buttonGetMillis */
+    __asm("button_state_empty:\n");
+    __asm("sub esi, ebx\n"); // actual delta correction
+
+    __asm("lea edx,dword ptr [eax*4+%0]\n"::"d"(g_offset_fix));
+    __asm("mov [edx], ebx\n"::); // save correction value in g_offset_fix[g_poll_index];
+
+    __asm("pop edx\n");
+    __asm("mov eax, %0\n" : : "i"(&real_enhanced_poll));
+    __asm("jmp [eax]");
+
+    __asm("button_has_been_pressed:\n");
+    __asm("sub eax,edx\n"); // eax = correction value (currTime - g_button_state[g_poll_index]);
+    __asm("mov ebx, eax\n");// put correction value in ebx
+    __asm("jmp restore_eax\n");
 }
 
 static HANDLE enhanced_polling_thread;
