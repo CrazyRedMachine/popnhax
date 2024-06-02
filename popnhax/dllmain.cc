@@ -4494,7 +4494,7 @@ static bool version_check() {
     return true;
 }
 
-const char *popkun_change = "system27/gmcmh.ifs";
+const char *popkun_change = "gmcmh.ifs";
 void (*gm_ifs_load)();
 void loadtexhook() {
     if(p_record) {
@@ -6554,7 +6554,7 @@ static bool patch_record_mode(bool quickretire)
         player_option_offset = *temp_addr;
     }
     {
-        // usbPadReadLast   
+        // usbPadReadLast
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: record: cannot find usbPadRead call (1)\n");
@@ -6569,22 +6569,31 @@ static bool patch_record_mode(bool quickretire)
     }
     {
         // recmode pop-kun change
-        int64_t pattern_offset = search(data, dllSize,
-             "\x5E\x83\xC4\x10\xC3\x51\xE8", 7, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: record: ifs load address not found.\n");
-            return false;
+        // Check if custom popkuns are present
+        if (access("data_mods\\_popnhax_assets\\tex\\gmcmh.ifs", F_OK) == 0)
+        {
+            LOG("popnhax: record: custom popkun assets found. Using %s\n", popkun_change);
+
+            int64_t pattern_offset = search(data, dllSize,
+                 "\x5E\x83\xC4\x10\xC3\x51\xE8", 7, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: record: ifs load address not found.\n");
+                return false;
+            }
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset +13;
+
+            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)loadtexhook,
+                          (void **)&gm_ifs_load);
+
+            #if DEBUG == 1
+                LOG("popnhax: record: loadtexhook_addr is 0x%llX\n", patch_addr);
+            #endif
         }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset +13;
-        
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)loadtexhook,
-                      (void **)&gm_ifs_load);
-
-        #if DEBUG == 1
-            LOG("popnhax: record: loadtexhook_addr is 0x%llX\n", patch_addr);
-        #endif
-    
+        else
+        {
+            LOG("popnhax: record: custom popkun assets not found. Using regular ones\n");
+        }
     }
 
     #if DEBUG == 1
