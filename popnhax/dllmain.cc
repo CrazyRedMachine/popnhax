@@ -374,7 +374,9 @@ bool g_longest_bpm_old_chart = false;
 bool g_bypass_hispeed = false; //bypass target update for mystery bpm and soflan songs
 bool g_mystery_bpm = false;
 bool g_soflan_retry = false;
-uint32_t g_hispeed = 0;
+uint32_t g_new_songid = 0; // always contains the latest songid
+uint32_t g_last_soflan_songid = 0; // compare with g_new_songid to see if g_soflan_retry_hispeed should apply
+uint32_t g_hispeed = 0; // multiplier
 uint32_t g_soflan_retry_hispeed = 0; //hispeed value that is temporary kept for quick retry on soflan songs
 uint32_t g_hispeed_addr = 0;
 uint32_t g_target_bpm = 0;
@@ -528,13 +530,20 @@ void hook_read_hispeed()
     __asm("mov ecx, ebp\n");
     __asm("add ecx, dword ptr [%0]\n"::"a"(&g_low_bpm_ebp_offset));
 
+    __asm("sub ecx, 0x9B4\n");
+    __asm __volatile__("mov %0, dword ptr [ecx]\n":"=a"(g_new_songid): :);
+    __asm("add ecx, 0x9B4\n");
+
     __asm __volatile__("mov %0, word ptr [ecx]\n":"=a"(g_low_bpm): :);
-    __asm("add cx, 2\n");
+    __asm("add ecx, 2\n");
     __asm __volatile__("mov %0, word ptr [ecx]\n":"=a"(g_hi_bpm): :);
-    __asm("add cx, 2\n");
+    __asm("add ecx, 2\n");
     __asm __volatile__("mov %0, byte ptr [ecx]\n":"=a"(g_mystery_bpm): :);
 
-    if (g_soflan_retry && g_soflan_retry_hispeed && ( g_mystery_bpm || g_low_bpm != g_hi_bpm ))
+    if (   g_soflan_retry
+      && ( g_mystery_bpm || g_low_bpm != g_hi_bpm )
+      &&   g_soflan_retry_hispeed
+      && ( g_last_soflan_songid == g_new_songid ) )
     {
         g_hispeed = g_soflan_retry_hispeed;
         __asm("jmp apply_hispeed\n");
@@ -584,6 +593,7 @@ void hook_increase_hispeed()
         __asm("mov %0, ecx\n":"=m"(g_soflan_retry_hispeed):);
         g_soflan_retry = false;
         g_bypass_hispeed = true;
+        g_last_soflan_songid = g_new_songid&0xFFFF;
         __asm("jmp leave_increase_hispeed\n");
     }
 
@@ -626,8 +636,9 @@ void hook_decrease_hispeed()
     if ( g_mystery_bpm || g_low_bpm != g_hi_bpm )
     {
         __asm("mov %0, ecx\n":"=m"(g_soflan_retry_hispeed):);
-        g_bypass_hispeed = true;
         g_soflan_retry = false;
+        g_bypass_hispeed = true;
+        g_last_soflan_songid = g_new_songid&0xFFFF;
         __asm("jmp leave_decrease_hispeed\n");
     }
 
