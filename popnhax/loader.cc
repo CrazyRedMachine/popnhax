@@ -821,18 +821,38 @@ void parse_charadb(const char *input_filename, const char *target) {
     free(config_xml);
 }
 
-//extract folder name (cut "data_mods")
-static char *get_folder_name(const char* path) {
-    size_t len = (size_t)(strchr(path+10, '\\')-(path+10));
-    char *categ_name = (char*) malloc(len+1);
-    strncpy(categ_name, path+10, len);
-    categ_name[len] = '\0';
+static char *get_subcateg_title(const char* path) {
+    char *categ_name = NULL;
+    char filename[64];
+
+    //try to open "folderpath/_name.txt"
+    size_t len = (size_t)(strchr(path+10, '\\')-(path));
+    strncpy(filename, path, len);
+    sprintf(filename+len, "\\_name.txt");
+
+    FILE *file = fopen(filename, "r");
+    if ( file != NULL ) {
+        //if it has a custom title, use it
+        char line[64];
+        if (fgets(line, sizeof(line), file)) {
+            //handle UTF-8 BOM since that could be common
+            categ_name = (memcmp(line, "\xEF\xBB\xBF", 3) == 0) ? strdup(line+3) : strdup(line);
+            LOG("%s sets subcategory name to %s\n", filename, categ_name);
+        }
+        fclose(file);
+    } else { // or just keep folder name by itself (cut "data_mods")
+        len = (size_t)(strchr(path+10, '\\')-(path+10));
+        categ_name = (char*) malloc(len+1);
+        strncpy(categ_name, path+10, len);
+        categ_name[len] = '\0';
+    }
+
     return categ_name;
 }
 
 static bool is_excluded_folder(const char *input_filename)
 {
-  return (input_filename[strlen("data_mods/")] == '_');
+    return (input_filename[strlen("data_mods/")] == '_');
 }
 
 void parse_musicdb(const char *input_filename, const char *target, struct popnhax_config *config) {
@@ -845,7 +865,7 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
     subcategory_s *subcateg = NULL;
     if (config->custom_categ == 2)
     {
-        subcateg_title = get_folder_name(input_filename);
+        subcateg_title = get_subcateg_title(input_filename);
         subcateg = get_subcateg(subcateg_title); //will return a new one if not found
     }
 
