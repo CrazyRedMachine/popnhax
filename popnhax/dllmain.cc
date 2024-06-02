@@ -382,7 +382,7 @@ uint16_t *g_base_bpm_ptr = 0; //will point to g_low_bpm or g_hi_bpm according to
 uint16_t g_low_bpm = 0;
 uint16_t g_hi_bpm = 0;
 uint16_t g_longest_bpm = 0;
-uint16_t g_low_bpm_ebp_offset = 0;
+uint32_t g_low_bpm_ebp_offset = 0;
 unsigned char *g_chart_addr = 0;
 
 typedef struct chart_chunk_s {
@@ -526,7 +526,7 @@ void hook_read_hispeed()
     __asm("push edx\n");
 
     __asm("mov ecx, ebp\n");
-    __asm("add cx, word ptr [%0]\n"::"a"(&g_low_bpm_ebp_offset));
+    __asm("add ecx, dword ptr [%0]\n"::"a"(&g_low_bpm_ebp_offset));
 
     __asm __volatile__("mov %0, word ptr [ecx]\n":"=a"(g_low_bpm): :);
     __asm("add cx, 2\n");
@@ -534,7 +534,7 @@ void hook_read_hispeed()
     __asm("add cx, 2\n");
     __asm __volatile__("mov %0, byte ptr [ecx]\n":"=a"(g_mystery_bpm): :);
 
-    if (g_soflan_retry && ( g_mystery_bpm || g_low_bpm != g_hi_bpm ))
+    if (g_soflan_retry && g_soflan_retry_hispeed && ( g_mystery_bpm || g_low_bpm != g_hi_bpm ))
     {
         g_hispeed = g_soflan_retry_hispeed;
         __asm("jmp apply_hispeed\n");
