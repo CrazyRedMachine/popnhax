@@ -850,9 +850,29 @@ static char *get_subcateg_title(const char* path) {
     return categ_name;
 }
 
-static bool is_excluded_folder(const char *input_filename)
+#define F_OK 0
+static bool is_excluded_folder(const char *path)
 {
-    return (input_filename[strlen("data_mods/")] == '_');
+    char filename[64];
+
+    //try to open "folderpath/_exclude"
+    size_t len = (size_t)(strchr(path+10, '\\')-(path));
+    strncpy(filename, path, len);
+    sprintf(filename+len, "\\_exclude");
+    if (access(filename, F_OK) == 0)
+    {
+        LOG("%s causes folder to be excluded from customs (contents will be treated as regular songs)\n", filename);
+        return true;
+    }
+
+    if ( path[strlen("data_mods/")] == '_' )
+    {
+        filename[strchr(path+10, '\\')-path] = '\0';
+        LOG("%s starting with _ causes folder to be excluded from customs (contents will be treated as regular songs)\n", filename);
+        return true;
+    }
+
+    return false;
 }
 
 void parse_musicdb(const char *input_filename, const char *target, struct popnhax_config *config) {
@@ -861,9 +881,11 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
         return;
     }
 
+    bool excluded = (config->custom_categ && is_excluded_folder(input_filename));
+
     char *subcateg_title = NULL;
     subcategory_s *subcateg = NULL;
-    if (config->custom_categ == 2)
+    if (config->custom_categ == 2 && !excluded)
     {
         subcateg_title = get_subcateg_title(input_filename);
         subcateg = get_subcateg(subcateg_title); //will return a new one if not found
@@ -910,7 +932,7 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
             // Update customs/omni songid list
             if ( is_fresh || is_gone || config->partial_entries )
             {
-                if ( idx >= config->custom_categ_min_songid && bst_search(g_customs_bst, idx) == NULL )
+                if ( idx >= config->custom_categ_min_songid && !excluded && bst_search(g_customs_bst, idx) == NULL )
                 {
                     g_customs_bst = bst_insert(g_customs_bst, idx);
                     //LOG("%d inserted into customs bst\n", idx);
@@ -918,8 +940,6 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
                     {
                         add_song_to_subcateg(idx, subcateg);
                     }
-                } else {
-                    //LOG("%d already present in customs bst\n", idx);
                 }
             }
 
@@ -979,7 +999,7 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
 
             if ( config->custom_categ
               && config->custom_exclude_from_version
-              && !is_excluded_folder(input_filename)
+              && !excluded
               && idx >= config->custom_categ_min_songid 
               && ( is_fresh || config->exclude_omni ) )
             {
@@ -1063,7 +1083,7 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
 
     free(config_xml);
 
-    if (config->custom_categ == 2)
+    if (config->custom_categ == 2 && !excluded)
     {
         free(subcateg_title);
     }
