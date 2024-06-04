@@ -388,6 +388,7 @@ uint32_t g_hispeed = 0; // multiplier
 uint32_t g_soflan_retry_hispeed = 0; //hispeed value that is temporary kept for quick retry on soflan songs
 uint32_t g_hispeed_addr = 0;
 uint32_t g_target_bpm = 0;
+uint32_t g_default_bpm = 0; //used to rearm between credits
 uint16_t *g_base_bpm_ptr = 0; //will point to g_low_bpm or g_hi_bpm according to mode
 uint16_t g_low_bpm = 0;
 uint16_t g_hi_bpm = 0;
@@ -486,6 +487,16 @@ void compute_longest_bpm(){
 
     destroy_list(list);
     g_longest_bpm = longest_bpm;
+}
+
+void (*real_rearm_hispeed)();
+void hook_rearm_hispeed()
+{
+    __asm("push eax\n");
+    __asm("mov eax, %0\n"::"m"(g_default_bpm):);
+    __asm("mov %0, eax\n":"=m"(g_target_bpm): :);
+    __asm("pop eax\n");
+    real_rearm_hispeed();
 }
 
 void (*real_set_hispeed)();
@@ -678,7 +689,7 @@ void retry_soflan_reset()
     real_leave_options();
 }
 
-bool patch_hispeed_auto(uint8_t mode, uint16_t default_bpm)
+bool patch_hispeed_auto(uint8_t mode)
 {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
@@ -689,7 +700,22 @@ bool patch_hispeed_auto(uint8_t mode, uint16_t default_bpm)
     else if (mode == 3)
         g_base_bpm_ptr = &g_longest_bpm;
 
-    g_target_bpm = default_bpm;
+    g_target_bpm = g_default_bpm;
+
+    /* reset target to default bpm at the end of a credit */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x8B\x10\x8B\xC8\x8B\x42\x28\xFF\xE0\xCC", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("WARNING: popnhax: auto hi-speed: cannot find playerdata clean function\n");
+            return false;
+        } else {
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_rearm_hispeed,
+                          (void **)&real_rearm_hispeed);
+        }
+    }
+
     /* retrieve hi-speed address */
     {
         int64_t pattern_offset = search(data, dllSize, "\x66\x89\x0C\x07\x0F\xB6\x45\x04", 8, 0);
@@ -7919,7 +7945,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.hispeed_auto)
         {
-            patch_hispeed_auto(config.hispeed_auto, config.hispeed_default_bpm);
+            g_default_bpm = config.hispeed_default_bpm;
+            patch_hispeed_auto(config.hispeed_auto);
         }
 
     #if DEBUG == 1
