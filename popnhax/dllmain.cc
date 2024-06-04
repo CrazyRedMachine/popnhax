@@ -1346,6 +1346,17 @@ void quickexit_result_loop()
     __asm("mov ebx, %0\n": :"b"(g_transition_addr));
     __asm("mov dword ptr[ebx], 0xFFFFFFFC\n"); //quit session
 
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("mov eax, 0x09\n"); //"bring menu" sound fx
+    __asm("push 0\n");
+    __asm("call %0\n"::"D"(playsramsound_func));
+    __asm("add esp, 4\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+
     /* ----------- r2nk226 ----------- */
     disp = false; // 8.9 message off
     speed = 5;
