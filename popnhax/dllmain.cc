@@ -929,6 +929,8 @@ void quickexit_option_screen_cleanup()
     }
 }
 
+uint32_t loadnew2dx_func;
+char *g_system2dx_filepath;
 uint32_t g_addr_icca;
 void (*real_option_screen)();
 void quickexit_option_screen()
@@ -995,6 +997,17 @@ void backtosongselect_option_screen()
     g_return_to_song_select = true;
     g_return_to_song_select_num9 = true;
 
+/* reload correct .2dx file to get correct generalSounds */
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("push %0\n"::"m"(g_system2dx_filepath));
+    __asm("call %0\n"::"D"(loadnew2dx_func));
+    __asm("add esp, 4\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+
     __asm("exit_back_select:\n");
 
     real_option_screen_later();
@@ -1028,6 +1041,17 @@ void backtosongselect_option_yellow()
 
     g_return_to_song_select = true;
     g_return_to_song_select_num9 = true;
+
+/* reload correct .2dx file to get correct generalSounds */
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("push %0\n"::"m"(g_system2dx_filepath));
+    __asm("call %0\n"::"D"(loadnew2dx_func));
+    __asm("add esp, 4\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
 
     __asm("exit_back_select_yellow:\n");
     real_option_screen_yellow();
@@ -3334,6 +3358,27 @@ static bool patch_quick_retire(bool pfree)
 
     if (config.back_to_song_select)
     {
+        char filepath[64];
+        if (sprintf(filepath, "/data/sd/system/system%d/system%d.2dx", config.game_version, config.game_version) <= 0){
+                LOG("popnhax: back to song select: cannot build systemxx.2dx filepath string.\n");
+                return false;
+        }
+        g_system2dx_filepath = strdup(filepath);
+        if (g_system2dx_filepath == NULL){
+                LOG("popnhax: back to song select: cannot allocate systemxx.2dx filepath string.\n");
+                return false;
+        }
+
+        {
+            // loadnew2dx func
+            int64_t pattern_offset = search(data, dllSize,
+                     "\x53\x55\x8B\x6C\x24\x0C\x56\x57\x8B\xCD", 10, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: loadnew2dx_addr was not found.\n");
+                return false;
+            }
+            loadnew2dx_func = (uint32_t)((int64_t)data + pattern_offset);
+        }
         /* go back to song select with numpad 9 on song option screen (before pressing yellow) */
         {
             int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0); //unilab
