@@ -1407,6 +1407,19 @@ void quickexit_result_loop()
     }
 
     g_return_to_options = true; //transition screen hook will catch it
+
+    /* play sound fx (retry song) */
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("mov eax, 0x1F\n"); //"exit menu" sound fx
+    __asm("push 0\n");
+    __asm("call %0\n"::"D"(playsramsound_func));
+    __asm("add esp, 4\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+
     __asm("jmp call_real_result\n");
 
     __asm("quit_session:\n");
@@ -1418,6 +1431,7 @@ void quickexit_result_loop()
     __asm("mov ebx, %0\n": :"b"(g_transition_addr));
     __asm("mov dword ptr[ebx], 0xFFFFFFFC\n"); //quit session
 
+    /* play sound fx (end session) */
     __asm("push eax\n");
     __asm("push ecx\n");
     __asm("push edx\n");
@@ -3293,6 +3307,17 @@ static bool patch_quick_retire(bool pfree)
         uint64_t patch_addr = (int64_t)data + pattern_offset;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_game_loop,
                       (void **)&real_game_loop);
+    }
+
+    {
+        // PlaySramSound func
+        int64_t pattern_offset = search(data, dllSize,
+                 "\x51\x56\x8B\xF0\x85\xF6\x74\x6C\x6B\xC0\x2C", 11, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: PlaySramSound_addr was not found.\n");
+            return false;
+        }
+        playsramsound_func = (uint32_t)((int64_t)data + pattern_offset);
     }
 
     /* instant exit with numpad 9 on result screen */
