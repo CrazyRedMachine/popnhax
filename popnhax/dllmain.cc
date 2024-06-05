@@ -935,7 +935,7 @@ uint32_t g_addr_icca;
 void (*real_option_screen)();
 void quickexit_option_screen()
 {
-    /* r2nk226 
+    /* r2nk226
         for record reloading */
     if (rec_reload) {
         __asm("push eax\n");
@@ -1149,9 +1149,9 @@ void save_recSPflags() {
     recbinArray_writing[1].button = (uint8_t)~recbinArray_writing[0].button;
     recbinArray_writing[1].flag = (uint8_t)~recbinArray_writing[0].flag;
 
-	uint16_t *button_no = *(uint16_t **)button_addr;
+    uint16_t *button_no = *(uint16_t **)button_addr;
     uint8_t bt00 = *button_no;
-	uint32_t bt14 = 0;
+    uint32_t bt14 = 0;
     uint32_t bt58 = 0;
     uint32_t i = 0;
     do
@@ -1167,12 +1167,12 @@ void save_recSPflags() {
         bt58 |= *button_no << (i*8);
         ++i;
     } while (i < 4);
-	
+
     printf("bt00(%02x) bt14(%08X) bt58(%08X)\n", bt00, bt14, bt58);
 
     recbinArray_writing[1].pad[0] = bt00;
-	recbinArray_writing[1].timing = bt14;
-	recbinArray_writing[1].recid = bt58;
+    recbinArray_writing[1].timing = bt14;
+    recbinArray_writing[1].recid = bt58;
     /* .rec file format
         random,timing,gauge,guide_se,speed,(00),(00),bt_0-bt_8
                                     */
@@ -1841,7 +1841,7 @@ static bool patch_datecode(char *datecode) {
         if ( g_datecode_override == NULL )
             return false;
     }
-    else 
+    else
         g_datecode_override = strdup(datecode);
 
     {
@@ -4590,7 +4590,7 @@ static bool version_check() {
 
     /* check Part 1: (21-23 , 24-27) */
     {
-        int64_t pattern_offset = search(data, dllSize, 
+        int64_t pattern_offset = search(data, dllSize,
             "\x70\x64\x61\x74\x61\x5F\x66\x69\x6C\x65\x6E\x61\x6D\x65", 14, 0); // "pdata_filename"
         if (pattern_offset == -1) {
             old_db = true;
@@ -4648,7 +4648,7 @@ static bool version_check() {
             p_version = 7;
         }
     }
-    
+
     uint32_t *g_chartbase_addr;
     g_chartbase_addr = (uint32_t *)((int64_t)data + pre_gchartaddr + shift);
     chartbase_addr = *g_chartbase_addr;
@@ -4713,14 +4713,14 @@ bool check_recdatafile(uint32_t check_notes) {
     uint32_t cg = (check_great << 16) | check_cool;
     uint32_t gb = (check_bad << 16) | check_good;
     val = recbinArray_loaded[0].judge | (recbinArray_loaded[0].button >> 8) | (recbinArray_loaded[0].flag >> 16) | (recbinArray_loaded[0].pad[0] >> 24);
-    
+
     val = val ^ cg ^ gb ^ 0x672DE ^ recbinArray_loaded[0].timestamp;
 
     #if DEBUG == 1
         LOG("popnhax: recbin: cool(%d), great(%d), good(%d), bad(%d)\n",
                  check_cool, check_great, check_good, check_bad);
         LOG("popnhax: recbin:cg is %08X. gb is %08X. val is %08X.\n", cg, gb, val);
-        
+
         uint32_t judge_1 = 0;
         uint32_t judge_7 = 0;
         uint32_t judge_8 = 0;
@@ -4771,7 +4771,7 @@ bool check_recdatafile(uint32_t check_notes) {
             LOG("popnhax: recbin: check ok!\n");
         #endif
     }
-    
+
     return true;
 }
 
@@ -4829,7 +4829,7 @@ void recid2str(char* mrecid) {
 
 static bool record_playdata_start() {
     const char *filename = NULL;
-    
+
     SearchFile s;
     char recid[10];
 
@@ -4876,7 +4876,7 @@ static bool record_playdata_start() {
         if (find_recdata) {
             char filePath[FILENAME_MAX];
             snprintf(filePath, sizeof(filePath), "%s\\rec\\%s", currentDirectory, filename);
-                
+
             recbin = fopen(filePath, "rb");
             if (recbin == NULL) {
                 LOG("popnhax: record: filePath is %s\n", filePath);
@@ -4895,7 +4895,7 @@ static bool record_playdata_start() {
                 LOG("popnhax: record: memory allocation failure.\n");
                 return false;
             }
-            
+
             memset(recbinArray_loaded, 0, size);
             fread(recbinArray_loaded, sizeof(struct REC), rec_elements, recbin);
             fclose(recbin);
@@ -4928,7 +4928,7 @@ static bool record_playdata_start() {
             // find_recdata = false
             LOG("popnhax: record: matching recmusicid not found.\n");
         }
-        
+
         // next step: for recbinArray_writing
         if(!recording_memoryset()) {
             LOG("popnhax: record: memory allocation failure.\n");
@@ -4990,7 +4990,7 @@ void rec_id_check() {
     __asm("mov ebp, dword ptr [ebp+0x04]\n");
     __asm("cmp word ptr [ebp+0x0C], cx\n");
     __asm("jne rec_id_nomatch\n");
-        
+
     // redID matched.
     __asm("movzx ecx, byte ptr [ebp+0x04]\n"); // judge
     __asm("cmp dword ptr [esp+0x08+0x04], 0x01\n"); // bad_check flag
@@ -5003,7 +5003,7 @@ void rec_id_check() {
     __asm("jne long_check\n");
     __asm("mov ebx, 0x02\n");
     __asm("xor ecx, ecx\n");
-        
+
     __asm("long_check:\n");
     __asm("mov eax, dword ptr [esi+0x04]\n");
     __asm("cmp dword ptr [eax+0x08], 0\n"); // long check
@@ -5011,15 +5011,15 @@ void rec_id_check() {
 
     __asm("long_start:\n");
     __asm("cmp ecx, 0x07\n"); // bad_check 7 - B
-    __asm("ja id_match_end\n"); 
+    __asm("ja id_match_end\n");
     __asm("mov byte ptr [esi+0x60], cl\n");   // save long_judge
-	    
+
     __asm("id_match_end:\n");
-	__asm("cmp cl, 0\n");
+    __asm("cmp cl, 0\n");
     __asm("setne al\n");
 
-	__asm("rec_id_nomatch:\n");
-	__asm("pop ebp\n");
+    __asm("rec_id_nomatch:\n");
+    __asm("pop ebp\n");
     __asm("pop ecx\n");
 }
 
@@ -5071,13 +5071,13 @@ void call_guidese() {
 void (*hook_playfirst)();
 void play_firststep() {
     __asm("push eax\n");
-    if (g_auto_flag == 0 && p_record) { 
+    if (g_auto_flag == 0 && p_record) {
         __asm("push ebp\n");
         __asm("push ecx\n");
         __asm("push ebx\n");
         __asm("mov eax, [%0]\n"::"a"(&recbinArray_loaded));
         __asm("mov ebp, eax\n");
-        __asm("movzx ecx, word ptr [ebp+0x08]\n");      // play_counter 
+        __asm("movzx ecx, word ptr [ebp+0x08]\n");      // play_counter
         __asm("cmp edi, 0\n");                          // edi = elapsed time
         __asm("jne p1_start\n");
         __asm("mov word ptr [ebp+0x08], 0\n");         // play_counter reset
@@ -5120,7 +5120,7 @@ void play_firststep() {
         __asm("movzx ecx, byte ptr [eax+0x04]\n");
         __asm("cmp cl, 0x01\n");
         __asm("jle countup\n");     // 0.1 -> skip
-        __asm("cmp cl, 0x0A\n");    // A.B~ -> skip_test 
+        __asm("cmp cl, 0x0A\n");    // A.B~ -> skip_test
         __asm("jge countup\n");
 
         __asm("p1_idcheck:\n");
@@ -5153,14 +5153,14 @@ void play_secondstep() {
         if (p_record) {
             __asm("push edi\n");
             __asm("cmp ebx, 0x02\n");                   // long_end_flag
-            __asm("jne p2_start\n");   
+            __asm("jne p2_start\n");
 
             //__asm("p2_long_end_flow:\n");
             __asm("movzx eax, byte ptr [esi+0x12]\n");  // button
             __asm("movzx ecx, byte ptr [esi+0x60]\n");  // saved_judge
             __asm("shl ax, 8\n");
             __asm("or eax, ecx\n");
-            __asm("push eax\n");                        // send judge 
+            __asm("push eax\n");                        // send judge
             __asm("call %0\n"::"a"(judge_bar_func));
             __asm("add esp, 4\n");
             __asm("mov ebx, 0x01\n");
@@ -5172,7 +5172,7 @@ void play_secondstep() {
 
             __asm("p2_continue:\n");
             __asm("movzx eax, word ptr [eax+0x04]\n");  // judge+button
-            __asm("push eax\n");                        // send judge 
+            __asm("push eax\n");                        // send judge
             __asm("call %0\n"::"a"(judge_bar_func));
             __asm("pop eax\n");
             __asm("inc word ptr [edi+0x08]\n");         // play_count
@@ -5188,7 +5188,7 @@ void play_secondstep() {
             __asm("pop edi\n");
             __asm("xor al, al\n");
         }
-    } 
+    }
     last_auto_flag_check();
 }
 
@@ -5207,7 +5207,7 @@ void play_thirdstep() {
             __asm("cmp dword ptr [ebx+0x08], 0\n"); // long check
             __asm("mov ebx, 0x01\n");
             __asm("jbe id_check\n");
-            
+
             __asm("movzx eax, word ptr [esi+0x18]\n"); // flag
             __asm("test al, 0x80\n"); // long_end check
             __asm("jne p3_long_end\n");
@@ -5218,7 +5218,7 @@ void play_thirdstep() {
             __asm("add esp, 4\n");
             __asm("cmp ebx, 0x02\n");
             __asm("jne p3_return\n");
-            
+
             __asm("inc word ptr [edx+0x08]\n");
             __asm("or word ptr [esi+0x18], 2\n");
             __asm("mov ebx, dword ptr [edx+0x04]\n");
@@ -5239,7 +5239,7 @@ void play_thirdstep() {
             __asm("jne p3_end\n");
             __asm("inc word ptr [edx+0x08]\n"); // play_counter
             __asm("add dword ptr [edx+0x04], 0x10\n");
-            
+
             __asm("p3_end:\n");
             __asm("mov eax, ebx\n");
         } else if (!p_record) {
@@ -5300,7 +5300,7 @@ void record_playdata() {
             __asm("mov eax, dword ptr [eax+edi*8+4]\n");
             __asm("mov dword ptr [ecx+0x08], eax\n");     // input timing
             __asm("test esi, esi\n");   // [esi]=p_note
-            __asm("jne rec1_recid\n"); // 
+            __asm("jne rec1_recid\n"); //
             __asm("mov dword ptr [ecx+0x08], esi\n");
             __asm("mov dword ptr [ecx+0x0C], esi\n");
             __asm("jmp rec1_countup\n");
@@ -5323,7 +5323,7 @@ void record_playdata() {
 
             __asm("rec1_countup:\n");
             __asm("inc word ptr [ebp]\n");
-                
+
             __asm("rec1_end:\n");
             __asm("pop ebx\n");
             __asm("pop ebp\n");
@@ -5401,7 +5401,7 @@ bool srandom_set() {
     return true;
 }
 */
-/* 
+/*
 void (*real_noteque_addr)();
 void noteque_rewrite() {
     if (p_record && s_list != NULL) {
@@ -5486,7 +5486,7 @@ void load_recPlayoptions() {
     }
     g_rechispeed_addr = (uint8_t*)(**player_options_addr +0x2A +option_offset);
     *g_rechispeed_addr = recbinArray_loaded[1].judge;
-    
+
 }
 
 bool recdata_save() {
@@ -5519,10 +5519,10 @@ bool recdata_save() {
             mkdir(folderPath);
             LOG("popnhax: make dir. (rec)\n");
         }
-        
+
         __asm("mov esi, %0\n"::"S"(recdate));
         __asm("call %0\n"::"a"(date_func));
-    
+
         filename = (char*)recid;
 
         char filePath[FILENAME_MAX];
@@ -5542,7 +5542,7 @@ bool recdata_save() {
             LOG("popnhax: recid =%s\n", recid);
             LOG("popnhax: recdate =%s\n", recdate);
         #endif
-        
+
         return true;
     }
     return false;
@@ -5551,7 +5551,7 @@ bool recdata_save() {
 void prepare_for_play_record() {
     stop_recchange = true;
     get_recPlayoptions();
-    
+
     if (p_record) {
         if (recbinArray_loaded == NULL) {
             LOG("popnhax: record: recbin load error. (2)\n");
@@ -5635,7 +5635,7 @@ void r_random() {
         *g_options_addr = 1;
 
         __asm("push 0\n");
-        __asm("mov ebx, %0\n"::"b"(*button_addr)); 
+        __asm("mov ebx, %0\n"::"b"(*button_addr));
         __asm("call %0\n"::"a"(ran_func));
         __asm("add esp, 4\n");
 
@@ -5644,7 +5644,7 @@ void r_random() {
         v9 = *bt_0; // start No.
 
         // 0:regular 1:mirror 2:random 3:S-random
-        if (orig_plop == 0) {        
+        if (orig_plop == 0) {
             uint32_t bt = *(uint32_t *)button_addr;
             uint32_t i = 0;
             do
@@ -5730,7 +5730,7 @@ void wavheader_rewrite () {
     0x2C (2byte) : Compression Code , 0x0002=MS ADPCM
     0x2E (2byte) : Number of Channels , 0x0002=stereo
     0x30 (4byte) : Sample Rate , 0x0000AC44=44100Hz
-    0x34 (4byte) : byte/sec 
+    0x34 (4byte) : byte/sec
     */
     disp = false;
     uint32_t temp = 0;
@@ -5752,7 +5752,7 @@ void wavheader_rewrite () {
                 temp = *(g_2dx_buffer + 0x0D);  //0x0D*4=0x34 byte per sec.
                 temp = (uint32_t)((double)temp*mul);
                 *(g_2dx_buffer + 0x0D) = temp;
-                
+
                 use_sp_flag = true;
             }
         }
@@ -5766,7 +5766,7 @@ void ex_2dx_speed() {
     __asm("mov eax, ebp\n");
     __asm("mov %0, dword ptr [eax]\n":"=a"(g_2dx_str): :);
     __asm("mov %0, edi\n":"=D"(g_2dx_buffer): :);
-    
+
     if(new_speed !=100) {
         wavheader_rewrite();
     }
@@ -5786,8 +5786,8 @@ void chart_rewrite() {
 
     double mul = 0;
     double mul_2dx =0;
-	uint32_t i, size;
-	struct CHART* chart_temp;
+    uint32_t i, size;
+    struct CHART* chart_temp;
 
     size = sizeof(struct CHART) * chart_rows_count;
     chart_temp = (struct CHART*)malloc(size);
@@ -5804,7 +5804,7 @@ void chart_rewrite() {
     mul = (double)(100/((double)new_speed));
     mul_2dx = (double)(((double)new_speed)/100);
 
-	for (i = 0; i < chart_rows_count; i++) {
+    for (i = 0; i < chart_rows_count; i++) {
         chart_temp[i].timestamp = (uint32_t)((double)chart_temp[i].timestamp*mul);
         if (chart_temp[i].duration > 0) {
             chart_temp[i].duration = (uint32_t)((double)chart_temp[i].duration*mul);
@@ -5820,7 +5820,7 @@ void chart_rewrite() {
             LOG("popnhax: BPM change %d -> %d \n", bpm_orig, chart_temp[i].data);
         }
     }
-        
+
     memcpy((uint32_t*)chartbase_addr, chart_temp, size);
 
     #if DEBUG == 1
@@ -5828,11 +5828,11 @@ void chart_rewrite() {
         LOG("popnhax: chart_temp_addr is 0x%p\n", chart_temp);
     #endif
 
-	free(chart_temp);
+    free(chart_temp);
 
 chart_speed_end:
     use_sp_flag = true;
-	LOG("popnhax: chart speed change done.\n");
+    LOG("popnhax: chart speed change done.\n");
 
     #if DEBUG == 1
         LOG("popnhax: chart mul is %f\n", mul);
@@ -5925,7 +5925,7 @@ void r2nk_debug() {
     __asm("movzx ecx, %0\n"::"c"(spec));
     __asm("cmp ecx, 0x42\n");
     __asm("je shift_x\n");
-    
+
     __asm("sub ebp, 0x40\n");
     __asm("shift_x:\n");
 
@@ -6278,7 +6278,7 @@ if (use_sp_flag) {
         //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
         __asm("call %0\n"::"a"(font_rend_func));
         __asm("add esp, 0x0C\n");
-    
+
     }
     __asm("mov eax, [%0]\n"::"a"(*g_rend_addr));
     __asm("mov dword ptr [eax], 2\n");
@@ -6315,7 +6315,7 @@ static bool patch_practice_mode()
 
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)new_menu,
                       (void **)&real_aging_loop);
-        
+
         #if DEBUG == 1
             LOG("popnhax: practice_mode: aging_hook addr is 0x%llX\n", patch_addr);
         #endif
@@ -6363,7 +6363,7 @@ static bool patch_practice_mode()
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset +0x10;
-        
+
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)ex_2dx_speed,
                     (void **)&real_2dx_addr);
 
@@ -6381,7 +6381,7 @@ static bool patch_practice_mode()
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
-        
+
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)ex_chart_speed,
                     (void **)&real_chart_addr);
 
@@ -6517,7 +6517,7 @@ static bool patch_record_mode(bool quickretire)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
-    
+
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_musicselect,
                       (void **)&real_musicselect);
     }
@@ -6544,7 +6544,7 @@ static bool patch_record_mode(bool quickretire)
             LOG("popnhax: noteque_func_addr was not found.\n");
             return false;
         }
-        
+
         uint64_t patch_addr = (int64_t)data + pattern_offset +3;
 
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)noteque_rewrite,
@@ -6575,7 +6575,7 @@ static bool patch_record_mode(bool quickretire)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset -0x14;
-        
+
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_optionloop_after_pressing_red,
                       (void **)&real_optionloop_after_pressing_red);
     }
@@ -6620,7 +6620,7 @@ static bool patch_record_mode(bool quickretire)
 
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_thirdstep,
                       (void **)&first_auto_flag_check);
-    
+
         // play2_addr (last_auto_flag_check) , p_note
         int64_t pattern_offset_p2 = search(data, dllSize,
                  "\x84\xC0\x74\x53", 4, pattern_offset);
@@ -6665,7 +6665,7 @@ static bool patch_record_mode(bool quickretire)
         uint32_t *tmp_addr = (uint32_t*)((int64_t)data + pattern_offset -1);
         judge_bar_func = (uint32_t)((int64_t)data +pattern_offset + *tmp_addr +3);
         uint64_t patch_addr = (int64_t)data + pattern_offset -2;
-        
+
         MH_CreateHook((LPVOID)(patch_addr), (LPVOID)record_playdata,
                       (void **)&get_judge);
     }
@@ -6698,7 +6698,7 @@ static bool patch_record_mode(bool quickretire)
         // j_win_addr
         int64_t pattern_offset = search(data, dllSize,
                      "\x84\xC0\x74\x18\x8B\x04\xFD", 7, 0);
-        if (pattern_offset == -1) {        
+        if (pattern_offset == -1) {
             LOG("popnhax: j_win_addr was not found.\n");
             return false;
         }
@@ -7463,7 +7463,7 @@ static bool get_music_limit_from_file(const char *filepath, uint32_t *limit){
     LPVOID lpBasePtr;
     LARGE_INTEGER liFileSize;
 
-    hFile = CreateFile(filepath, 
+    hFile = CreateFile(filepath,
         GENERIC_READ,                          // dwDesiredAccess
         0,                                     // dwShareMode
         NULL,                                  // lpSecurityAttributes
@@ -7586,7 +7586,7 @@ static bool patch_afp_framerate(uint16_t fps)
 
         framerate = lpDevMode.dmDisplayFrequency;
     } else {
-        LOG("popnhax: high_framerate: force %ldHz\n", framerate); 
+        LOG("popnhax: high_framerate: force %ldHz\n", framerate);
     }
 
     float new_value = 1./framerate;
