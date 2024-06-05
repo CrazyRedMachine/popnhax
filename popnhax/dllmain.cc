@@ -930,6 +930,7 @@ void quickexit_option_screen_cleanup()
 }
 
 uint32_t loadnew2dx_func;
+uint32_t playgeneralsound_func;
 char *g_system2dx_filepath;
 uint32_t g_addr_icca;
 void (*real_option_screen)();
@@ -980,6 +981,8 @@ reload:
     real_option_screen();
 }
 
+uint8_t g_srambypass = 0;
+
 void (*real_option_screen_later)();
 void backtosongselect_option_screen()
 {
@@ -1004,6 +1007,13 @@ void backtosongselect_option_screen()
     __asm("push %0\n"::"m"(g_system2dx_filepath));
     __asm("call %0\n"::"D"(loadnew2dx_func));
     __asm("add esp, 4\n");
+/* play exit sound */
+    __asm("push 0\n");
+    __asm("push 0x19\n");
+    __asm("call %0\n"::"D"(playgeneralsound_func));
+    __asm("add esp, 8\n");
+/* set srambypass flag */
+    __asm("mov %0, 1\n":"=m"(g_srambypass):);
     __asm("pop edx\n");
     __asm("pop ecx\n");
     __asm("pop eax\n");
@@ -1011,6 +1021,37 @@ void backtosongselect_option_screen()
     __asm("exit_back_select:\n");
 
     real_option_screen_later();
+}
+
+void (*real_backtosongselect_herewego1)();
+void backtosongselect_herewego1()
+{
+    __asm("cmp %0, 1\n"::"m"(g_srambypass));
+    __asm("jne skip_disable_herewego1\n");
+    __asm("mov %0, 0\n":"=m"(g_srambypass):);
+    __asm("xor eax, eax\n");
+    __asm("skip_disable_herewego1:\n");
+    real_backtosongselect_herewego1();
+}
+void (*real_backtosongselect_herewego2)();
+void backtosongselect_herewego2()
+{
+    __asm("cmp %0, 1\n"::"m"(g_srambypass));
+    __asm("jne skip_disable_herewego2\n");
+    __asm("mov %0, 0\n":"=m"(g_srambypass):);
+    __asm("xor eax, eax\n");
+    __asm("skip_disable_herewego2:\n");
+    real_backtosongselect_herewego2();
+}
+void (*real_backtosongselect_herewego3)();
+void backtosongselect_herewego3()
+{
+    __asm("cmp %0, 1\n"::"m"(g_srambypass));
+    __asm("jne skip_disable_herewego3\n");
+    __asm("mov %0, 0\n":"=m"(g_srambypass):);
+    __asm("xor eax, eax\n");
+    __asm("skip_disable_herewego3:\n");
+    real_backtosongselect_herewego3();
 }
 
 void (*real_backtosongselect_option_screen_auto_leave)();
@@ -1049,6 +1090,13 @@ void backtosongselect_option_yellow()
     __asm("push %0\n"::"m"(g_system2dx_filepath));
     __asm("call %0\n"::"D"(loadnew2dx_func));
     __asm("add esp, 4\n");
+/* play exit sound */
+    __asm("push 0\n");
+    __asm("push 0x19\n");
+    __asm("call %0\n"::"D"(playgeneralsound_func));
+    __asm("add esp, 8\n");
+/* set srambypass flag */
+    __asm("mov %0, 1\n":"=m"(g_srambypass):);
     __asm("pop edx\n");
     __asm("pop ecx\n");
     __asm("pop eax\n");
@@ -3379,6 +3427,38 @@ static bool patch_quick_retire(bool pfree)
             }
             loadnew2dx_func = (uint32_t)((int64_t)data + pattern_offset);
         }
+
+        {
+            // playgeneralsound  func
+            int64_t pattern_offset = search(data, dllSize,
+                     "\x33\xC0\x5B\xC3\xCC\xCC\xCC\xCC\xCC\x55\x8B\xEC\x83\xE4\xF8", 15, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: playgeneralsound_addr was not found.\n");
+                return false;
+            }
+            playgeneralsound_func = (uint32_t)((int64_t)data + pattern_offset + 9);
+        }
+
+        /* prevent "here we go" sound from playing when going back to song select (3 occurrences) */
+        {
+            LPVOID hook[3] = { (LPVOID)backtosongselect_herewego1, (LPVOID)backtosongselect_herewego2, (LPVOID)backtosongselect_herewego3 };
+            void** real[3] = { (void**)&real_backtosongselect_herewego1, (void**)&real_backtosongselect_herewego2, (void**)&real_backtosongselect_herewego3 };
+            int64_t pattern_offset = 0;
+
+            int i = 0;
+            do {
+                pattern_offset = search(data, dllSize-pattern_offset-10, "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, pattern_offset+10);
+                if (pattern_offset == -1) {
+                    LOG("popnhax: cannot find \"here we go\" sound play (occurrence %d).\n",i+1);
+                } else {
+                    uint64_t patch_addr = (int64_t)data + pattern_offset + 7;
+                    MH_CreateHook((LPVOID)patch_addr, hook[i],real[i]);
+                    i++;
+                }
+            } while (i < 3 && pattern_offset != -1);
+
+        }
+
         /* go back to song select with numpad 9 on song option screen (before pressing yellow) */
         {
             int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0); //unilab
