@@ -26,7 +26,7 @@ static void badCharHeuristic(const unsigned char *str, int size, int* badchar) {
 
 #define DEBUG_SEARCH 0
 
-int _search(unsigned char *haystack, size_t haystack_size, const unsigned char *needle, size_t needle_size, int orig_offset, int debug) {
+int _search(unsigned char *haystack, size_t haystack_size, const unsigned char *needle, size_t needle_size, int orig_offset, bool wildcards, int debug) {
     int badchar[NO_OF_CHARS];
 
     badCharHeuristic(needle, needle_size, badchar);
@@ -46,12 +46,21 @@ int _search(unsigned char *haystack, size_t haystack_size, const unsigned char *
         LOG("pat...");
         for (size_t i = 0; i < needle_size; i++)
         {
-            LOG("%02x ", needle[i]);
+            if (wildcards && needle[i] == '?')
+                LOG("** ");
+            else
+                LOG("%02x ", needle[i]);
         }
         LOG("\n");
  }
-        while (j >= 0 && needle[j] == haystack[orig_offset + s + j])
-            j--;
+        if ( wildcards )
+        {
+            while (j >= 0 && ( needle[j] == '?' || needle[j] == haystack[orig_offset + s + j]) )
+                j--;
+        } else {
+            while (j >= 0 && ( needle[j] == haystack[orig_offset + s + j]) )
+                j--;
+        }
 
         if (j < 0) {
                 if (debug)
@@ -70,11 +79,21 @@ int _search(unsigned char *haystack, size_t haystack_size, const unsigned char *
 }
 
 int search(char *haystack, size_t haystack_size, const char *needle, size_t needle_size, size_t orig_offset) {
-    int res = _search((unsigned char*) haystack, haystack_size, (const unsigned char *)needle, needle_size, orig_offset, 0);
+    int res = _search((unsigned char*) haystack, haystack_size, (const unsigned char *)needle, needle_size, orig_offset, false, 0);
+    return res;
+}
+
+int wildcard_search(char *haystack, size_t haystack_size, const char *needle, size_t needle_size, size_t orig_offset) {
+    int res = _search((unsigned char*) haystack, haystack_size, (const unsigned char *)needle, needle_size, orig_offset, true, 0);
     return res;
 }
 
 int search_debug(char *haystack, size_t haystack_size, const char *needle, size_t needle_size, size_t orig_offset) {
-    int res = _search((unsigned char*) haystack, haystack_size, (const unsigned char *)needle, needle_size, orig_offset, 2);
+    int res = _search((unsigned char*) haystack, haystack_size, (const unsigned char *)needle, needle_size, orig_offset, false, 2);
+    return res;
+}
+
+int wildcard_search_debug(char *haystack, size_t haystack_size, const char *needle, size_t needle_size, size_t orig_offset) {
+    int res = _search((unsigned char*) haystack, haystack_size, (const unsigned char *)needle, needle_size, orig_offset, true, 2);
     return res;
 }
