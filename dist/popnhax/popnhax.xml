@@ -99,7 +99,6 @@
     <!-- PLEASE USE OFFLINE ONLY -->
     <practice_mode __type="bool">0</practice_mode>
     <!-- Press 9 on option select screen to go back to song selection (requires quick_retire) -->
-    <!-- Note: causes issues with sounds on song select -->
     <back_to_song_select __type="bool">0</back_to_song_select>
 
 

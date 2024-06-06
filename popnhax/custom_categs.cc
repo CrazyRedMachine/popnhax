@@ -197,6 +197,7 @@ void hook_remove_from_favorite()
     real_remove_from_favorite();
 }
 
+extern bool (*popn22_is_normal_mode)();
 //this replaces the category handling function ( add_song_in_list is a subroutine called by the game )
 void (*real_categ_favorite)();
 void categ_inject_favorites()
@@ -205,7 +206,13 @@ void categ_inject_favorites()
     __asm("push ecx\n");
     __asm("push edx\n");
 
-    //fake login if necessary
+    //fake login if necessary, only in normal mode
+    __asm("push eax");
+    __asm("call %0"::"a"(popn22_is_normal_mode));
+    __asm("test al,al");
+    __asm("pop eax");
+    __asm("je skip_fake_login");
+
     __asm("mov ecx, dword ptr [_g_playerdata_ptr_addr]\n");
     __asm("mov edx, [ecx]\n");
     __asm("add edx, 0x1A5\n"); //offset where result screen is checking to decide if the favorite option should be displayed/handled
@@ -680,6 +687,31 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
     return true;
 }
 
+void (*real_remove_fake_login)();
+void hook_remove_fake_login()
+{
+    //getPlayerDataAddr was just called so eax contains _playerdata_addr
+    __asm("push ecx\n");
+
+    __asm("lea ecx, [eax+0x08]\n"); //friendid offset
+    __asm("mov ecx, [ecx]\n");
+    __asm("cmp ecx, 0x61666564\n"); //defa
+    __asm("jne skip_remove_login\n");
+    __asm("lea ecx, [eax+0x0C]\n"); //friendid offset
+    __asm("mov ecx, [ecx]\n");
+    __asm("cmp ecx, 0x00746C75\n"); //ult
+    __asm("jne skip_remove_login\n");
+
+    //fake login detected, cleanup
+    __asm("lea ecx, [eax+0x1A5]\n"); //login status offset
+    __asm("mov dword ptr [ecx], 0x00000000\n");
+
+    __asm("skip_remove_login:\n");
+
+    __asm("pop ecx\n");
+    real_remove_fake_login();
+}
+
 static bool patch_favorite_categ(const char *game_dll_fn) {
 
     DWORD dllSize = 0;
@@ -711,6 +743,19 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
          MH_CreateHook((LPVOID)function_addr, (LPVOID)categ_inject_favorites,
                      (void **)&real_categ_favorite);
     }
+
+    //only active in normal mode
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: local_favorites: cannot find is_normal_mode function, fallback to best effort (active in all modes)\n");
+        }
+        else
+        {
+            popn22_is_normal_mode = (bool(*)()) (data + pattern_offset + 0x0A);
+        }
+    }
+
     //categ_inject_favorites will need to force "logged in" status (for result screen)
     {
         //this is the same function used in score challenge patch, checking if we're logged in... but now we just directly retrieve the address
@@ -721,6 +766,19 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
         }
 
         g_playerdata_ptr_addr = (*(uint32_t *)(data + pattern_offset + 0x25));
+    }
+    //and I need to remove the fake "logged in" status on credit end to prevent a crash
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x74\x07\xBB\x01\x00\x00\x00\xEB\x02\x33\xDB", 13, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: local_favorites: cannot find end of credit check if logged function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_remove_fake_login,
+                     (void **)&real_remove_fake_login);
     }
 
     //hook result screen to replace 3 functions
