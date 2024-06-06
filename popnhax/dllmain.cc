@@ -986,6 +986,13 @@ uint8_t g_srambypass = 0;
 void (*real_option_screen_later)();
 void backtosongselect_option_screen()
 {
+    /* cannot use backtosongselect when not in normal mode */
+    __asm("push eax");
+    __asm("call %0"::"a"(popn22_is_normal_mode));
+    __asm("test al,al");
+    __asm("pop eax");
+    __asm("je exit_back_select");
+
     __asm("push ecx\n");
     __asm("mov ecx, %0\n": :"m"(g_addr_icca));
     __asm("mov ebx, [ecx]\n");
@@ -1068,6 +1075,13 @@ void backtosongselect_option_screen_auto_leave()
 void (*real_option_screen_yellow)();
 void backtosongselect_option_yellow()
 {
+    /* cannot use backtosongselect when not in normal mode */
+    __asm("push eax");
+    __asm("call %0"::"a"(popn22_is_normal_mode));
+    __asm("test al,al");
+    __asm("pop eax");
+    __asm("je exit_back_select_yellow");
+
     __asm("push ecx\n");
     __asm("mov ecx, %0\n": :"m"(g_addr_icca));
     __asm("mov ebx, [ecx]\n");
@@ -1412,7 +1426,7 @@ void quickexit_result_loop()
     __asm("push eax\n");
     __asm("push ecx\n");
     __asm("push edx\n");
-    __asm("mov eax, 0x1F\n"); //"exit menu" sound fx
+    __asm("mov eax, 0x16\n"); //"okay" sound fx
     __asm("push 0\n");
     __asm("call %0\n"::"D"(playsramsound_func));
     __asm("add esp, 4\n");
@@ -1435,7 +1449,7 @@ void quickexit_result_loop()
     __asm("push eax\n");
     __asm("push ecx\n");
     __asm("push edx\n");
-    __asm("mov eax, 0x09\n"); //"bring menu" sound fx
+    __asm("mov eax, 0x16\n"); //"okay" sound fx
     __asm("push 0\n");
     __asm("call %0\n"::"D"(playsramsound_func));
     __asm("add esp, 4\n");
@@ -3287,6 +3301,18 @@ static bool patch_quick_retire(bool pfree)
                          (void **)&real_stage_increment);
         }
 
+        /* pfree already retrieves this function
+         */
+        {
+            int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax:  quick retire: cannot find is_normal_mode function, fallback to best effort (active in all modes)\n");
+            }
+            else
+            {
+                popn22_is_normal_mode = (bool(*)()) (data + pattern_offset + 0x0A);
+            }
+        }
     }
 
     /* instant retire with numpad 9 in song */
