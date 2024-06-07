@@ -12,6 +12,7 @@ libs_popnhax       := \
 
 srcpp_popnhax      := \
     dllmain.cc \
+    config.cc \
     loader.cc \
     SearchFile.cc \
     translation.cc \

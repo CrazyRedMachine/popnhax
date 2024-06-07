@@ -34,8 +34,6 @@ struct popnhax_config {
     bool local_favorites;
 
     bool patch_db;
-    bool disable_expansions;
-    bool disable_redirection;
     bool disable_multiboot;
     bool patch_xml_auto;
     bool ignore_music_limit;
@@ -48,16 +46,12 @@ struct popnhax_config {
     int8_t beam_brightness;
     bool fps_uncap;
     bool disable_translation;
-    bool translation_debug;
     bool enhanced_polling;
     uint8_t debounce;
     bool enhanced_polling_stats;
     int8_t enhanced_polling_priority;
     uint8_t hispeed_auto;
     uint16_t hispeed_default_bpm;
-    uint8_t survival_gauge;
-    bool survival_iidx;
-    bool survival_spicy;
     int8_t base_offset;
     char custom_category_title[16];
     char custom_category_format[64];
@@ -68,6 +62,16 @@ struct popnhax_config {
     bool high_framerate;
     bool high_framerate_limiter;
     uint16_t high_framerate_fps;
+
+    /* removed/hidden */
+    bool disable_expansions;
+    bool disable_redirection;
+    uint8_t survival_gauge;
+    bool survival_iidx;
+    bool survival_spicy;
+    bool translation_debug;
 };
+
+bool config_process(const char *filepath); // take care of updating .xml/.opt files if needed
 
 #endif

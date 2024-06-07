@@ -36,7 +36,7 @@
 #define PROGRAM_VERSION "1.12.dev"
 
 const char *g_game_dll_fn = NULL;
-const char *g_config_fn   = NULL;
+char *g_config_fn   = NULL;
 FILE *g_log_fp = NULL;
 
 
@@ -7837,10 +7837,18 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         LOG("popnhax: config file: %s\n",g_config_fn);
 
+        if ( !config_process(g_config_fn) )
+        {
+            LOG("FATAL ERROR: Could not pre-process config file\n");
+            exit(0);
+        }
+
+        strcpy(g_config_fn+strlen(g_config_fn)-3, "opt");
+
         if (!_load_config(g_config_fn, &config, config_psmap))
         {
             LOG("FATAL ERROR: Could not parse %s\n", g_config_fn);
-            return FALSE;
+            exit(0);
         }
 
         config.game_version = game_version;
