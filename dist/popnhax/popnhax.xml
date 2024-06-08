@@ -42,6 +42,8 @@
     <!-- Press numpad 9 in song to retire instantly, or on result screen to leave game session (thank you for playing) -->
     <!-- quick_retire with pfree also enables quick retry: press numpad 8 during song or on result screen to retry (keep holding to skip option select) -->
     <quick_retire __type="bool">0</quick_retire>
+    <!-- Press 9 on option select screen to go back to song selection (requires quick_retire) -->
+    <back_to_song_select __type="bool">0</back_to_song_select>
 
   <!-- Audio offset -->
     <!-- Offset the audio by x ms (negative plays audio earlier). This will disable keysounds -->
@@ -98,9 +100,6 @@
     <!-- Enable practice mode menu, (r-ran, constant chart speed, slow motion, etc...) -->
     <!-- PLEASE USE OFFLINE ONLY -->
     <practice_mode __type="bool">0</practice_mode>
-    <!-- Press 9 on option select screen to go back to song selection (requires quick_retire) -->
-    <back_to_song_select __type="bool">0</back_to_song_select>
-
 
   <!-- ========================================================================================
        DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED UNLESS YOU KNOW WHAT YOU'RE DOING)
@@ -145,10 +144,6 @@
     <patch_xml_auto __type="bool">1</patch_xml_auto>
     <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
     <patch_xml_filename __type="str"></patch_xml_filename>
-    <!-- Force the newly created buffers to be the same size as the original buffers (not recommended) -->
-    <disable_expansions __type="bool">0</disable_expansions>
-    <!-- Copy the new table information over top the old tables (automatically enables disable_expansions) (not recommended) -->
-    <disable_redirection __type="bool">0</disable_redirection>
     <!-- Do not perform music limit checks for patch_xml_auto (not recommended) -->
     <ignore_music_limit __type="bool">0</ignore_music_limit>
 
@@ -171,15 +166,5 @@
   <!-- Translation -->
     <!-- Disable .dict string replacements and .ips patches -->
     <disable_translation __type="bool">0</disable_translation>
-    <!-- Dump applied translations and dll runtime data to help debug translation -->
-    <translation_debug __type="bool">0</translation_debug>
-
-  <!-- HARD Gauge alteration modes -->
-    <!-- Turn hard gauge into survival gauge (1: former COURSE gauge (-3.42%), 2: NORMAL gauge decrease rate (-4.99%), 3: IIDX HARD gauge decrease rate (-9%), 4: HARD gauge decrease rate (-19.94%)) -->
-    <survival_gauge __type="u8">0</survival_gauge>
-    <!-- Survival gauge has IIDX-like decrease rate adjustment (decrease amount halved when gauge is at 30% or less) -->
-    <survival_iidx __type="bool">0</survival_iidx>
-    <!-- Set survival gauge increase rate to spicy (+01/+01 instead of +02/+01) -->
-    <survival_spicy __type="bool">0</survival_spicy>
 
 </popnhax>

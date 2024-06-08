@@ -96,12 +96,6 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hidden_is_offs
                  "/popnhax/hidden_is_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, iidx_hard_gauge,
                  "/popnhax/iidx_hard_gauge")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, survival_gauge,
-                 "/popnhax/survival_gauge")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, survival_iidx,
-                 "/popnhax/survival_iidx")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, survival_spicy,
-                 "/popnhax/survival_spicy")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_fast_slow,
                  "/popnhax/show_fast_slow")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, show_details,
@@ -142,10 +136,6 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, guidese_off,
                  "/popnhax/guidese_off")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_db,
                  "/popnhax/patch_db")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_expansions,
-                 "/popnhax/disable_expansions")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_redirection,
-                 "/popnhax/disable_redirection")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_multiboot,
                  "/popnhax/disable_multiboot")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_xml_auto,
@@ -170,8 +160,6 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, fps_uncap,
                  "/popnhax/fps_uncap")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_translation,
                  "/popnhax/disable_translation")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, translation_debug,
-                 "/popnhax/translation_debug")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, enhanced_polling,
                  "/popnhax/enhanced_polling")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, debounce,
@@ -216,6 +204,19 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, high_framerate
                  "/popnhax/high_framerate_limiter")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, high_framerate_fps,
                  "/popnhax/high_framerate_fps")
+/* removed options are now hidden as optional */
+PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, survival_gauge,
+                 "/popnhax/survival_gauge", 0)
+PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, survival_iidx,
+                 "/popnhax/survival_iidx", false)
+PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, survival_spicy,
+                 "/popnhax/survival_spicy", false)
+PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_expansions,
+                 "/popnhax/disable_expansions", false)
+PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_redirection,
+                 "/popnhax/disable_redirection", false)
+PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, translation_debug,
+                 "/popnhax/translation_debug", false)
 PSMAP_END
 
 enum BufferIndexes {
