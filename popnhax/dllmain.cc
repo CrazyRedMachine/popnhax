@@ -33,7 +33,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "2.0"
+#define PROGRAM_VERSION "2.1.dev"
 
 const char *g_game_dll_fn = NULL;
 char *g_config_fn   = NULL;
@@ -2370,12 +2370,12 @@ static bool patch_skip_tutorials() {
             return false;
         }
 
-        int64_t pattern_offset = search(data, 0x10, "\x74", 1, first_loc);
+        int64_t pattern_offset = search(data, 0x10, "\x84\xC0\x74", 3, first_loc);
         if (pattern_offset == -1) {
             return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 2;
         patch_memory(patch_addr, (char *)"\xEB", 1);
     }
 
