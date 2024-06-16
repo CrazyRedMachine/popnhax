@@ -8,7 +8,8 @@ ldflags_popnhax    := \
 
 libs_popnhax       := \
 	util \
-	minhook
+	minhook \
+	libdisasm
 
 srcpp_popnhax      := \
     dllmain.cc \
@@ -16,4 +17,5 @@ srcpp_popnhax      := \
     loader.cc \
     SearchFile.cc \
     translation.cc \
+    omnimix_patch.cc \
     custom_categs.cc

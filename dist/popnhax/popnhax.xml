@@ -140,12 +140,12 @@
     <fps_uncap __type="bool">0</fps_uncap>
 
   <!-- Song db patches (requires patch_db) -->
-    <!-- Auto select patch file from data_mods folder based on music limit, or datecode otherwise (will detect datecode from ea3-config or force_datecode option) -->
-    <patch_xml_auto __type="bool">1</patch_xml_auto>
-    <!-- Manually set XML file containing patches (requires patch_xml_auto to be disabled) -->
-    <patch_xml_filename __type="str"></patch_xml_filename>
+    <!-- Disable patch file detection/generation and manually set the XML file containing patches instead -->
+    <force_patch_xml __type="str"></force_patch_xml>
     <!-- Do not perform music limit checks for patch_xml_auto (not recommended) -->
     <ignore_music_limit __type="bool">0</ignore_music_limit>
+    <!-- Dump the generated patch file to data_mods\patches_<datecode>.xml (in case generated patches require some fixes) -->
+    <patch_xml_dump __type="bool">0</patch_xml_dump>
 
   <!-- Custom category options (requires patch_db) -->
     <!-- Also exclude omnimix (song id < 3000) tracks from version/level (requires custom_exclude_from_level or custom_exclude_from_version) -->

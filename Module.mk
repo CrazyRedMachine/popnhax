@@ -6,6 +6,7 @@ avsvers_64      := 1700 1509
 imps            += avs avs-ea3
 
 include util/Module.mk
+include libdisasm/Module.mk
 include minhook/Module.mk
 include popnhax/Module.mk
 

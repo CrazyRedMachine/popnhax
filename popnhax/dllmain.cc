@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <sys/stat.h>
 #include <io.h>
-#define F_OK 0
+#include <fcntl.h>
 #define access _access
 
 #include "util/search.h"
@@ -20,12 +20,14 @@
 #include "minhook/include/MinHook.h"
 
 #include "popnhax/config.h"
+#include "util/membuf.h"
 #include "util/log.h"
 #include "util/patch.h"
 #include "util/xmlprop.hpp"
 #include "xmlhelper.h"
 #include "translation.h"
 #include "custom_categs.h"
+#include "omnimix_patch.h"
 
 #include "tableinfo.h"
 #include "loader.h"
@@ -138,10 +140,10 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_db,
                  "/popnhax/patch_db")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_multiboot,
                  "/popnhax/disable_multiboot")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_xml_auto,
-                 "/popnhax/patch_xml_auto")
-PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, patch_xml_filename,
-                 "/popnhax/patch_xml_filename")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, force_patch_xml,
+                 "/popnhax/force_patch_xml")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_xml_dump,
+                 "/popnhax/patch_xml_dump")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, practice_mode,
                  "/popnhax/practice_mode")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, force_datecode,
@@ -1636,15 +1638,24 @@ asm(
 "       jmp [_real_check_music_idx_usaneko]\n"
 );
 
-char *parse_patchdb(const char *input_filename, char *base_data) {
+char *parse_patchdb(const char *input_filename, char *base_data, membuf_t *membuf) {
+    property* config_xml;
+
+    if ( input_filename == NULL )
+    {
+        config_xml = load_prop_membuf(membuf);
+    }
+    else
+    {
     const char *folder = "data_mods\\";
     char *input_filepath = (char*)calloc(strlen(input_filename) + strlen(folder) + 1, sizeof(char));
 
     sprintf(input_filepath, "%s%s", folder, input_filename);
 
-    property* config_xml = load_prop_file(input_filepath);
+    config_xml = load_prop_file(input_filepath);
 
     free(input_filepath);
+    }
 
     char *target = (char*)calloc(64, sizeof(char));
     property_node_refer(config_xml, property_search(config_xml, NULL, "/patches"), "target@", PROPERTY_TYPE_ATTR, target, 64);
@@ -1998,35 +2009,45 @@ static bool patch_database() {
 
     char *target;
 
-    if (config.patch_xml_auto) {
+    if ( strcmp(config.force_patch_xml, "") != 0 )
+    {
+        LOG("popnhax: patch_db: force patch file %s", config.force_patch_xml);
+        target = parse_patchdb(config.force_patch_xml, data, NULL);
+    }
+    else
+    {
         const char *filename = NULL;
         SearchFile s;
         uint8_t *datecode = NULL;
         bool found = false;
         uint32_t music_limit = 0;
-        if ( !config.ignore_music_limit && !get_music_limit(&music_limit) )
+        if ( !config.ignore_music_limit )
         {
-            LOG("WARNING: could not retrieve music limit\n");
+            if ( !get_music_limit(&music_limit) ) {
+                LOG("WARNING: could not retrieve music limit\n");
+            } else {
+                LOG("popnhax: patch_db: music limit : %d\n", music_limit);
+            }
         } else {
-            LOG("popnhax: patch_db: music limit : %d\n", music_limit);
+                LOG("popnhax: patch_db: ignore music limit\n");
         }
 
         if ( g_datecode_override != NULL )
         {
-            LOG("popnhax: auto detect patch file with datecode override %s\n", g_datecode_override);
+            LOG("popnhax: patch_db: auto detect/generate patch file with datecode override\n");
             datecode = (uint8_t*) strdup(g_datecode_override);
         }
         else
         {
-            LOG("popnhax: auto detect patch file with datecode from ea3-config\n");
+            LOG("popnhax: patch_db: auto detect/generate patch file with datecode from ea3-config\n");
             property *config_xml = load_prop_file("prop/ea3-config.xml");
             READ_STR_OPT(config_xml, property_search(config_xml, NULL, "/ea3/soft"), "ext", datecode)
             free(config_xml);
         }
 
         if (datecode == NULL) {
-            LOG("popnhax: patch_db: failed to retrieve datecode from ea3-config. Please disable patch_xml_auto option and use patch_xml_filename to specify which file should be used.\n");
-            return false;
+            LOG("popnhax: patch_db: failed to retrieve datecode. You can either rename popn22.dll to popn22_<datecode>.dll, fix ea3-config.xml, use force_datecode or use force_patch_xml.\n");
+            exit(1);
         }
 
         LOG("popnhax: patch_db: datecode : %s\n", datecode);
@@ -2079,15 +2100,31 @@ static bool patch_database() {
         }
 
         if (!found) {
-            LOG("popnhax: patch_db: matching %s not found, please add the correct patch xml file in data_mods folder.\n", (music_limit == 0) ? "datecode" : "music limit");
-            return false;
+            LOG("popnhax: patch_db: no matching patch file found, generating our own (datecode %s)\n", datecode);
+            membuf_t *membuf = membuf_new(30000);
+            if (membuf == NULL)
+            {
+                LOG("popnhax: patch_db: Failed to allocate membuf\n");
+                exit(1);
+            }
+
+            make_omnimix_patch(g_game_dll_fn, membuf, (char*)datecode);
+            membuf_rewind(membuf);
+
+            if ( config.patch_xml_dump )
+            {
+                char out_filename[128];
+                sprintf(out_filename, "data_mods\\patches_%s.xml", (char*)datecode);
+                LOG("popnhax: patch_db: saving generated patches to %s\n", out_filename);
+                membuf_tofile(membuf, out_filename);
+            }
+
+            target = parse_patchdb(NULL, data, membuf);
+            membuf_free(membuf);
+        } else {
+            LOG("popnhax: patch_db: using %s\n",filename);
+            target = parse_patchdb(filename, data, NULL);
         }
-
-        LOG("popnhax: patch_db: using %s\n",filename);
-        target = parse_patchdb(filename, data);
-
-    } else {
-        target = parse_patchdb(config.patch_xml_filename, data);
     }
 
     if (config.disable_redirection) {
@@ -7873,7 +7910,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if ( !config_process(g_config_fn) )
         {
             LOG("FATAL ERROR: Could not pre-process config file\n");
-            exit(0);
+            exit(1);
         }
 
         strcpy(g_config_fn+strlen(g_config_fn)-3, "opt");
@@ -7881,7 +7918,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (!_load_config(g_config_fn, &config, config_psmap))
         {
             LOG("FATAL ERROR: Could not parse %s\n", g_config_fn);
-            exit(0);
+            exit(1);
         }
 
         config.game_version = game_version;

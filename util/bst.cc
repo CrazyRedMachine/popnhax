@@ -14,7 +14,7 @@ bst_t* bst_search(bst_t *root, uint32_t val)
         return bst_search(root->left,val);
 }
 
-bst_t* bst_insert(bst_t *root, uint32_t val)
+bst_t* bst_insert_ex(bst_t *root, uint32_t val, void* extra_data, void*(*extra_data_cb)(void *arg1, void *arg2))
 {
     if ( root == NULL )
     {
@@ -23,12 +23,23 @@ bst_t* bst_insert(bst_t *root, uint32_t val)
         p->data = val;
         p->left = NULL;
         p->right = NULL;
+        p->extra_data = extra_data;
         return p;
     }
+    else if ( extra_data != NULL && extra_data_cb != NULL && val == root->data )
+    {
+        //already existing, process extra_data
+        root->extra_data = extra_data_cb(root->extra_data, extra_data);
+    }
     else if ( val > root->data )
-        root->right = bst_insert(root->right, val);
+        root->right = bst_insert_ex(root->right, val, extra_data, extra_data_cb);
     else
-        root->left = bst_insert(root->left, val);
+        root->left = bst_insert_ex(root->left, val, extra_data, extra_data_cb);
 
     return root;
+}
+
+bst_t* bst_insert(bst_t *root, uint32_t val)
+{
+    return bst_insert_ex(root, val, NULL, NULL);
 }
