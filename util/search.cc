@@ -12,7 +12,7 @@ static int max(int a, int b) {
 }
 
 // The preprocessing function for Boyer Moore's bad character heuristic
-static void badCharHeuristic(const unsigned char *str, int size, int* badchar) {
+static void badCharHeuristic(const unsigned char *str, int size, int* badchar, bool wildcards) {
     int i;
 
     // Initialize all occurrences as -1
@@ -20,8 +20,27 @@ static void badCharHeuristic(const unsigned char *str, int size, int* badchar) {
         badchar[i] = -1;
 
     // Fill the actual value of last occurrence of a character
-    for (i = 0; i < size; i++)
-        badchar[(int) str[i]] = i;
+    if (wildcards)
+    {
+        int lastwildcard = -1;
+        for (i = 0; i < size; i++)
+        {
+            if (str[i] != '?')
+                badchar[(int) str[i]] = i;
+            else
+                lastwildcard = i;
+        }
+
+        for (i = 0; i < NO_OF_CHARS; i++)
+        {
+            if ( badchar[i] < lastwildcard )
+                badchar[i] = lastwildcard;
+        }
+
+    } else {
+        for (i = 0; i < size; i++)
+            badchar[(int) str[i]] = i;
+    }
 }
 
 #define DEBUG_SEARCH 0
@@ -29,9 +48,9 @@ static void badCharHeuristic(const unsigned char *str, int size, int* badchar) {
 int _search(unsigned char *haystack, size_t haystack_size, const unsigned char *needle, size_t needle_size, int orig_offset, bool wildcards, int debug) {
     int badchar[NO_OF_CHARS];
 
-    badCharHeuristic(needle, needle_size, badchar);
+    badCharHeuristic(needle, needle_size, badchar, wildcards);
 
-   int64_t s = 0; // s is shift of the pattern with respect to text
+    int64_t s = 0; // s is shift of the pattern with respect to text
     while (s <= (haystack_size - needle_size)) {
         int j = needle_size - 1;
  if (debug == 2)
