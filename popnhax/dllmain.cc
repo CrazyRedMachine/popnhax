@@ -1386,6 +1386,8 @@ void patch_eval_timing() {
     real_eval_timing();
 }
 
+uint32_t g_last_playsram = 0;
+
 void (*real_result_loop)();
 void quickexit_result_loop()
 {
@@ -1423,6 +1425,21 @@ void quickexit_result_loop()
 
     g_return_to_options = true; //transition screen hook will catch it
 
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("call _timeGetTime@0\n");
+    __asm("sub eax, [_g_last_playsram]\n");
+    __asm("cmp eax, 10000\n"); //10sec cooldown
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("ja play_soundfx_retry\n"); //skip playing sound if cooldown value not reached
+    __asm("pop eax\n");
+    __asm("jmp call_real_result\n");
+
+    __asm("play_soundfx_retry:\n");
+    __asm("add [_g_last_playsram], eax"); // place curr_time in g_last_playsram (cancel sub eax, [_g_last_playsram])
+    __asm("pop eax\n");
     /* play sound fx (retry song) */
     __asm("push eax\n");
     __asm("push ecx\n");
@@ -1446,6 +1463,21 @@ void quickexit_result_loop()
     __asm("mov ebx, %0\n": :"b"(g_transition_addr));
     __asm("mov dword ptr[ebx], 0xFFFFFFFC\n"); //quit session
 
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("call _timeGetTime@0\n");
+    __asm("sub eax, [_g_last_playsram]\n");
+    __asm("cmp eax, 10000\n"); //10sec cooldown
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("ja play_soundfx_exit\n"); //skip playing sound if cooldown value not reached
+    __asm("pop eax\n");
+    __asm("jmp call_real_result\n");
+
+    __asm("play_soundfx_exit:\n");
+    __asm("add [_g_last_playsram], eax"); // place curr_time in g_last_playsram (cancel sub eax, [_g_last_playsram])
+    __asm("pop eax\n");
     /* play sound fx (end session) */
     __asm("push eax\n");
     __asm("push ecx\n");
