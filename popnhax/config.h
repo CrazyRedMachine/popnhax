@@ -32,12 +32,13 @@ struct popnhax_config {
     bool netvs_off;
     bool guidese_off;
     bool local_favorites;
+    char local_favorites_path[MAX_PATH-18]; // xx.yyyyyyyyyyyy.fav
 
     bool patch_db;
     bool disable_multiboot;
     bool patch_xml_dump;
     bool ignore_music_limit;
-    char force_patch_xml[MAX_PATH];
+    char force_patch_xml[MAX_PATH+1];
     char force_datecode[11];
     bool network_datecode;
     int8_t audio_offset;
@@ -70,6 +71,7 @@ struct popnhax_config {
     bool survival_iidx;
     bool survival_spicy;
     bool translation_debug;
+    float time_multiplier;
 };
 
 bool config_process(const char *filepath); // take care of updating .xml/.opt files if needed

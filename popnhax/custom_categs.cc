@@ -23,6 +23,7 @@
 
 #define F_OK 0
 
+
 //game code takes array start address from offset 0xC and the address after the list end from offset 0x10
 typedef struct songlist_s {
     uint32_t dummy[3];
@@ -44,6 +45,7 @@ bool g_subcategmode = false;
 
 const char *g_categicon;
 const char *g_categformat;
+const char *g_favorite_path;
 char *g_categname;
 char *g_customformat;
 
@@ -93,10 +95,10 @@ void remove_song_from_favorites()
     return;
 }
 
-void prepare_favorite_list(){
-
-    char fav_filepath[64];
-    sprintf(fav_filepath, "data_mods\\%d.%s.fav", g_game_version, g_current_friendid);
+void prepare_favorite_list()
+{
+    char fav_filepath[MAX_PATH+1];
+    sprintf(fav_filepath, "%s\\%d.%s.fav", g_favorite_path, g_game_version, g_current_friendid);
     FILE *file = fopen(fav_filepath, "rb");
 
     favorites_count = 0;
@@ -123,8 +125,8 @@ void prepare_favorite_list(){
 
 void commit_favorites()
 {
-    char fav_filepath[64];
-    sprintf(fav_filepath, "data_mods\\%d.%s.fav", g_game_version, g_current_friendid);
+    char fav_filepath[MAX_PATH+1];
+    sprintf(fav_filepath, "%s\\%d.%s.fav", g_favorite_path, g_game_version, g_current_friendid);
     FILE *file = fopen(fav_filepath, "w");
 
     if ( file == NULL )
@@ -687,6 +689,33 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
     return true;
 }
 
+
+void (*real_check_event_boosts)();
+void hook_check_event_boosts()
+{
+    __asm("push ecx\n");
+    __asm("mov eax, dword ptr [_g_playerdata_ptr_addr]\n");
+    __asm("mov eax, [eax]\n");
+    __asm("lea ecx, [eax+0x08]\n"); //friendid offset
+    __asm("mov ecx, [ecx]\n");
+    __asm("cmp ecx, 0x61666564\n"); //defa
+    __asm("jne skip_force_false\n");
+    __asm("lea ecx, [eax+0x0C]\n"); //friendid offset
+    __asm("mov ecx, [ecx]\n");
+    __asm("cmp ecx, 0x00746C75\n"); //ult
+    __asm("jne skip_force_false\n");
+
+    //fake login detected, force return false (will prevent 9 icon to show up and 9 press to softlock game)
+    __asm("mov eax, 0x00000000\n");
+    __asm("pop ecx\n");
+    __asm("ret\n");
+
+    __asm("skip_force_false:\n");
+
+    __asm("pop ecx\n");
+    real_check_event_boosts();
+}
+
 void (*real_remove_fake_login)();
 void hook_remove_fake_login()
 {
@@ -712,7 +741,7 @@ void hook_remove_fake_login()
     real_remove_fake_login();
 }
 
-static bool patch_favorite_categ(const char *game_dll_fn) {
+static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patch) {
 
     DWORD dllSize = 0;
     char *data = getDllData(game_dll_fn, &dllSize);
@@ -767,7 +796,7 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
 
         g_playerdata_ptr_addr = (*(uint32_t *)(data + pattern_offset + 0x25));
     }
-    //and I need to remove the fake "logged in" status on credit end to prevent a crash
+    //I need to remove the fake "logged in" status on credit end to prevent a crash
     {
         int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x74\x07\xBB\x01\x00\x00\x00\xEB\x02\x33\xDB", 13, 0);
         if (pattern_offset == -1) {
@@ -824,8 +853,25 @@ static bool patch_favorite_categ(const char *game_dll_fn) {
         uint64_t function3_addr = function3_call_addr+5+function3_offset;
         MH_CreateHook((LPVOID)function3_addr, (LPVOID)hook_add_to_favorite,
                      (void **)&real_add_to_favorite);
-
     }
+
+    //(202310+) I need to prevent the numpad9 option in song select when fake logged in to prevent a possible softlock
+    if (with_numpad9_patch)
+    {
+        int64_t first_loc = search(data, dllSize, "\x0F\xB6\xC8\x51\x56\x8B\xCD\xE8", 8, 0);
+        if (first_loc == -1) {
+            LOG("WARNING: local_favorites: cannot find song select screen function, do NOT press 9 on song select\n");
+            goto local_favorite_ok;
+        }
+
+        uint64_t function_call_addr = (int64_t)(data + first_loc - 0x05);
+        uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
+        uint64_t function_addr = function_call_addr+5+function_offset;
+        MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_check_event_boosts,
+                     (void **)&real_check_event_boosts);
+    }
+
+local_favorite_ok:
     LOG("popnhax: favorite category uses local files\n");
     return true;
 }
@@ -1108,8 +1154,16 @@ bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
     return true;
 }
 
-bool patch_local_favorites(const char *dllFilename, uint8_t version)
+bool patch_local_favorites(const char *dllFilename, uint8_t version, char *fav_folder, bool with_numpad9_patch)
 {
+    if ( fav_folder != NULL && strlen(fav_folder) > 0 )
+    {
+        g_favorite_path = strdup(fav_folder);
+    }
+    else
+    {
+        g_favorite_path = strdup("data_mods");
+    }
     g_game_version = version;
-    return patch_favorite_categ(dllFilename);
+    return patch_favorite_categ(dllFilename, with_numpad9_patch);
 }

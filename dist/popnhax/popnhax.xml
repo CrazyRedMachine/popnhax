@@ -163,6 +163,10 @@
     <!-- Optional secondary format used for older games only (Full colors supported, e.g. "[ol:4][olc:d92f0d]%s") -->
     <custom_track_title_format2 __type="str"></custom_track_title_format2>
 
+  <!-- Favorites -->
+    <!-- Use a custom folder for local favorites rather than data_mods (e.g. "D:\popn\favorites\") -->
+    <local_favorites_path __type="str"></local_favorites_path>
+
   <!-- Translation -->
     <!-- Disable .dict string replacements and .ips patches -->
     <disable_translation __type="bool">0</disable_translation>

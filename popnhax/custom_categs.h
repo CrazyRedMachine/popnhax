@@ -19,6 +19,6 @@ void add_song_to_subcateg(uint32_t songid, subcategory_s* subcateg);
 subcategory_s* get_subcateg(const char *title);
 
 bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config);
-bool patch_local_favorites(const char *dllFilename, uint8_t version);
+bool patch_local_favorites(const char *dllFilename, uint8_t version, char *fav_folder, bool with_numpad9_patch);
 
 #endif

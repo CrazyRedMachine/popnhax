@@ -44,7 +44,6 @@ FILE *g_log_fp = NULL;
 
 #define DEBUG 0
 
-#if DEBUG == 1
 double g_multiplier = 1.;
 DWORD (*real_timeGetTime)();
 DWORD patch_timeGetTime()
@@ -67,11 +66,17 @@ DWORD patch_timeGetTime()
 
 }
 
-bool patch_get_time()
+bool patch_get_time(double time_multiplier)
 {
+    if (time_multiplier == 0)
+        return true;
+
+    g_multiplier = time_multiplier;
     HMODULE hinstLib = GetModuleHandleA("winmm.dll");
     MH_CreateHook((LPVOID)GetProcAddress(hinstLib, "timeGetTime"), (LPVOID)patch_timeGetTime,
                       (void **)&real_timeGetTime);
+
+    LOG("popnhax: time multiplier: %f\n", time_multiplier);
     return true;
 }
 
@@ -87,7 +92,6 @@ static void memdump(uint8_t* addr, uint8_t len)
     }
 
 }
-#endif
 
 uint8_t *add_string(uint8_t *input);
 
@@ -198,6 +202,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, custom_track_ti
                  "/popnhax/custom_track_title_format2")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, local_favorites,
                  "/popnhax/local_favorites")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, local_favorites_path,
+                 "/popnhax/local_favorites_path")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, ignore_music_limit,
                  "/popnhax/ignore_music_limit")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, high_framerate,
@@ -219,6 +225,8 @@ PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_redire
                  "/popnhax/disable_redirection", false)
 PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, translation_debug,
                  "/popnhax/translation_debug", false)
+PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_FLOAT, struct popnhax_config, time_multiplier,
+                 "/popnhax/time_multiplier", 0)
 PSMAP_END
 
 enum BufferIndexes {
@@ -8177,8 +8185,43 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             if ( config.game_version == 0 )
             {
                 LOG("popnhax: local_favorites: patch is not compatible with your game version.\n");
-            } else {
-                patch_local_favorites(g_game_dll_fn, config.game_version);
+            }
+            else
+            {
+                if ( strlen(config.local_favorites_path) > 0 )
+                {
+                    while ( config.local_favorites_path[strlen(config.local_favorites_path)-1] == '\\' )
+                    {
+                        config.local_favorites_path[strlen(config.local_favorites_path)-1] = '\0';
+                    }
+                    if (access(config.local_favorites_path, F_OK) == 0)
+                        LOG("popnhax: local_favorites: favorites are stored in %s\n", config.local_favorites_path);
+                    else
+                    {
+                        LOG("WARNING: local_favorites: cannot access %s, defaulting to data_mods folder\n", config.local_favorites_path);
+                        config.local_favorites_path[0] = '\0';
+                    }
+                }
+
+                uint8_t *datecode = NULL;
+                if ( g_datecode_override != NULL )
+                {
+                    datecode = (uint8_t*) strdup(g_datecode_override);
+                }
+                else
+                {
+                    property *config_xml = load_prop_file("prop/ea3-config.xml");
+                    READ_STR_OPT(config_xml, property_search(config_xml, NULL, "/ea3/soft"), "ext", datecode)
+                    free(config_xml);
+                }
+
+                if (datecode == NULL) {
+                    LOG("popnhax: local_favorites: failed to retrieve datecode.\n");
+                }
+
+                patch_local_favorites(g_game_dll_fn, config.game_version, config.local_favorites_path, ( datecode != NULL && strcmp((char*)datecode,"2023101700") >= 0 ) );
+                free(datecode);
+
             }
         }
 
@@ -8215,9 +8258,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_hispeed_auto(config.hispeed_auto);
         }
 
-    #if DEBUG == 1
-        patch_get_time();
-    #endif
+        patch_get_time(config.time_multiplier);
 
         MH_EnableHook(MH_ALL_HOOKS);
 
