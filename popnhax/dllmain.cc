@@ -7917,7 +7917,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (!_load_config(g_config_fn, &config, config_psmap))
         {
-            LOG("FATAL ERROR: Could not parse %s\n", g_config_fn);
+            LOG("popnhax: FATAL ERROR: failed to load %s. Running advanced diagnostic...\n", g_config_fn);
+            config_diag(g_config_fn, config_psmap);
             exit(1);
         }
 

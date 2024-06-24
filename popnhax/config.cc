@@ -3,6 +3,7 @@
 
 #include "util/crc32.h"
 #include "util/log.h"
+#include "util/psmap.h"
 #include "config.h"
 
 #define F_OK 0
@@ -218,6 +219,272 @@ static bool config_make_opt(const char *xml_filename){
     fclose(opt);
     fclose(xml);
     return true;
+}
+
+static bool type_to_str(enum psmap_property_type type, char* expected_type)
+{
+    bool res = true;
+    switch (type)
+    {
+        case PSMAP_PROPERTY_TYPE_S8:
+            strcpy(expected_type, "s8");
+            break;
+        case PSMAP_PROPERTY_TYPE_U8:
+            strcpy(expected_type, "u8");
+            break;
+        case PSMAP_PROPERTY_TYPE_S16:
+            strcpy(expected_type, "s16");
+            break;
+        case PSMAP_PROPERTY_TYPE_U16:
+            strcpy(expected_type, "u16");
+            break;
+        case PSMAP_PROPERTY_TYPE_S32:
+            strcpy(expected_type, "s32");
+            break;
+        case PSMAP_PROPERTY_TYPE_U32:
+            strcpy(expected_type, "u32");
+            break;
+        case PSMAP_PROPERTY_TYPE_S64:
+            strcpy(expected_type, "s64");
+            break;
+        case PSMAP_PROPERTY_TYPE_U64:
+            strcpy(expected_type, "u64");
+            break;
+        case PSMAP_PROPERTY_TYPE_STR:
+            strcpy(expected_type, "str");
+            break;
+        case PSMAP_PROPERTY_TYPE_FLOAT:
+            strcpy(expected_type, "float");
+            break;
+        case PSMAP_PROPERTY_TYPE_ATTR:
+            strcpy(expected_type, "attr");
+            break;
+        case PSMAP_PROPERTY_TYPE_BOOL:
+            strcpy(expected_type, "bool");
+            break;
+        default:
+            strcpy(expected_type, "INVALID");
+            res = false;
+            break;
+    }
+    return res;
+}
+
+static int64_t get_min(enum psmap_property_type type)
+{
+    switch (type)
+    {
+        case PSMAP_PROPERTY_TYPE_S8:
+            return -128;
+        case PSMAP_PROPERTY_TYPE_S16:
+            return -32768;
+        case PSMAP_PROPERTY_TYPE_S32:
+            return -2147483648;
+        case PSMAP_PROPERTY_TYPE_S64:
+            return LLONG_MIN;
+        case PSMAP_PROPERTY_TYPE_U8:
+        case PSMAP_PROPERTY_TYPE_U16:
+        case PSMAP_PROPERTY_TYPE_U32:
+        case PSMAP_PROPERTY_TYPE_U64:
+            return 0;
+        default:
+            return -1;
+    }
+}
+static int64_t get_max(enum psmap_property_type type)
+{
+    switch (type)
+    {
+        case PSMAP_PROPERTY_TYPE_S8:
+            return 127;
+        case PSMAP_PROPERTY_TYPE_S16:
+            return 32767;
+        case PSMAP_PROPERTY_TYPE_S32:
+            return 2147483647;
+        case PSMAP_PROPERTY_TYPE_S64:
+            return 9223372036854775807;
+        case PSMAP_PROPERTY_TYPE_U8:
+            return 255;
+        case PSMAP_PROPERTY_TYPE_U16:
+            return 65535;
+        case PSMAP_PROPERTY_TYPE_U32:
+            return 4294967295;
+        default:
+            return -1;
+    }
+}
+
+static bool is_valid(const char *option_line, uint8_t type, uint32_t member_width, char **reason)
+{
+    char tmp_reason[256] = {0};
+    char open[64] = {0};
+    char expected_type[8] = {0};
+    char option_type[64] = {0};
+    char value[64] = {0};
+    char close[64] = {0};
+    if (!type_to_str((enum psmap_property_type) type, expected_type))
+    {
+        sprintf(tmp_reason, "bad type value"); // shouldn't happen as it's psmap struct type
+        *reason = strdup(tmp_reason);
+        return false;
+    }
+
+    /* attempt to scan line */
+    int num = sscanf(option_line, " %s __type=\"%[^<>\"]\">%[^><\"]%[^\"\r\n] ", open, option_type, value, close);
+    if ( num == 2 && strcmp(option_type, "str")==0 )
+    {
+        num = sscanf(option_line, " %s __type=\"%[^<>\"]\">%[^\"\r\n] ", open, option_type, close);
+        if (num != 3)
+        {
+            sprintf(tmp_reason, "malformed line (should be <option_name __type=\"option_type\">option_value</option_name>)");
+            *reason = strdup(tmp_reason);
+            return false;
+        }
+    }
+    else if ( num != 4 )
+    {
+        sprintf(tmp_reason, "malformed line (should be <option_name __type=\"option_type\">option_value</option_name>)");
+        *reason = strdup(tmp_reason);
+        return false;
+    }
+
+    /* tag errors */
+    if ( open[0] != '<' )
+    {
+        sprintf(tmp_reason, "malformed opening tag (should be <%s __type\"option_type\">)", open);
+        *reason = strdup(tmp_reason);
+        return false;
+    }
+    if ( close[0] != '<' || close[1] != '/' || close[strlen(close)-1] != '>' )
+    {
+        sprintf(tmp_reason, "malformed closing tag (should be </%s>)", open+1);
+        *reason = strdup(tmp_reason);
+        return false;
+    }
+    if ( close[strlen(open)+1] != '>' || strncmp(open+1, close+2, strlen(open+1)) != 0 )
+    {
+        sprintf(tmp_reason, "opening tag doesn't match closing tag (%s> vs %s)", open, close);
+        *reason = strdup(tmp_reason);
+        return false;
+    }
+
+    /* type errors */
+    if ( strcmp(option_type, expected_type) != 0 )
+    {
+        sprintf(tmp_reason, "unexpected type (expected %s, got %s)", expected_type, option_type);
+        *reason = strdup(tmp_reason);
+        return false;
+    }
+
+    if ( type == PSMAP_PROPERTY_TYPE_STR )
+    {
+        if ( strlen(value) > member_width-1 )
+        {
+            sprintf(tmp_reason, "value %s too long (max length is %d, got %d)", value, member_width-1, strlen(value));
+            *reason = strdup(tmp_reason);
+            return false;
+        }
+        return true;
+    }
+
+    if ( type == PSMAP_PROPERTY_TYPE_ATTR )
+        return true; // can't do further checks
+
+    if ( type == PSMAP_PROPERTY_TYPE_FLOAT )
+    {
+        char *endPtr;
+        (void)strtof(value, &endPtr);
+        if ( endPtr != (value+strlen(value)) || errno == ERANGE )
+        {
+            sprintf(tmp_reason, "invalid %s value %s (should be a valid IEEE 754 floating point number)", option_type, value);
+            *reason = strdup(tmp_reason);
+            return false;
+        }
+    }
+
+    if ( type == PSMAP_PROPERTY_TYPE_BOOL )
+    {
+        if ( strlen(value) != 1 || (value[0] != '0' && value[0] != '1') )
+        {
+            sprintf(tmp_reason, "invalid bool value (should be 0 or 1, got %s)", value);
+            *reason = strdup(tmp_reason);
+            return false;
+        }
+        return true;
+    }
+
+    if ( type == PSMAP_PROPERTY_TYPE_U64 )
+    {
+        char *endPtr;
+        (void)strtoull(value, &endPtr, 10);
+        if ( endPtr != (value+strlen(value)) || errno == ERANGE )
+        {
+            sprintf(tmp_reason, "invalid %s value %s (should be an integer between 0 and 18446744073709551615)", option_type, value);
+            *reason = strdup(tmp_reason);
+            return false;
+        }
+    }
+    else // only numeric types up to S64 remain
+    {
+        char *endPtr;
+        int64_t parsed = strtoull(value, &endPtr, 10);
+        if ( type == PSMAP_PROPERTY_TYPE_S64 && errno == ERANGE )
+        {
+            sprintf(tmp_reason, "invalid %s value (should be an integer between -9223372036854775808 and 9223372036854775807)", option_type);
+            *reason = strdup(tmp_reason);
+            return false;
+        }
+        else if ( endPtr != (value+strlen(value)) )
+        {
+            sprintf(tmp_reason, "invalid value %s (should be an integer and nothing else)", value);
+            *reason = strdup(tmp_reason);
+            return false;
+        }
+
+        int64_t min = get_min((enum psmap_property_type)type);
+        int64_t max = get_max((enum psmap_property_type)type);
+        if ( parsed < min || parsed > max )
+        {
+            sprintf(tmp_reason, "invalid value (should be an integer between %lld and %lld, got %s)", min, max, value);
+            *reason = strdup(tmp_reason);
+            return false;
+        }
+    }
+
+    return true;
+}
+
+void config_diag(const char *opt_filepath, const struct property_psmap *psmap) {
+    int i = 0;
+    int shift = strlen("/popnhax/");
+    FILE *opt = fopen(opt_filepath, "r");
+    if ( opt == NULL )
+    {
+        LOG("FATAL ERROR: cannot open %s\n", opt_filepath);
+    }
+
+    while ( psmap[i].type != 0xFF )
+    {
+        bool required = !psmap[i].has_default;
+        const char *option_name = psmap[i].path+shift;
+        //LOG("checking %s option %s\n", required ? "REQUIRED" : "OPTIONAL", option_name);
+        char *option_line = get_option(opt, (char*)option_name); //will return NULL if option_name is NULL
+        if (option_line)
+        {
+            char *reason;
+            if (!is_valid(option_line, psmap[i].type, psmap[i].member_width, &reason))
+            {
+                LOG("\t%s", option_line);
+                LOG("ERROR: %s: %s\n", option_name, reason);
+            }
+        }
+        else if (required)
+        {
+            LOG("ERROR: required option %s not found\n", option_name);
+        }
+        free(option_line);
+        i++;
+    }
 }
 
 // take care of updating .xml/.opt files if needed

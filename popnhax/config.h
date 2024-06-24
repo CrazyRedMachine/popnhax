@@ -73,5 +73,6 @@ struct popnhax_config {
 };
 
 bool config_process(const char *filepath); // take care of updating .xml/.opt files if needed
+void config_diag(const char *xml_filepath, const struct property_psmap *psmap);
 
 #endif
