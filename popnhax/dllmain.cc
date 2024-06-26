@@ -66,17 +66,17 @@ DWORD patch_timeGetTime()
 
 }
 
-bool patch_get_time(double time_multiplier)
+bool patch_get_time(double time_rate)
 {
-    if (time_multiplier == 0)
+    if (time_rate == 0)
         return true;
 
-    g_multiplier = time_multiplier;
+    g_multiplier = time_rate;
     HMODULE hinstLib = GetModuleHandleA("winmm.dll");
     MH_CreateHook((LPVOID)GetProcAddress(hinstLib, "timeGetTime"), (LPVOID)patch_timeGetTime,
                       (void **)&real_timeGetTime);
 
-    LOG("popnhax: time multiplier: %f\n", time_multiplier);
+    LOG("popnhax: time multiplier: %f\n", time_rate);
     return true;
 }
 
@@ -225,8 +225,8 @@ PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_redire
                  "/popnhax/disable_redirection", false)
 PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, translation_debug,
                  "/popnhax/translation_debug", false)
-PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_FLOAT, struct popnhax_config, time_multiplier,
-                 "/popnhax/time_multiplier", 0)
+PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, time_rate,
+                 "/popnhax/time_rate", 0)
 PSMAP_END
 
 enum BufferIndexes {
@@ -940,6 +940,7 @@ void quickexit_option_screen_cleanup()
     }
 }
 
+uint8_t g_skip_options = 0;
 uint32_t loadnew2dx_func;
 uint32_t playgeneralsound_func;
 char *g_system2dx_filepath;
@@ -977,19 +978,56 @@ void quickexit_option_screen()
     __asm("pop ebx\n");
     __asm("jne real_option_screen\n");
 
-    /* numpad 8 is held, rewrite transition pointer */
+    /* numpad 8 is held, set a flag to rewrite transition pointer later */
 reload:
-    __asm("pop edi\n");
+    __asm("mov %0, 1\n":"=m"(g_skip_options):);
+
+    __asm("real_option_screen:\n");
+    real_option_screen();
+}
+
+void (*real_option_screen_apply_skip)();
+void quickexit_option_screen_apply_skip()
+{
+    __asm("cmp byte ptr[_g_skip_options], 0\n");
+    __asm("je real_option_screen_no_skip\n");
+
+    /* flag is set, rewrite transition pointer */
     __asm("pop ecx\n");
     __asm("pop edx\n");
     __asm("xor edx, edx\n");
     __asm("mov ecx, %0\n": :"c"(g_startsong_addr));
     __asm("push edx\n");
     __asm("push ecx\n");
-    __asm("push edi\n");
+    __asm("mov %0, 0\n":"=m"(g_skip_options):);
 
-    __asm("real_option_screen:\n");
-    real_option_screen();
+    __asm("real_option_screen_no_skip:\n");
+    real_option_screen_apply_skip();
+}
+
+uint32_t g_transition_offset = 0xA10;
+/* because tsumtsum doesn't go through the second transition, try to recover from a messup here */
+void (*real_option_screen_apply_skip_tsum)();
+void quickexit_option_screen_apply_skip_tsum()
+{
+    __asm("cmp byte ptr[_g_skip_options], 0\n");
+    __asm("je real_option_screen_no_skip_tsum\n");
+
+    /* flag is set, rewrite transition pointer */
+    __asm("push ebx\n");
+    __asm("push ecx\n");
+    __asm("mov ebx, ecx\n");
+    __asm("add ebx, [_g_transition_offset]\n");
+    __asm("mov ebx, [ebx]\n");
+    __asm("add ebx, 8\n");
+    __asm("mov ecx, %0\n": :"c"(g_startsong_addr));
+    __asm("mov [ebx], ecx\n");
+    __asm("pop ecx\n");
+    __asm("pop ebx\n");
+    __asm("mov %0, 0\n":"=m"(g_skip_options):);
+
+    __asm("real_option_screen_no_skip_tsum:\n");
+    real_option_screen_apply_skip_tsum();
 }
 
 uint8_t g_srambypass = 0;
@@ -3513,9 +3551,12 @@ static bool patch_quick_retire(bool pfree)
                       (void **)&real_screen_transition);
     }
 
-    /* instant launch song with numpad 8 on option select (hold 8 during song for quick retry) */
+    /* instant launch song with numpad 8 on option select (hold 8 during song for quick retry)
+     * there are now 3 patches: transition between song select and option select goes like A->B->C with C being the option select screen
+     * because of special behavior, ac tsumtsum goes A->C so I cannot keep the patch in B else tsumtsum gets stuck in a never ending option select loop
+     * former patch in B now sets a flag in A which is processed in B, then C also processes it in case the flag is still there */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\xF0\x83\x7E\x0C\x00\x0F\x84", 8, 0);
+        int64_t pattern_offset = search(data, dllSize, "\xE4\xF8\x51\x56\x8B\xF1\x80\xBE", 8, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve option screen loop\n");
@@ -3528,9 +3569,41 @@ static bool patch_quick_retire(bool pfree)
             return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x0F;
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x04;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen,
                       (void **)&real_option_screen);
+    }
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x8B\xF0\x83\x7E\x0C\x00\x0F\x84", 8, 0);
+
+        if (pattern_offset == -1) {
+            LOG("popnhax: quick retry: cannot retrieve option screen loop\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x0F;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen_apply_skip,
+                      (void **)&real_option_screen_apply_skip);
+    }
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0); //unilab
+        uint8_t adjust = 15;
+        g_transition_offset = 0xA10;
+        if (pattern_offset == -1) {
+            /* fallback */
+            pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
+            adjust = 12;
+            g_transition_offset = 0xA0C;
+        }
+
+        if (pattern_offset == -1) {
+            LOG("popnhax: quick retry: cannot retrieve option screen loop function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - adjust;
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen_apply_skip_tsum,
+                      (void **)&real_option_screen_apply_skip_tsum);
     }
 
     if (config.back_to_song_select)
@@ -8258,7 +8331,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_hispeed_auto(config.hispeed_auto);
         }
 
-        patch_get_time(config.time_multiplier);
+        if (config.time_rate)
+            patch_get_time(config.time_rate/100.);
 
         MH_EnableHook(MH_ALL_HOOKS);
 

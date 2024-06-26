@@ -71,7 +71,7 @@ struct popnhax_config {
     bool survival_iidx;
     bool survival_spicy;
     bool translation_debug;
-    float time_multiplier;
+    uint16_t time_rate;
 };
 
 bool config_process(const char *filepath); // take care of updating .xml/.opt files if needed
