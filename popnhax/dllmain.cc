@@ -28,6 +28,7 @@
 #include "translation.h"
 #include "custom_categs.h"
 #include "omnimix_patch.h"
+#include "tachi.h"
 
 #include "tableinfo.h"
 #include "loader.h"
@@ -35,7 +36,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "2.1"
+#define PROGRAM_VERSION "2.2.dev"
 
 const char *g_game_dll_fn = NULL;
 char *g_config_fn   = NULL;
@@ -204,6 +205,12 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, local_favorite
                  "/popnhax/local_favorites")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, local_favorites_path,
                  "/popnhax/local_favorites_path")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, tachi_scorehook,
+                 "/popnhax/tachi_scorehook")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, tachi_rivals,
+                 "/popnhax/tachi_rivals")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, tachi_scorehook_skip_omni,
+                 "/popnhax/tachi_scorehook_skip_omni")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, ignore_music_limit,
                  "/popnhax/ignore_music_limit")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, high_framerate,
@@ -1988,7 +1995,7 @@ char *get_datecode_from_patches() {
                 }
         }
 
-        LOG("ERROR: datecode_auto: could not find matching patch file\n");
+        LOG("WARNING: datecode_auto: could not find matching patch file (patch file can still be generated)\n");
         return NULL;
 }
 
@@ -8042,6 +8049,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                     LOG("popnhax: multiboot: auto disable local favorites patch (not compatible)\n");
                     config.local_favorites = false;
                 }
+                if ((config.tachi_scorehook || config.tachi_rivals) && ( config.game_version < 24 || strcmp(config.force_datecode,"2016120400") <= 0 ) )
+                {
+                    LOG("popnhax: multiboot: auto disable tachi hooks (not supported)\n");
+                    config.tachi_scorehook = false;
+                    config.tachi_rivals = false;
+                }
             }
         }
 
@@ -8329,6 +8342,49 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             g_default_bpm = config.hispeed_default_bpm;
             patch_hispeed_auto(config.hispeed_auto);
+        }
+
+        if (config.practice_mode && config.tachi_scorehook)
+        {
+            LOG("WARNING: tachi: scorehook not compatible with practice mode, disabling it.\n");
+            config.tachi_scorehook = false;
+        }
+
+        if (config.tachi_scorehook || config.tachi_rivals)
+        {
+            SearchFile s;
+            bool found = false;
+            s.search(".", "conf", false);
+            auto result = s.getResult();
+
+            if ( result.size() > 0 )
+            {
+                for (uint16_t i=0; i<result.size(); i++) {
+                    if (strstr(result[i].c_str(), ".\\_tachi.") == result[i].c_str())
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+            }
+
+            if (!found)
+            {
+                LOG("WARNING: tachi: no config file found for tachi hooks ( _tachi.default.conf or _tachi.<friendid>.conf ), disabling them.\n");
+                config.tachi_scorehook = false;
+                config.tachi_rivals = false;
+            }
+        }
+
+        if (config.tachi_scorehook)
+        {
+            patch_tachi_scorehook(g_game_dll_fn, config.pfree, config.hidden_is_offset, config.tachi_scorehook_skip_omni);
+        }
+
+        if (config.tachi_rivals)
+        {
+            //must be called after scorehook
+            patch_tachi_rivals(g_game_dll_fn, config.tachi_scorehook);
         }
 
         if (config.time_rate)

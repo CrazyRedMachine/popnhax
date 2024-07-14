@@ -33,6 +33,9 @@ struct popnhax_config {
     bool guidese_off;
     bool local_favorites;
     char local_favorites_path[MAX_PATH-18]; // xx.yyyyyyyyyyyy.fav
+    bool tachi_scorehook;
+    bool tachi_scorehook_skip_omni;
+    bool tachi_rivals;
 
     bool patch_db;
     bool disable_multiboot;

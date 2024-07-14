@@ -49,7 +49,7 @@ cflags      := -O3 -pipe -ffunction-sections -fdata-sections \
 cxxflags    := -O3 -pipe -ffunction-sections -fdata-sections \
                -std=c++11 $(wxxflags)
 
-ldflags		:= -Wl,--gc-sections -static -static-libgcc -lstdc++ \
+ldflags		:= -Wl,--gc-sections -static -static-libgcc -lstdc++ -L./libcurl/ -llibcurl \
                -fdiagnostics-color -Werror \
                -Wl,--gc-keep-exported \
                -Wl,--enable-auto-image-base \

@@ -18,6 +18,12 @@
     <!-- Handle favorites through data_mods/<game>.<friendID>.fav files (Note: allows UNLIMITED favorites as well as favorites without an account/server) -->
     <local_favorites __type="bool">0</local_favorites>
 
+  <!-- Tachi integration (requires a _tachi.default.conf or _tachi.<friendid>.conf with your api key and url parameters) -->
+    <!-- Automatically send scores to tachi -->
+    <tachi_scorehook __type="bool">0</tachi_scorehook>
+    <!-- Replace ingame rivals with tachi ones -->
+    <tachi_rivals __type="bool">0</tachi_rivals>
+
   <!-- Framerate -->
     <!-- Fix animation speed at higher framerate for a smoother experience (lower visual latency) -->
     <high_framerate __type="bool">0</high_framerate>
@@ -146,6 +152,10 @@
     <ignore_music_limit __type="bool">0</ignore_music_limit>
     <!-- Dump the generated patch file to data_mods\patches_<datecode>.xml (in case generated patches require some fixes) -->
     <patch_xml_dump __type="bool">0</patch_xml_dump>
+
+  <!-- Tachi integration -->
+    <!-- Do not send omni chart scores to tachi server (note: custom charts with songid > 3400 will always be skipped) -->
+    <tachi_scorehook_skip_omni __type="bool">0</tachi_scorehook_skip_omni>
 
   <!-- Custom category options (requires patch_db) -->
     <!-- Also exclude omnimix (song id < 3000) tracks from version/level (requires custom_exclude_from_level or custom_exclude_from_version) -->

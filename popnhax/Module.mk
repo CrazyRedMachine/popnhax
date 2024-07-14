@@ -18,4 +18,5 @@ srcpp_popnhax      := \
     SearchFile.cc \
     translation.cc \
     omnimix_patch.cc \
-    custom_categs.cc
+    custom_categs.cc \
+    tachi.cc
