@@ -219,6 +219,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, high_framerate
                  "/popnhax/high_framerate_limiter")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, high_framerate_fps,
                  "/popnhax/high_framerate_fps")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, autopin,
+                 "/popnhax/autopin")
 /* removed options are now hidden as optional */
 PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, survival_gauge,
                  "/popnhax/survival_gauge", 0)
@@ -4855,6 +4857,77 @@ static bool patch_fps_uncap(uint16_t fps) {
     return true;
 }
 
+uint32_t g_pincode;
+uint32_t g_last_enter_pincode;
+void (*real_pincode)(void);
+void hook_pincode()
+{
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("call _timeGetTime@0\n");
+    __asm("sub eax, [_g_last_enter_pincode]\n");
+    __asm("cmp eax, 30000\n"); //30sec cooldown (will only try once)
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("ja enter_pincode\n"); //skip entering pin if cooldown value not reached
+    __asm("pop eax\n");
+    __asm("jmp call_real_pincode_handling\n");
+
+    __asm("enter_pincode:\n");
+    __asm("add [_g_last_enter_pincode], eax"); // place curr_time in g_last_enter_pincode (cancel sub eax, [_g_last_playsram])
+    __asm("pop eax\n");
+
+    __asm("push eax\n");
+    __asm("mov eax, dword ptr [_g_pincode]\n");
+    __asm("mov byte ptr [esi], 4\n");
+    __asm("add esi, 0x30\n");
+    __asm("mov [esi], eax\n");
+    __asm("sub esi, 0x30\n");
+    __asm("pop eax\n");
+    __asm("call_real_pincode_handling:\n");
+    real_pincode();
+}
+
+static bool patch_autopin()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    FILE *file = fopen("_pincode.secret", "r");
+    char line[32];
+
+    if(file == NULL)
+    {
+        LOG("popnhax: autopin: cannot open '_pincode.secret' file\n");
+        return false;
+    }
+
+    if (!fgets(line, sizeof(line), file)){
+        LOG("popnhax: autopin: cannot read '_pincode.secret' file\n");
+        fclose(file);
+        return false;
+    }
+    fclose(file);
+
+    memcpy(&g_pincode, line, 4);
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x33\xC4\x89\x44\x24\x14\xA1", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: autopin: cannot find pincode handling function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_pincode,
+                      (void **)&real_pincode);
+    }
+    LOG("popnhax: autopin enabled\n");
+    return true;
+}
+
 void (*real_song_options)();
 void patch_song_options() {
     __asm("mov byte ptr[ecx+0xA15], 0\n");
@@ -8423,6 +8496,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             //must be called after scorehook
             patch_tachi_rivals(g_game_dll_fn, config.tachi_scorehook);
+        }
+
+        if (config.autopin)
+        {
+            patch_autopin();
         }
 
         if (config.time_rate)

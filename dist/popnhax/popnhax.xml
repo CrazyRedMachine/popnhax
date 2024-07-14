@@ -24,6 +24,10 @@
     <!-- Replace ingame rivals with tachi ones -->
     <tachi_rivals __type="bool">0</tachi_rivals>
 
+  <!-- Player account -->
+    <!-- Enter pincode automatically (requires a _pincode.secret file containing your pincode as ascii (e.g. 1234)) -->
+    <autopin __type="bool">0</autopin>
+
   <!-- Framerate -->
     <!-- Fix animation speed at higher framerate for a smoother experience (lower visual latency) -->
     <high_framerate __type="bool">0</high_framerate>

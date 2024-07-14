@@ -36,6 +36,7 @@ struct popnhax_config {
     bool tachi_scorehook;
     bool tachi_scorehook_skip_omni;
     bool tachi_rivals;
+    bool autopin;
 
     bool patch_db;
     bool disable_multiboot;
