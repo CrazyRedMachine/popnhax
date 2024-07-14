@@ -7856,6 +7856,43 @@ static bool get_music_limit_from_file(const char *filepath, uint32_t *limit){
     return true;
 }
 
+bool g_timer_flipflop = 0;
+
+void (*real_timer_increase)(void);
+void hook_timer_increase()
+{
+    __asm("cmp byte ptr [_g_timer_flipflop], 0\n");
+    __asm("je skip_cancel_increase\n");
+    __asm("dec dword ptr [ebp+0x44]\n");
+    __asm("dec byte ptr [_g_timer_flipflop]\n"); // 1 -> 0
+    __asm("jmp leave_timer_increase_hook\n");
+    __asm("skip_cancel_increase:\n");
+    __asm("inc byte ptr [_g_timer_flipflop]\n"); // 0 -> 1
+    __asm("leave_timer_increase_hook:\n");
+    real_timer_increase();
+}
+
+static bool patch_half_timer_speed()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\xFF\x45\x44\x3B\x75\x04", 6, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: high_framerate: cannot find timer increase function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x03;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_timer_increase,
+                     (void **)&real_timer_increase);
+    }
+    LOG("popnhax: high_framerate: halve timer speed\n");
+    return true;
+}
+
 static bool patch_afp_framerate(uint16_t fps)
 {
     DWORD framerate = fps;
@@ -8323,6 +8360,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (config.high_framerate)
         {
             patch_afp_framerate(config.high_framerate_fps);
+            patch_half_timer_speed();
             config.fps_uncap = true;
         }
 
