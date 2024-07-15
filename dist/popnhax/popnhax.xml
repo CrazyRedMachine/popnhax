@@ -88,6 +88,12 @@
     <!-- Fast/Slow counter on result screen even on judge+ off/lost/panic -->
     <show_fast_slow __type="bool">0</show_fast_slow>
 
+  <!-- Attract mode patches -->
+    <!-- Attract mode will play EX charts at 4.0x hispeed -->
+    <attract_ex __type="bool">0</attract_ex>
+    <!-- Attract mode will play full songs -->
+    <attract_full __type="bool">0</attract_full>
+
   <!-- Input polling -->
     <!-- 1000Hz polling rate (no more shifting timing windows/magic bpm, consistent scoring independently of framerate) -->
     <enhanced_polling __type="bool">0</enhanced_polling>

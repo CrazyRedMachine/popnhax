@@ -221,6 +221,10 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, high_framerate_
                  "/popnhax/high_framerate_fps")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, autopin,
                  "/popnhax/autopin")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, attract_ex,
+                 "/popnhax/attract_ex")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, attract_full,
+                 "/popnhax/attract_full")
 /* removed options are now hidden as optional */
 PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, survival_gauge,
                  "/popnhax/survival_gauge", 0)
@@ -5464,7 +5468,7 @@ void play_firststep() {
         __asm("cmp edi, dword ptr [eax]\n");
         __asm("jl p1_end\n");                  // elapsed time < Timing -> return
 
-        // E2ÇÕÉçÉìÉOè¡Ç¶ÇΩÇ†Ç∆ÇÃÉoÉOÅHëÅGOODÇæÇØì¸ÇÈÇ±Ç∆Ç™Ç†ÇÈÇÃÇçƒåªÅc
+        // E2ÇÕÉçÉìÉOè¡Ç¶ÇΩÇ†Ç∆ÇÃÉoÉOÅHëÅGOODÇæÇØì¸ÇÈÇ±Ç∆Ç™Ç†ÇÈÇÃÇ    çƒåªÅc
         __asm("movzx ecx, word ptr [eax+0x04]\n");
         __asm("push edx\n");
         __asm("push ecx\n");
@@ -7966,6 +7970,66 @@ static bool patch_half_timer_speed()
     return true;
 }
 
+void (*real_attract)(void);
+void hook_ex_attract()
+{
+    __asm("push ebx\n");
+    __asm("mov ebx, eax\n");
+    __asm("add ebx, 2\n");
+    __asm("mov byte ptr [ebx], 3\n"); //force EX chart_num
+    __asm("add ebx, 8\n");
+    __asm("mov byte ptr [ebx], 40\n"); // force x4.0 multiplier
+    __asm("pop ebx\n");
+    real_attract();
+}
+
+static bool patch_ex_attract()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x81\xE7\x01\x00\x00\x80\x79\x05\x4F", 9, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: attract_ex: cannot find attract mode song info\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_ex_attract,
+                     (void **)&real_attract);
+    }
+    LOG("popnhax: attract mode will play EX charts at 4.0x hispeed\n");
+    return true;
+}
+
+static bool patch_full_attract()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = search(data, dllSize, "\xB8\xD0\x07\x00\x00\x66\xA3", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: attract_full: cannot find attract mode timer set function\n");
+            return false;
+        }
+
+        uint32_t timer_addr = *(uint32_t*)((int64_t)data + pattern_offset + 7);
+        uint8_t new_pattern[9] = "\x66\x83\x05\x00\x00\x00\x00\xFF";
+        memcpy(new_pattern+3, &timer_addr, 4);
+
+        if (!find_and_patch_hex(g_game_dll_fn, (char*)new_pattern, 8, 7, "\x00", 1))
+        {
+            LOG("popnhax: attract_full: cannot stop attract mode song timer\n");
+            return false;
+        }
+    }
+    LOG("popnhax: attract mode will play full songs\n");
+    return true;
+}
+
 static bool patch_afp_framerate(uint16_t fps)
 {
     DWORD framerate = fps;
@@ -8501,6 +8565,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (config.autopin)
         {
             patch_autopin();
+        }
+
+        if (config.attract_ex)
+        {
+            patch_ex_attract();
+        }
+        if (config.attract_full)
+        {
+            patch_full_attract();
         }
 
         if (config.time_rate)
