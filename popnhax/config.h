@@ -39,6 +39,7 @@ struct popnhax_config {
     bool autopin;
     bool attract_ex;
     bool attract_full;
+    bool force_slow_timer;
 
     bool patch_db;
     bool disable_multiboot;

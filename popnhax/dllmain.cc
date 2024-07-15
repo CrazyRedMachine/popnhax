@@ -225,6 +225,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, attract_ex,
                  "/popnhax/attract_ex")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, attract_full,
                  "/popnhax/attract_full")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_slow_timer,
+                 "/popnhax/force_slow_timer")
 /* removed options are now hidden as optional */
 PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, survival_gauge,
                  "/popnhax/survival_gauge", 0)
@@ -7966,7 +7968,7 @@ static bool patch_half_timer_speed()
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_timer_increase,
                      (void **)&real_timer_increase);
     }
-    LOG("popnhax: high_framerate: halve timer speed\n");
+    LOG("popnhax: halve timer speed\n");
     return true;
 }
 
@@ -8499,6 +8501,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             patch_afp_framerate(config.high_framerate_fps);
             patch_half_timer_speed();
             config.fps_uncap = true;
+        } else if (config.force_slow_timer) {
+            patch_half_timer_speed();
         }
 
         if (config.fps_uncap)

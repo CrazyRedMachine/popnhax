@@ -154,6 +154,8 @@
     <high_framerate_limiter __type="bool">1</high_framerate_limiter>
     <!-- Disable the builtin frame limiter -->
     <fps_uncap __type="bool">0</fps_uncap>
+    <!-- Force slow timer speed even without high_framerate enabled (useful when running 120fps+ without high_framerate and without event/timer freeze) -->
+    <force_slow_timer __type="bool">0</force_slow_timer>
 
   <!-- Song db patches (requires patch_db) -->
     <!-- Disable patch file detection/generation and manually set the XML file containing patches instead -->
@@ -178,7 +180,7 @@
     <custom_category_title __type="str">Customs</custom_category_title>
     <!-- Format used for category title (in BM2DXFontScript format, refer to BM2DXFontScript.md in popnhax_tools repo)  -->
     <custom_category_format __type="str">[ol:4][olc:d92f0d]%s</custom_category_format>
-    <!-- Format used for custom song titles on song select (Note: colors not working for kaimei and above, but rotation does, e.g. "* [rz:3]%s[/rz]" ) -->
+    <!-- Format used for custom song titles on song select (Note: colors not working for kaimei and above, but rotation does, e.g. "[rz:3]/* %s */[/rz]" ) -->
     <custom_track_title_format __type="str"></custom_track_title_format>
     <!-- Optional secondary format used for older games only (Full colors supported, e.g. "[ol:4][olc:d92f0d]%s") -->
     <custom_track_title_format2 __type="str"></custom_track_title_format2>
