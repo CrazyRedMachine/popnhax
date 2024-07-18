@@ -8,6 +8,16 @@ Featuring pfree, instant retire, visual and audio offset adjust, 1000Hz input po
 
 Based on [bemanihax](https://github.com/windyfairy/bemanihax) whose an updated version was included with omnimix v1
 
+### Credits
+
+popnhax uses:
+- [libdisasm](https://bastard.sourceforge.net/libdisasm.html)
+- [libcurl](https://curl.se/libcurl/) and [mbedtls](https://github.com/Mbed-TLS/mbedtls)
+- [jsmn](https://github.com/zserge/jsmn), [jsmn-find](https://github.com/lcsmuller/jsmn-find) and [chash](https://github.com/c-ware/chash)
+
+Special thanks to Nagato for the original popnhax and omnimix
+Special thanks to r2nk226 and pulse for their contributions
+
 ### Features
 
 Refer to [popnhax.xml](https://github.com/CrazyRedMachine/popnhax/blob/main/dist/popnhax/popnhax.xml) for complete list and explanations
