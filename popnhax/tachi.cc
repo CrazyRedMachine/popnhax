@@ -49,6 +49,46 @@ fprintf(stderr, __VA_ARGS__); \
 #define SCORE_TABLE_COMPARE(cmp_a, cmp_b) chash_string_compare(cmp_a, cmp_b)
 #define SCORE_TABLE_INIT(bucket, _key, _value) chash_default_init(bucket, _key, _value)
 
+/* libcurl imports */
+typedef CURL* (*curl_easy_init_fn_t)(void);
+typedef CURLcode (*curl_easy_setopt_fn_t)(CURL *curl, CURLoption option, ...);
+typedef CURLcode (*curl_easy_perform_fn_t)(CURL *curl);
+typedef void (*curl_easy_cleanup_fn_t)(CURL *curl);
+typedef struct curl_slist* (*curl_slist_append_fn_t)(struct curl_slist *, const char *);
+typedef void (*curl_slist_free_all_fn_t)(struct curl_slist *);
+curl_slist_append_fn_t _curl_slist_append = NULL;
+curl_slist_free_all_fn_t _curl_slist_free_all = NULL;
+curl_easy_init_fn_t _curl_easy_init = NULL;
+curl_easy_setopt_fn_t _curl_easy_setopt = NULL;
+curl_easy_perform_fn_t _curl_easy_perform = NULL;
+curl_easy_cleanup_fn_t _curl_easy_cleanup = NULL;
+HINSTANCE g_libcurl = NULL;
+/*  */
+
+bool load_libcurl()
+{
+	if ( g_libcurl != NULL )
+		return true; //already done
+	
+	g_libcurl = LoadLibrary("libcurl.dll");
+	if ( g_libcurl == NULL )
+		return false;
+
+	_curl_easy_init = (curl_easy_init_fn_t)GetProcAddress(g_libcurl, "curl_easy_init");
+	_curl_easy_setopt = (curl_easy_setopt_fn_t)GetProcAddress(g_libcurl, "curl_easy_setopt");
+	_curl_easy_perform = (curl_easy_perform_fn_t)GetProcAddress(g_libcurl, "curl_easy_perform");
+	_curl_easy_cleanup = (curl_easy_cleanup_fn_t)GetProcAddress(g_libcurl, "curl_easy_cleanup");
+	_curl_slist_append = (curl_slist_append_fn_t)GetProcAddress(g_libcurl, "curl_slist_append");
+	_curl_slist_free_all = (curl_slist_free_all_fn_t)GetProcAddress(g_libcurl, "curl_slist_free_all");
+
+	return ( _curl_easy_init != NULL 
+	      && _curl_easy_setopt != NULL 
+		  && _curl_easy_perform != NULL 
+		  && _curl_easy_cleanup != NULL 
+		  && _curl_slist_append != NULL 
+		  && _curl_slist_free_all != NULL);
+}
+
 #pragma pack(1)
 typedef struct score_info_s {
     uint32_t score;
@@ -456,17 +496,17 @@ static size_t parse_rivals(void *ptr, size_t size, size_t nmemb, void *data)
 
 bool tachi_get_status()
 {
-    CURL *curl = curl_easy_init();
+    CURL *curl = _curl_easy_init();
     if(!curl)
         return false;
 
-    curl_easy_setopt(curl, CURLOPT_URL, g_status_url);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+    _curl_easy_setopt(curl, CURLOPT_URL, g_status_url);
+    _curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
 
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&g_curl_data);
-    CURLcode res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
+    _curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    _curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&g_curl_data);
+    CURLcode res = _curl_easy_perform(curl);
+    _curl_easy_cleanup(curl);
     return (res == CURLE_OK);
 }
 
@@ -715,7 +755,7 @@ bool tachi_send_score()
     }", g_score_info->score, g_clear_medal[g_score_info->clear_type], song_id, curr_time, diff, g_score_info->nb_fast, g_score_info->nb_slow, g_score_info->max_combo, gauge, g_score_info->nb_cool, g_score_info->nb_great, g_score_info->nb_good, g_score_info->nb_bad, hispeed, (g_hidden_is_offset) ? 0 : g_song_info->hidden_value, g_song_info->sudden_value, g_random_type[g_song_info->random], g_gauge_type[g_song_info->gauge_type]);
 
     /* curl request */
-    CURL *curl = curl_easy_init();
+    CURL *curl = _curl_easy_init();
 
     struct curl_slist *list = NULL;
 
@@ -726,17 +766,17 @@ bool tachi_send_score()
 
     if(curl)
     {
-        curl_easy_setopt(curl, CURLOPT_URL, g_import_url);
-        curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+        _curl_easy_setopt(curl, CURLOPT_URL, g_import_url);
+        _curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
 
-        list = curl_slist_append(list, auth_header);
-        list = curl_slist_append(list, "Content-Type: application/json");
-        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, score_json);
-        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
+        list = _curl_slist_append(list, auth_header);
+        list = _curl_slist_append(list, "Content-Type: application/json");
+        _curl_easy_setopt(curl, CURLOPT_POSTFIELDS, score_json);
+        _curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
 
-        curl_easy_perform(curl);
-        curl_slist_free_all(list);
-        curl_easy_cleanup(curl);
+        _curl_easy_perform(curl);
+        _curl_slist_free_all(list);
+        _curl_easy_cleanup(curl);
     }
 
     return false;
@@ -747,7 +787,7 @@ bool tachi_get_rival_scores(int idx)
     if ( !load_profile_if_needed() )
         return false;
 
-    CURL *curl = curl_easy_init();
+    CURL *curl = _curl_easy_init();
     if(!curl)
         return false;
 
@@ -765,16 +805,16 @@ bool tachi_get_rival_scores(int idx)
         g_curl_data.size = 0;
     }
 
-    curl_easy_setopt(curl, CURLOPT_URL, rival_url);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+    _curl_easy_setopt(curl, CURLOPT_URL, rival_url);
+    _curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
 
-    list = curl_slist_append(list, auth_header);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&g_curl_data);
+    list = _curl_slist_append(list, auth_header);
+    _curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
+    _curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, WriteMemoryCallback);
+    _curl_easy_setopt(curl, CURLOPT_WRITEDATA, (void *)&g_curl_data);
 
-    CURLcode res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
+    CURLcode res = _curl_easy_perform(curl);
+    _curl_easy_cleanup(curl);
 
     return (res == CURLE_OK);
 }
@@ -806,7 +846,7 @@ bool tachi_get_rivals()
     if ( !load_profile_if_needed() )
         return false;
 
-    CURL *curl = curl_easy_init();
+    CURL *curl = _curl_easy_init();
     if(!curl)
         return false;
 
@@ -814,15 +854,15 @@ bool tachi_get_rivals()
     char auth_header[128];
     sprintf(auth_header, "Authorization: Bearer %s", g_api_key);
 
-    curl_easy_setopt(curl, CURLOPT_URL, g_rivals_url);
-    curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
+    _curl_easy_setopt(curl, CURLOPT_URL, g_rivals_url);
+    _curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, 0);
 
-    list = curl_slist_append(list, auth_header);
-    curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, parse_rivals);
+    list = _curl_slist_append(list, auth_header);
+    _curl_easy_setopt(curl, CURLOPT_HTTPHEADER, list);
+    _curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, parse_rivals);
 
-    CURLcode res = curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
+    CURLcode res = _curl_easy_perform(curl);
+    _curl_easy_cleanup(curl);
 
     if ( res != CURLE_OK )
         CURL_PRINT("[tachi] WARNING: get rivals request failed\n");
@@ -1016,6 +1056,13 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
         g_curl_log_fp = fopen("popnhax_curl.log", "w");
 #endif
 
+    if ( !load_libcurl())
+    {
+        LOG("popnhax: tachi rivals: cannot load libcurl\n");
+        g_libcurl = NULL;
+        return false;
+    }
+
     /* retrieve get_rivals_ptr() */
     {
         int64_t pattern_offset = search(data, dllSize, "\x0F\xB6\x8E\x38\x02\x00\x00", 7, 0);
@@ -1123,6 +1170,13 @@ bool patch_tachi_scorehook(const char *dllFilename, bool pfree, bool hidden_is_o
     if ( g_curl_log_fp == NULL )
         g_curl_log_fp = fopen("popnhax_curl.log", "w");
 #endif
+
+    if ( !load_libcurl())
+    {
+        LOG("popnhax: tachi scorehook: cannot load libcurl\n");
+        g_libcurl = NULL;
+        return false;
+    }
 
     /* do not send a "hidden" value if it really is an offset */
     if (hidden_is_offset)
