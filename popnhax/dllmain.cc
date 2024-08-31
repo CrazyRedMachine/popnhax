@@ -3796,6 +3796,7 @@ static bool patch_add_to_base_offset(int8_t delta) {
     return true;
 }
 
+bool g_hardware_offload = false;
 bool g_enhanced_poll_ready = false;
 int (*usbPadRead)(uint32_t*);
 
@@ -3983,7 +3984,15 @@ uint32_t buttonGetMillis(uint8_t button)
     return 0;
 }
 
+/* popnio.dll functions (for hardware offload) */
+bool (__cdecl *openrealio)(void);
+uint16_t (__cdecl *getbuttonstate)(uint8_t);
+int (__cdecl *popnio_usbpadread)(uint32_t *);
+int (__cdecl *popnio_usbpadreadlast)(uint8_t *);
+
 uint32_t usbPadReadHook_addr = 0;
+uint32_t usbPadReadLastHook_addr = 0;
+
 int usbPadReadHook(uint32_t *pad_bits)
 {
     // if we're here then ioboard is ready
@@ -3992,6 +4001,23 @@ int usbPadReadHook(uint32_t *pad_bits)
     // return last known input
     *pad_bits = g_last_button_state;
     return 0;
+}
+
+int usbPadReadHookHO(uint32_t *pad_bits)
+{
+    int res = popnio_usbpadread(pad_bits); // faster = more up-to-date
+
+    // update last_button_state (for enhanced polling stats display)
+    g_last_button_state = *pad_bits;
+    return res;
+}
+
+uint16_t HO_get_button_timer(uint8_t index)
+{
+    uint16_t val = getbuttonstate(index);
+    if ( val == 0xffff )
+        return 0;
+    return val;
 }
 
 uint32_t g_offset_fix[9] = {0};
@@ -4003,6 +4029,22 @@ void patch_enhanced_poll() {
      * we need to do esi -= buttonGetMillis([%eax]); to fix the offset accurately */
     __asm("push edx\n");
 
+    __asm("cmp byte ptr [_g_hardware_offload], 0\n");
+    __asm("je skip_ho\n");
+
+    /* hardware offload */
+    __asm("push ecx\n");
+    __asm("push edx\n");
+    __asm("push eax\n");
+    __asm("call %P0" : : "i"(HO_get_button_timer));
+    __asm("movzx ebx, ax\n");
+    __asm("pop eax\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("jmp button_state_empty\n");
+
+    /* no hardware offload */
+    __asm("skip_ho:\n");
     __asm("mov %0, al\n":"=m"(g_poll_index): :);
 
     /* reimplem buttonGetMillis(), result in ebx */
@@ -4040,13 +4082,66 @@ void patch_enhanced_poll() {
     __asm("jmp restore_eax\n");
 }
 
+char enhancedusbio_str[] = "ENHANCED USB I/O";
+static bool patch_usbio_string()
+{
+    uint32_t string_addr = (uint32_t)enhancedusbio_str;
+    const char* as_hex = (const char*) &string_addr;
+    /* change USB I/O to "ENHANCED USB I/O" */
+    if (!find_and_patch_hex(g_game_dll_fn, "\x3F\x41\x56\x43\x41\x70\x70\x40\x40\x00\x00", 11, 0x0B, as_hex, 4))
+    {
+        LOG("WARNING: PopnIO: cannot replace USB I/O string in selftest menu\n");
+        return false;
+    }
+    return true;
+}
+
+static bool patch_enhanced_polling_hardware_setup()
+{
+    bool res = false;
+
+    HMODULE hinstLib = LoadLibrary("popnio.dll");
+
+    if (hinstLib == NULL) {
+        auto err = GetLastError();
+        if ( err != 126 )
+            LOG("ERROR: unable to load popnio.dll for hardware offload enhanced polling (error %ld)\n",err);
+
+        return res;
+    }
+
+    LOG("popnhax: enhanced_polling: popnio.dll found, setup hardware offload\n");
+    // Get functions pointers
+    openrealio = (bool (__cdecl *)(void))GetProcAddress(hinstLib, "open_realio");
+    getbuttonstate = (uint16_t (__cdecl *)(uint8_t))GetProcAddress(hinstLib, "get_button_state");
+    popnio_usbpadread = (int (__cdecl *)(uint32_t *))GetProcAddress(hinstLib, "fast_usbPadRead");
+    popnio_usbpadreadlast = (int (__cdecl *)(uint8_t *))GetProcAddress(hinstLib, "fast_usbPadReadLast");
+
+    if ( openrealio == NULL || getbuttonstate == NULL || popnio_usbpadread == NULL || popnio_usbpadreadlast == NULL )
+    {
+        LOG("ERROR: a required function was not found in popnio.dll\n");
+        goto cleanup;
+    }
+
+    if ( !openrealio() )
+    {
+        LOG("ERROR: PopnIO: device not found (make sure it is connected in REALIO mode and that the FX2LP driver is installed)\n");
+        goto cleanup;
+    }
+
+    res = true;
+
+cleanup:
+    return res;
+}
+
 static HANDLE enhanced_polling_thread;
 
 static bool patch_enhanced_polling(uint8_t debounce, bool stats)
 {
     g_debounce = debounce;
 
-    if (enhanced_polling_thread == NULL) {
+    if ( !g_hardware_offload && enhanced_polling_thread == NULL) {
         if (stats)
         {
             enhanced_polling_thread = (HANDLE) _beginthreadex(
@@ -4100,22 +4195,45 @@ static bool patch_enhanced_polling(uint8_t debounce, bool stats)
             LOG("popnhax: enhanced polling: cannot find usbPadRead call (2)\n");
             return false;
         }
-        usbPadReadHook_addr = (uint32_t)&usbPadReadHook;
-        void *addr = (void *)&usbPadReadHook_addr;
-        uint32_t as_int = (uint32_t)addr;
 
-        // game will call usbPadReadHook instead of real usbPadRead (function call hook in order not to interfere with tools)
-        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x04; // usbPadRead function address
-        patch_memory(patch_addr, (char*)&as_int, 4);
+        if ( !g_hardware_offload )
+        {
+            usbPadReadHook_addr = (uint32_t)&usbPadReadHook;
+            void *addr = (void *)&usbPadReadHook_addr;
+            uint32_t as_int = (uint32_t)addr;
 
-        // don't call usbPadReadLast as it messes with the 1000Hz polling, we'll be running our own debouncing instead
-        patch_addr = (int64_t)data + pattern_offset - 20;
-        patch_memory(patch_addr, (char*)"\x90\x90\x90\x90\x90\x90", 6);
+            // game will call usbPadReadHook instead of real usbPadRead (function call hook in order not to interfere with tools)
+            uint64_t patch_addr = (int64_t)data + pattern_offset - 0x04; // usbPadRead function address
+            patch_memory(patch_addr, (char*)&as_int, 4);
+
+            // don't call usbPadReadLast as it messes with the 1000Hz polling, we'll be running our own debouncing instead
+            patch_addr = (int64_t)data + pattern_offset - 20;
+            patch_memory(patch_addr, (char*)"\x90\x90\x90\x90\x90\x90", 6);
+        } else {
+            // game will call popnio.dll fast_usbPadReadLast instead of the real usbPadReadLast
+            usbPadReadLastHook_addr = (uint32_t)popnio_usbpadreadlast;
+            void *addr = (void *)&usbPadReadLastHook_addr;
+            uint32_t as_int = (uint32_t)addr;
+
+            uint64_t patch_addr = (int64_t)data + pattern_offset - 18; // usbPadReadLast function address
+            patch_memory(patch_addr, (char*)&as_int, 4);
+
+            // game will call call popnio.dll fast_usbPadRead instead of the real usbPadRead
+            usbPadReadHook_addr = (stats) ? (uint32_t)&usbPadReadHookHO : (uint32_t)popnio_usbpadread;
+            addr = (void *)&usbPadReadHook_addr;
+            as_int = (uint32_t)addr;
+
+            patch_addr = (int64_t)data + pattern_offset - 0x04; // usbPadRead function address
+            patch_memory(patch_addr, (char*)&as_int, 4);
+
+        }
 
     }
 
     LOG("popnhax: enhanced polling enabled");
-    if (g_debounce != 0)
+    if ( g_hardware_offload )
+        LOG(" (with hardware offload)");
+    else if (g_debounce != 0)
         LOG(" (%u ms debounce)", g_debounce);
     LOG("\n");
 
@@ -5470,7 +5588,7 @@ void play_firststep() {
         __asm("cmp edi, dword ptr [eax]\n");
         __asm("jl p1_end\n");                  // elapsed time < Timing -> return
 
-        // E2‚Íƒƒ“ƒOÁ‚¦‚½‚ ‚Æ‚ÌƒoƒOH‘GOOD‚¾‚¯“ü‚é‚±‚Æ‚ª‚ ‚é‚Ì‚    ðÄŒ»c
+        // E2‚Íƒƒ“ƒOÁ‚¦‚½‚ ‚Æ‚ÌƒoƒOH‘GOOD‚¾‚¯“ü‚é‚±‚Æ‚ª‚ ‚é‚Ì‚ðÄŒ»c
         __asm("movzx ecx, word ptr [eax+0x04]\n");
         __asm("push edx\n");
         __asm("push ecx\n");
@@ -7171,6 +7289,7 @@ void enhanced_polling_stats_disp()
 const char stats_disp_header[] = " - 1000Hz Polling - ";
 const char stats_disp_lastpoll[] = "last input: 0x%06x";
 const char stats_disp_avgpoll[] = "100 polls in %dms";
+const char stats_disp_avgpoll_ho[] = "hardware offload";
 const char stats_disp_offset_header[] = "- Latest correction -";
 const char stats_disp_offset_top[] = "%s";
 char stats_disp_offset_top_str[15] = "";
@@ -7188,8 +7307,13 @@ void enhanced_polling_stats_disp_sub()
     uint8_t color = COLOR_GREEN;
     if (g_poll_rate_avg > 100)
         color = COLOR_RED;
+
     __asm("push %0\n"::"D"(g_poll_rate_avg));
+    if ( g_hardware_offload )
+    __asm("push %0\n"::"a"(stats_disp_avgpoll_ho));
+    else
     __asm("push %0\n"::"a"(stats_disp_avgpoll));
+
     __asm("push 0x5C\n");
     __asm("push 0x160\n");
     __asm("mov esi, %0\n"::"a"(*font_color+color));
@@ -8510,11 +8634,16 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.enhanced_polling)
         {
+            // setup hardware offload if applicable
+            g_hardware_offload = patch_enhanced_polling_hardware_setup();
+
             patch_enhanced_polling(config.debounce, config.enhanced_polling_stats);
             if (config.enhanced_polling_stats)
             {
                 patch_enhanced_polling_stats();
             }
+            if (g_hardware_offload)
+                patch_usbio_string();
         }
 
         if (config.hispeed_auto)
