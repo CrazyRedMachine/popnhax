@@ -22,11 +22,20 @@
 #include "custom_categs.h"
 
 extern const char* g_game_dll_fn;
+extern uint16_t g_low_bpm;
+extern uint16_t g_hi_bpm;
+extern uint16_t *g_base_bpm_ptr;
+
+double g_attract_hispeed_double = 0;
+uint32_t g_attract_hispeed = 40; //default x4.0
+uint32_t g_attract_target_bpm = 0;
 
 uint32_t g_autoplay_marker_addr = 0;
 uint32_t g_attract_marker_addr = 0;
 uint32_t g_is_button_pressed_fn = 0;
 uint32_t g_interactive_cooldown = 0;
+
+uint32_t g_update_hispeed_addr = 0; //will also serve as a need_update flag
 
 void (*real_attract)(void);
 void hook_ex_attract()
@@ -36,12 +45,53 @@ void hook_ex_attract()
     __asm("add ebx, 2\n");
     __asm("mov byte ptr [ebx], 3\n"); //force EX chart_num
     __asm("add ebx, 8\n");
-    __asm("mov byte ptr [ebx], 40\n"); // force x4.0 multiplier
+    __asm("push eax\n");
+    __asm("mov eax, dword ptr [_g_attract_hispeed]\n");
+    __asm("mov byte ptr [ebx], al\n"); //still set default value in case target bpm patch failed
+    __asm("mov dword ptr [_g_update_hispeed_addr], ebx\n");
+    __asm("pop eax\n");
     __asm("pop ebx\n");
     real_attract();
 }
 
-bool patch_ex_attract()
+void (*real_chart_prepare)(void);
+void hook_ex_attract_hispeed()
+{
+    __asm("push eax\n");
+    __asm("push ecx\n");
+    __asm("push edx\n");
+
+    __asm("mov word ptr [_g_hi_bpm], si\n");
+    __asm("mov word ptr [_g_low_bpm], dx\n");
+
+    __asm("cmp dword ptr [_g_attract_target_bpm], 0\n");
+    __asm("je skip_hispeed_compute\n");
+
+    g_attract_hispeed_double = (double)g_attract_target_bpm / (double)(*g_base_bpm_ptr/10.0);
+    g_attract_hispeed = (uint32_t)(g_attract_hispeed_double+0.5); //rounding to nearest
+    if (g_attract_hispeed > 0x64) g_attract_hispeed = 0x64;
+    if (g_attract_hispeed < 0x0A) g_attract_hispeed = 0x0A;
+
+    __asm("push eax\n");
+    __asm("push ebx\n");
+    __asm("mov ebx, dword ptr [_g_update_hispeed_addr]\n");
+    __asm("cmp ebx, 0\n");
+    __asm("je skip_hispeed_apply\n");
+    __asm("mov eax, dword ptr [_g_attract_hispeed]\n");
+    __asm("mov byte ptr [ebx], al\n");
+    __asm("mov dword ptr [_g_update_hispeed_addr], 0\n");
+    __asm("skip_hispeed_apply:\n");
+    __asm("pop ebx\n");
+    __asm("pop eax\n");
+
+    __asm("skip_hispeed_compute:\n");
+    __asm("pop edx\n");
+    __asm("pop ecx\n");
+    __asm("pop eax\n");
+    real_chart_prepare();
+}
+
+bool patch_ex_attract(uint16_t target_bpm)
 {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
@@ -58,6 +108,25 @@ bool patch_ex_attract()
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_ex_attract,
                      (void **)&real_attract);
     }
+
+    if ( target_bpm != 0 )
+    {
+        g_attract_target_bpm = target_bpm;
+        int64_t pattern_offset = search(data, dllSize, "\x43\x83\xC1\x0C\x83\xEF\x01\x75", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("WARNING: attract_ex: cannot find chart prepare function (cannot set target bpm)\n");
+            return true;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0A;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_ex_attract_hispeed,
+                     (void **)&real_chart_prepare);
+
+        LOG("popnhax: attract mode will play EX charts at %u bpm\n", target_bpm);
+        return true;
+    }
+
     LOG("popnhax: attract mode will play EX charts at 4.0x hispeed\n");
     return true;
 }
@@ -158,6 +227,7 @@ bool patch_attract_interactive()
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
+    /* retrieve autoplay marker address */
     {
         int64_t pattern_offset = search(data, dllSize, "\x33\xC4\x89\x44\x24\x0C\x56\x57\x53\xE8", 10, 0);
         if (pattern_offset == -1) {
@@ -169,9 +239,11 @@ bool patch_attract_interactive()
 
         uint32_t function_offset = *((uint32_t*)(patch_addr+0x01));
         uint64_t function_addr = patch_addr+5+function_offset;
-		
-		g_autoplay_marker_addr = *((uint32_t*)(function_addr+0x02));
-	}
+
+        g_autoplay_marker_addr = *((uint32_t*)(function_addr+0x02));
+    }
+
+    /* retrieve attract demo marker address */
     {
         int64_t pattern_offset = search(data, dllSize, "\x00\x00\x88\x46\x18\x88\x46", 7, 0);
         if (pattern_offset == -1) {
@@ -183,12 +255,7 @@ bool patch_attract_interactive()
 
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_retrieve_attractmarker,
                      (void **)&real_rearm_marker);
-		
-	}
-		//bad version
-		//g_attract_marker_addr = g_autoplay_marker_addr - 0x105; //TODO: check other versions peace ya 8 de moins
-		//exit(0);
-		 
+    }
 
     /* enable interactive mode on button press (except red) */
     {
@@ -210,7 +277,6 @@ bool patch_attract_interactive()
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x02;
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter,
                      (void **)&real_attract_inter);
-
     }
 
     /* disable interactive mode after a while without button press */
@@ -244,27 +310,21 @@ bool patch_attract_interactive()
             LOG("popnhax: attract_interactive: cannot find attract mode timer set function\n");
             return false;
         }
-		int64_t pattern_offset2 = search(data, dllSize-pattern_offset, "\x66\x85\xC0\x74", 4, pattern_offset);
+
+        int64_t pattern_offset2 = search(data, dllSize-pattern_offset, "\x66\x85\xC0\x74", 4, pattern_offset);
         if (pattern_offset2 == -1) {
-            LOG("popnhax: attract_interactive: cannot find end of song handling function\n"); //TODO: FIX FOR PEACE and maybe other
+            LOG("popnhax: attract_interactive: cannot find end of song handling function\n");
             return false;
         }
 
-		uint64_t patch_addr = (int64_t)data + pattern_offset2 + 0x05;
+        uint64_t patch_addr = (int64_t)data + pattern_offset2 + 0x05;
 
-		MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter_songend_rearm,
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter_songend_rearm,
                      (void **)&real_songend_handling);
-		/* mauvais endroit, commun à attract et regular (par contre dans cette zone faudra reset le marker autoplay quand on arrive en fin de song pour pas crash)
-        a partir de pattern offset, on cherche 74 0B 89 2D + 0x02 , idem on check si 01 01 auquel cas on remet autoplay à 1
-		                                          19    3d
-		uint64_t patch_addr = (int64_t)data + pattern_offset - 0x1B;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter,
-                     (void **)&real_attract_inter);
-*/
     }
-	
-	/* fix crash when pressing test button during interactive mode */
-	{
+
+    /* fix crash when pressing test button during interactive mode */
+    {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x84\xC0\x74\x75\x38\x1D", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_interactive: cannot find test button handling\n");
@@ -276,7 +336,7 @@ bool patch_attract_interactive()
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter_rearm_test,
                      (void **)&real_test_handling);
     }
-	
+
     LOG("popnhax: attract mode is interactive\n");
     return true;
 

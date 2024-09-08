@@ -418,10 +418,10 @@ uint32_t g_soflan_retry_hispeed = 0; //hispeed value that is temporary kept for 
 uint32_t g_hispeed_addr = 0;
 uint32_t g_target_bpm = 0;
 uint32_t g_default_bpm = 0; //used to rearm between credits
-uint16_t *g_base_bpm_ptr = 0; //will point to g_low_bpm or g_hi_bpm according to mode
 uint16_t g_low_bpm = 0;
 uint16_t g_hi_bpm = 0;
 uint16_t g_longest_bpm = 0;
+uint16_t *g_base_bpm_ptr = &g_hi_bpm; //will point to g_low_bpm or g_longest_bpm according to mode
 uint32_t g_low_bpm_ebp_offset = 0;
 unsigned char *g_chart_addr = 0;
 
@@ -8650,7 +8650,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.attract_ex)
         {
-            patch_ex_attract();
+            patch_ex_attract( config.hispeed_auto ? config.hispeed_default_bpm : 0 );
         }
         if (config.attract_full)
         {
