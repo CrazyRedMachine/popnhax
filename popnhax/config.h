@@ -37,6 +37,7 @@ struct popnhax_config {
     bool tachi_scorehook_skip_omni;
     bool tachi_rivals;
     bool autopin;
+    bool attract_interactive;
     bool attract_ex;
     bool attract_full;
     bool force_slow_timer;
