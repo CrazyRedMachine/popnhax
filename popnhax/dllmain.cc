@@ -228,6 +228,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, attract_intera
                  "/popnhax/attract_interactive")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, attract_full,
                  "/popnhax/attract_full")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, attract_lights,
+                 "/popnhax/attract_lights")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_slow_timer,
                  "/popnhax/force_slow_timer")
 /* removed options are now hidden as optional */
@@ -8646,6 +8648,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (config.attract_interactive)
         {
             patch_attract_interactive();
+        }
+
+        if (config.attract_lights)
+        {
+            patch_attract_lights();
         }
 
         if (config.attract_ex)

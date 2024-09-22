@@ -91,8 +91,10 @@
   <!-- Attract mode patches -->
     <!-- Attract mode can be played (press a button other than red during demo to enter interactive mode) -->
     <attract_interactive __type="bool">0</attract_interactive>
-    <!-- Attract mode will play EX charts at 4.0x hispeed -->
+    <!-- Attract mode will play EX charts instead of normal, and at hispeed default bpm (or x4.0 if unset) -->
     <attract_ex __type="bool">0</attract_ex>
+    <!-- Attract mode will light up -->
+    <attract_lights __type="bool">0</attract_lights>
     <!-- Attract mode will play full songs -->
     <attract_full __type="bool">0</attract_full>
 

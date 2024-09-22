@@ -40,6 +40,7 @@ struct popnhax_config {
     bool attract_interactive;
     bool attract_ex;
     bool attract_full;
+    bool attract_lights;
     bool force_slow_timer;
 
     bool patch_db;

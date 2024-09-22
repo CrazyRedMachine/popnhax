@@ -160,68 +160,69 @@ bool patch_full_attract()
 void (*real_attract_inter)(void);
 void hook_attract_inter()
 {
- __asm("push 0x1EF\n");
- __asm("mov eax, dword ptr [_g_is_button_pressed_fn]\n");
- __asm("call eax\n");
- __asm("add esp, 4\n");
- __asm("test al, al\n");
- __asm("je skip_disable_autoplay\n");
- __asm("mov eax, dword ptr [_g_autoplay_marker_addr]\n");
- __asm("mov dword ptr [eax], 0\n");
- __asm("skip_disable_autoplay:");
- real_attract_inter();
+    __asm("push 0x1EF\n");
+    __asm("mov eax, dword ptr [_g_is_button_pressed_fn]\n");
+    __asm("call eax\n");
+    __asm("add esp, 4\n");
+    __asm("test al, al\n");
+    __asm("je skip_disable_autoplay\n");
+    __asm("mov eax, dword ptr [_g_autoplay_marker_addr]\n");
+    __asm("mov dword ptr [eax], 0\n");
+    __asm("skip_disable_autoplay:");
+    real_attract_inter();
 }
 
 void (*real_retire_handling)(void);
 void hook_attract_inter_rearm()
 {
- __asm("push eax\n");
- __asm("mov eax, dword ptr [_g_attract_marker_addr]\n");
- __asm("cmp word ptr [eax], 0x0101\n");
- __asm("jne skip_rearm_autoplay\n");
- __asm("mov eax, dword ptr [_g_autoplay_marker_addr]\n");
- __asm("mov dword ptr [eax], 1\n");
- __asm("skip_rearm_autoplay:");
- __asm("pop eax\n");
- real_retire_handling();
+    __asm("push eax\n");
+    __asm("mov eax, dword ptr [_g_attract_marker_addr]\n");
+    __asm("cmp word ptr [eax], 0x0101\n");
+    __asm("jne skip_rearm_autoplay\n");
+    __asm("mov eax, dword ptr [_g_autoplay_marker_addr]\n");
+    __asm("mov dword ptr [eax], 1\n");
+    __asm("skip_rearm_autoplay:");
+    __asm("pop eax\n");
+    real_retire_handling();
 }
 
 void (*real_songend_handling)(void);
 void hook_attract_inter_songend_rearm()
 {
- __asm("push eax\n");
- __asm("mov eax, dword ptr [_g_attract_marker_addr]\n");
- __asm("cmp word ptr [eax], 0x0101\n");
- __asm("jne skip_se_rearm_autoplay\n");
- __asm("mov eax, dword ptr [_g_autoplay_marker_addr]\n");
- __asm("mov dword ptr [eax], 1\n");
- __asm("skip_se_rearm_autoplay:");
- __asm("pop eax\n");
- real_songend_handling();
+    __asm("push eax\n");
+    __asm("mov eax, dword ptr [_g_attract_marker_addr]\n");
+    __asm("cmp word ptr [eax], 0x0101\n");
+    __asm("jne skip_se_rearm_autoplay\n");
+    __asm("mov eax, dword ptr [_g_autoplay_marker_addr]\n");
+    __asm("mov dword ptr [eax], 1\n");
+    __asm("skip_se_rearm_autoplay:");
+    __asm("pop eax\n");
+    real_songend_handling();
 }
 
 void (*real_test_handling)(void);
 void hook_attract_inter_rearm_test()
 {
- __asm("push eax\n");
- __asm("mov eax, dword ptr [_g_attract_marker_addr]\n");
- __asm("cmp word ptr [eax], 0x0101\n");
- __asm("jne skip_rearm_autoplay_test\n");
- __asm("mov eax, dword ptr [_g_autoplay_marker_addr]\n");
- __asm("mov dword ptr [eax], 1\n");
- __asm("skip_rearm_autoplay_test:");
- __asm("pop eax\n");
- real_test_handling();
+    __asm("push eax\n");
+    __asm("mov eax, dword ptr [_g_attract_marker_addr]\n");
+    __asm("cmp word ptr [eax], 0x0101\n");
+    __asm("jne skip_rearm_autoplay_test\n");
+    __asm("mov eax, dword ptr [_g_autoplay_marker_addr]\n");
+    __asm("mov dword ptr [eax], 1\n");
+    __asm("skip_rearm_autoplay_test:");
+    __asm("pop eax\n");
+    real_test_handling();
 }
 
 void (*real_rearm_marker)(void);
 void hook_retrieve_attractmarker()
 {
- __asm("add esi, 0x18\n"); 
- __asm("mov dword ptr [_g_attract_marker_addr], esi\n");
- __asm("sub esi, 0x18\n");
- real_rearm_marker();
+    __asm("add esi, 0x18\n");
+    __asm("mov dword ptr [_g_attract_marker_addr], esi\n");
+    __asm("sub esi, 0x18\n");
+    real_rearm_marker();
 }
+
 bool patch_attract_interactive()
 {
     DWORD dllSize = 0;
@@ -280,7 +281,7 @@ bool patch_attract_interactive()
     }
 
     /* disable interactive mode after a while without button press */
-	{
+    {
         int64_t pattern_offset = search(data, dllSize, "\x3D\x58\x02\x00\x00\x7C", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_interactive: cannot find retire handling\n");
@@ -340,4 +341,69 @@ bool patch_attract_interactive()
     LOG("popnhax: attract mode is interactive\n");
     return true;
 
+}
+
+uint32_t g_button_bitfield_addr = 0;
+
+void (*real_autoplay_handling)(void);
+void hook_attract_autoplay()
+{
+    // ax contains button, need to OR g_button_bitfield_addr with 1<<ax
+    __asm("push edx\n");
+    __asm("push ecx\n");
+    __asm("push ebx\n");
+    __asm("movzx ecx, ax\n");
+    __asm("mov ebx, 1\n");
+    __asm("shl ebx, cl\n");
+    __asm("mov edx, [_g_button_bitfield_addr]\n");
+    __asm("or dword ptr [edx], ebx\n");
+    __asm("pop ebx\n");
+    __asm("pop ecx\n");
+    __asm("pop edx\n");
+    real_autoplay_handling();
+}
+
+bool patch_attract_lights()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    /* retrieve pressed button bitfield address */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x25\xFF\x0F\x00\x00\x5D\xC3\xCC\xCC\xCC\xCC\x55\x8B\xEC\x0F\xB6\x05", 17, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: attract_lights: cannot find button bitfield address\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
+
+        g_button_bitfield_addr = *((uint32_t*)(patch_addr+0x01));
+    }
+
+    /* hook autoplay button trigger to force corresponding button lamps */
+    {
+        int64_t pattern_offset = search(data, dllSize, "\x66\xC1\xE0\x08\x0F\xB7\xC8\x83\xC9\x02\x51", 11, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: attract_lights: cannot find autopress button handling\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_autoplay,
+                     (void **)&real_autoplay_handling);
+    }
+
+    /* force lamp computation in attract mode */
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\x00\x00\x84\xC0\x75\x41\xE8", 7, 4, "\x90\x90", 2))
+        {
+            LOG("popnhax: attract_lights: cannot find lamp compute function\n");
+            return false;
+        }
+    }
+
+    LOG("popnhax: attract mode has lights\n");
+    return true;
 }
