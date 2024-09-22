@@ -121,6 +121,9 @@
     <!-- PLEASE USE OFFLINE ONLY -->
     <practice_mode __type="bool">0</practice_mode>
 
+    <!-- Skip song checks before selftest on game launch -->
+    <quick_boot __type="bool">0</quick_boot>
+
   <!-- ========================================================================================
        DEBUG OPTIONS FOLLOW (GENERALLY SHOULD NOT BE CHANGED UNLESS YOU KNOW WHAT YOU'RE DOING)
        ======================================================================================== -->

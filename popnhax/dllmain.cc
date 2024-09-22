@@ -100,6 +100,8 @@ uint8_t *add_string(uint8_t *input);
 struct popnhax_config config = {};
 
 PSMAP_BEGIN(config_psmap, static)
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, quick_boot,
+                 "/popnhax/quick_boot")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hidden_is_offset,
                  "/popnhax/hidden_is_offset")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, iidx_hard_gauge,
@@ -8136,6 +8138,18 @@ static bool patch_afp_framerate(uint16_t fps)
     return true;
 }
 
+static bool patch_quick_boot()
+{
+    if ( !find_and_patch_hex(g_game_dll_fn, "\x8B\xF0\x8B\x16\x8B\x42\x04\x6A\x00", 9, -10, "\x90\x90\x90\x90\x90", 5) )
+    {
+        LOG("popnhax: quick_boot: cannot patch song checks\n");
+        return false;
+    }
+
+    LOG("popnhax: quick boot enabled\n");
+    return true;
+}
+
 BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserved) {
     switch (ul_reason_for_call) {
     case DLL_PROCESS_ATTACH: {
@@ -8659,9 +8673,15 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         {
             patch_ex_attract( config.hispeed_auto ? config.hispeed_default_bpm : 0 );
         }
+
         if (config.attract_full)
         {
             patch_full_attract();
+        }
+
+        if (config.quick_boot)
+        {
+            patch_quick_boot();
         }
 
         if (config.time_rate)
