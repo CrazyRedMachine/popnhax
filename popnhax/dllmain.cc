@@ -7452,6 +7452,19 @@ static bool patch_enhanced_polling_stats()
 /* HARD GAUGE SURVIVAL*/
 uint8_t g_hard_gauge_selected = false;
 
+void (*real_survival_flag_hard_gauge_new)();
+void hook_survival_flag_hard_gauge_new()
+{
+    __asm("add eax, 0x36\n");
+    __asm("cmp byte ptr [eax], 2\n");
+    g_hard_gauge_selected = false;
+    __asm("jne no_hard_gauge_new\n");
+    g_hard_gauge_selected = true;
+    __asm("no_hard_gauge_new:\n");
+    __asm("sub eax, 0x36\n");
+    real_survival_flag_hard_gauge_new();
+}
+
 void (*real_survival_flag_hard_gauge)();
 void hook_survival_flag_hard_gauge()
 {
@@ -7613,8 +7626,19 @@ bool patch_hard_gauge_survival(uint8_t severity)
     /* hook commit option to flag hard gauge being selected */
     {
         /* find option commit function (unilab) */
-        int64_t pattern_offset = _search(data, dllSize, "\x89\x48\x0C\x8B\x56\x10\x89\x50\x10\x66\x8B\x4E\x14\x66\x89\x48\x14\x5B\xC3\xCC", 20, 0);
-        if (pattern_offset == -1) {
+        if (config.game_version == 27)
+        {
+            int64_t pattern_offset = _search(data, dllSize, "\x89\x48\x0C\x8B\x56\x10\x89\x50\x10\x66\x8B\x4E\x14\x66\x89\x48\x14\x5B\xC3\xCC", 20, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: survival gauge: cannot find option commit function (0)\n");
+                return false;
+            }
+            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_flag_hard_gauge,
+                        (void **)&real_survival_flag_hard_gauge);
+        }
+        else if (config.game_version < 27)
+        {
             /* wasn't found, look for older function */
             int64_t first_loc = _search(data, dllSize, "\x0F\xB6\xC3\x03\xCF\x8D", 6, 0);
 
@@ -7623,7 +7647,7 @@ bool patch_hard_gauge_survival(uint8_t severity)
                 return false;
             }
 
-            pattern_offset = _search(data, 0x50, "\x89\x50\x0C", 3, first_loc);
+            int64_t pattern_offset = _search(data, 0x50, "\x89\x50\x0C", 3, first_loc);
 
             if (pattern_offset == -1) {
                 LOG("popnhax: survival gauge: cannot find option commit function (2)\n");
@@ -7636,9 +7660,14 @@ bool patch_hard_gauge_survival(uint8_t severity)
         }
         else
         {
-            uint64_t patch_addr = (int64_t)data + pattern_offset;
-            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_flag_hard_gauge,
-                        (void **)&real_survival_flag_hard_gauge);
+            int64_t pattern_offset = _search(data, dllSize, "\x6B\xC9\x1A\x03\xC6\x8B\x74\x24\x10", 9, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: survival gauge: cannot find option commit function (3)\n");
+                return false;
+            }
+            uint64_t patch_addr = (int64_t)data + pattern_offset + 0x14;
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_flag_hard_gauge_new,
+                        (void **)&real_survival_flag_hard_gauge_new);
         }
 
     }
@@ -7679,8 +7708,11 @@ bool patch_hard_gauge_survival(uint8_t severity)
 
         if (!find_and_patch_hex(g_game_dll_fn, "\xB8\xDD\xFF\xFF\xFF", 5, 1, as_hex, 4))
         {
-            LOG("\n");
-            LOG("popnhax: survival gauge: cannot patch severity\n");
+            if (!find_and_patch_hex(g_game_dll_fn, "\xBA\xDD\xFF\xFF\xFF", 5, 1, as_hex, 4))
+            {
+                LOG("\n");
+                LOG("popnhax: survival gauge: cannot patch severity\n");
+            }
         }
     }
 
@@ -7731,7 +7763,13 @@ bool patch_survival_iidx()
             return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        int32_t delta = 0;
+        if (config.game_version > 27)
+        {
+            delta = 8;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - delta;
 
         _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_iidx_prepare_gauge,
                       (void **)&real_survival_iidx_prepare_gauge);
@@ -7759,11 +7797,23 @@ bool patch_survival_iidx()
 
 bool patch_survival_spicy()
 {
-    if (!find_and_patch_hex(g_game_dll_fn, "\xB9\x02\x00\x00\x00\x66\x89\x0C\x75", 9, 1, "\x00\x00\x00\x00", 4))
+    if ( config.game_version <= 27)
     {
-        LOG("\n");
-        LOG("popnhax: spicy survival gauge: cannot patch gauge increment\n");
-        return false;
+        if (!find_and_patch_hex(g_game_dll_fn, "\xB9\x02\x00\x00\x00\x66\x89\x0C\x75", 9, 1, "\x00\x00\x00\x00", 4))
+        {
+            LOG("\n");
+            LOG("popnhax: spicy survival gauge: cannot patch gauge increment\n");
+            return false;
+        }
+    }
+    else
+    {
+        if (!find_and_patch_hex(g_game_dll_fn, "\xBA\x02\x00\x00\x00\x66\x89\x14\x75", 9, 1, "\x00\x00\x00\x00", 4))
+        {
+            LOG("\n");
+            LOG("popnhax: spicy survival gauge: cannot patch gauge increment\n");
+            return false;
+        }
     }
 
     if (!config.iidx_hard_gauge)
