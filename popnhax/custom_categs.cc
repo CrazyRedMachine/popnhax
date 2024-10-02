@@ -578,10 +578,11 @@ void hook_categ_title_printf()
     real_categ_title_printf();
 }
 
+uint32_t g_max_categ_idx = 0;
 void (*real_categ_listing)();
 void hook_categ_listing()
 {
-    __asm("cmp eax, 0x11\n");
+    __asm("cmp eax, [_g_max_categ_idx]\n");
     __asm("jne categ_listing_ok\n");
     __asm("cmp byte ptr ds:[_g_subcategmode], 1\n");
     __asm("jne skip_push\n");
@@ -761,8 +762,11 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: local_favorites: cannot find category jump table\n");
-            return false;
+            pattern_offset = search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
+            if (pattern_offset == -1) {
+                LOG("popnhax: local_favorites: cannot find category jump table\n");
+                return false;
+            }
         }
 
             uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x05 + 0x5A);
@@ -876,6 +880,31 @@ local_favorite_ok:
     return true;
 }
 
+
+void (*real_get_categ_name)();
+void hook_get_categ_name()
+{
+    //eax is index, needs to return pointer to categ name string in eax
+    __asm("cmp eax, [_g_max_categ_idx]\n");
+    __asm("jne skip_hook_categ_name\n");
+    __asm("mov eax, [_g_categname]\n");
+    __asm("ret");
+    __asm("skip_hook_categ_name:\n");
+    real_get_categ_name();
+}
+
+void (*real_get_icon_name)();
+void hook_get_icon_name()
+{
+    //eax is index, needs to return pointer to categ icon string in eax
+    __asm("cmp eax, [_g_max_categ_idx]\n");
+    __asm("jne skip_hook_categ_icon\n");
+    __asm("mov eax, [_g_categicon]\n");
+    __asm("ret");
+    __asm("skip_hook_categ_icon:\n");
+    real_get_icon_name();
+}
+
 static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
 
     DWORD dllSize = 0;
@@ -899,12 +928,17 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
     // patch category handling jumptable to add our processing
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
+        uint8_t jump_size = 0x75; //as seen in pattern
         if (pattern_offset == -1) {
-            LOG("popnhax: custom_categ: cannot find category jump table\n");
-            return false;
+            jump_size = 0x7C;  //as seen in pattern
+            pattern_offset = search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
+            if (pattern_offset == -1) {
+                LOG("popnhax: custom_categ: cannot find category jump table\n");
+                return false;
+            }
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05 + 0x75;
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05 + jump_size; //hook at the end of jump table
 
         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_listing,
                      (void **)&real_categ_listing);
@@ -967,7 +1001,7 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
 
         //force rearm songlist creation so that it keeps working
         {
-            int64_t pattern_offset = search(data, dllSize, "\x33\xC9\xB8\x12\x00\x00\x00\xBA", 8, 0);
+            int64_t pattern_offset = search(data, dllSize, "\xB8\x12\x00\x00\x00\xBA\x2B\x00\x00\x00\x89\x44\x24", 13, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: custom_categ: cannot find category generation function\n");
                 return false;
@@ -976,51 +1010,80 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
             uint64_t patch_addr = (int64_t)data + pattern_offset;
 
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_reinit_songlist,
-                        (void **)&real_categ_reinit_songlist);
+                         (void **)&real_categ_reinit_songlist);
         }
     }
 
     //bump category count from 16 to 17
+    g_max_categ_idx = 17;
     if (!find_and_patch_hex(game_dll_fn, "\x83\xFE\x11\x0F\x82\x59\xFE\xFF\xFF", 9, 2, "\x12", 1))
     {
-        return false;
+        g_max_categ_idx++;
+        if (!find_and_patch_hex(game_dll_fn, "\x83\xFF\x12\x0F\x82\x71\xFE\xFF\xFF", 9, 2, "\x13", 1)) //jam&fizz
+        {
+            LOG("popnhax: custom_categ: cannot bump category count\n");
+            return false;
+        }
     }
 
     //patch getCategName for a 17th entry
     {
         //make array one cell larger
-        if (!find_and_patch_hex(game_dll_fn, "\x83\xEC\x44\x98\xC7\x04\x24", 7, 2, "\x48", 1))
+        int64_t pattern_offset = find_and_patch_hex(game_dll_fn, "\x83\xEC\x44\x98\xC7\x04\x24", 7, 2, "\x48", 1);
+        if (!pattern_offset)
         {
-            return false;
+            pattern_offset = find_and_patch_hex(game_dll_fn, "\x83\xEC\x48\x98\xC7\x04\x24", 7, 2, "\x4C", 1);
+            if (!pattern_offset)
+            {
+                LOG("popnhax: custom_categ: cannot patch getCategName\n");
+                return false;
+            }
         }
+        if (!find_and_patch_hex(game_dll_fn, "\x8B\x04\x84\x83\xC4\x44\xC3\xCC", 8, 5, "\x48", 1))
+        {
+            if (!find_and_patch_hex(game_dll_fn, "\x8B\x04\x84\x83\xC4\x48\xC3\xCC", 8, 5, "\x4C", 1))
+            {
+                LOG("popnhax: custom_categ: cannot patch getCategName (2)\n");
+                return false;
+            }
+        }
+
         //add the new name
-        uint32_t categname_str_addr = (uint32_t)g_categname;
-        char categname_patch_string[] = "\xC7\x44\x24\x44\x20\x00\x28\x10\x8B\x04\x84\x83\xC4\x48\xC3";
-        memcpy(categname_patch_string+4, &categname_str_addr, 4);
-        if (!find_and_patch_hex(game_dll_fn, "\x8B\x04\x84\x83\xC4\x44\xC3\xCC", 8, 0, categname_patch_string, 15))
-        {
-            return false;
-        }
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_get_categ_name,
+                     (void **)&real_get_categ_name);
     }
 
     //patch getIconName for a 17th entry
     {
-        if (!find_and_patch_hex(game_dll_fn, "\x83\xEC\x44\x98\xC7\x04\x24", 7, 2, "\x48", 1)) //2nd occurrence since first one just got patched
+        int64_t pattern_offset = find_and_patch_hex(game_dll_fn, "\x83\xEC\x44\x98\xC7\x04\x24", 7, 2, "\x48", 1); //2nd occurrence since first one just got patched
+        if (!pattern_offset)
         {
-            return false;
+            pattern_offset = find_and_patch_hex(game_dll_fn, "\x83\xEC\x48\x98\xC7\x04\x24", 7, 2, "\x4C", 1);
+            if (!pattern_offset)
+            {
+                LOG("popnhax: custom_categ: cannot patch getIconName\n");
+                return false;
+            }
+        }
+        if (!find_and_patch_hex(game_dll_fn, "\x8B\x04\x84\x83\xC4\x44\xC3\xCC", 8, 5, "\x48", 1))
+        {
+            if (!find_and_patch_hex(game_dll_fn, "\x8B\x04\x84\x83\xC4\x48\xC3\xCC", 8, 5, "\x4C", 1))
+            {
+                LOG("popnhax: custom_categ: cannot patch getIconName (2)\n");
+                return false;
+            }
         }
         //add the new icon name
-        uint32_t categicon_str_addr = (uint32_t)g_categicon;
-        char categicon_patch_string[] = "\xC7\x44\x24\x44\xDC\x00\x28\x10\x8B\x04\x84\x83\xC4\x48\xC3";
-        memcpy(categicon_patch_string+4, &categicon_str_addr, 4);
-        if (!find_and_patch_hex(game_dll_fn, "\x8B\x04\x84\x83\xC4\x44\xC3\xCC", 8, 0, categicon_patch_string, 15))
-        {
-            return false;
-        }
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_get_icon_name,
+                     (void **)&real_get_icon_name);
     }
 
-char formatted_title[128];
-sprintf(formatted_title, g_categformat, g_categname);
+    char formatted_title[128];
+    sprintf(formatted_title, g_categformat, g_categname);
     LOG("popnhax: custom %s \"%s\" injected", g_subcategmode? "subcategories":"category", formatted_title);
     if (min_id)
         LOG(" (for songids >= %d)", min_id);

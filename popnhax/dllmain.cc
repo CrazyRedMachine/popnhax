@@ -1929,8 +1929,11 @@ static bool patch_normal0()
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\xF8\x89\x7C\x24\x3C", 9, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: Couldn't find song list display function\n");
-            return false;
+            pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\xF8\x89\x7C\x24\x44", 9, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: normal0: Couldn't find song list display function\n");
+                return false;
+            }
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
@@ -3536,12 +3539,18 @@ static bool patch_quick_retire(bool pfree)
     /* retrieve songstart function pointer for quick retry */
     {
         int64_t pattern_offset = search(data, dllSize, "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
+        int delta = -4;
 
         if (pattern_offset == -1) {
-            LOG("popnhax: quick retry: cannot retrieve song start function\n");
-            return false;
+            delta = 18;
+            pattern_offset = search(data, dllSize, "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: quick retry: cannot retrieve song start function\n");
+                return false;
+            }
         }
-        uint64_t patch_addr = (int64_t)data + pattern_offset - 4;
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + delta;
         g_startsong_addr = *(uint32_t*)(patch_addr);
     }
 
@@ -4834,8 +4843,11 @@ static bool patch_score_challenge()
     {
         int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: score challenge: cannot find category building loop\n");
-            return false;
+            pattern_offset = search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
+            if (pattern_offset == -1) {
+                LOG("popnhax: score challenge: cannot find category building loop\n");
+                return false;
+            }
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x66;
@@ -6973,12 +6985,19 @@ static bool patch_record_mode(bool quickretire)
         {
             int64_t pattern_offset = search(data, dllSize,
                      "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
+            int delta = -4;
+
             if (pattern_offset == -1) {
-                LOG("popnhax: record reload: cannot retrieve song start function\n");
-                return false;
+                delta = 18;
+                pattern_offset = search(data, dllSize,
+                     "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, 0);
+                if (pattern_offset == -1) {
+                    LOG("popnhax: record reload: cannot retrieve song start function\n");
+                    return false;
+                }
             }
 
-            uint64_t patch_addr = (int64_t)data + pattern_offset - 4;
+            uint64_t patch_addr = (int64_t)data + pattern_offset + delta;
             g_startsong_addr = *(uint32_t*)(patch_addr);
         }
         /* instant launch song with numpad 8 on option select (hold 8 during song for quick retry) */
