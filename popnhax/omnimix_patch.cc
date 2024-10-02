@@ -8,7 +8,6 @@
 #include "util/bst.h"
 #include "util/log.h"
 #include "util/patch.h"
-#include "util/search.h"
 #include "libdisasm/libdis.h"
 
 #include "omnimix_patch.h"

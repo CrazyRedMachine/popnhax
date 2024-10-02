@@ -9,17 +9,12 @@
 #include "util/jsmn.h"
 #include "util/jsmn-find.h"
 
-#include "util/search.h"
-
 #include "util/log.h"
 #include "util/patch.h"
 
 #include "popnhax/custom_categs.h"
 
 #include "libcurl/curl/curl.h"
-
-#include "minhook/hde32.h"
-#include "minhook/include/MinHook.h"
 
 #define DEBUG_CURL 0
 
@@ -1065,10 +1060,10 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
 
     /* retrieve get_rivals_ptr() */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x0F\xB6\x8E\x38\x02\x00\x00", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x0F\xB6\x8E\x38\x02\x00\x00", 7, 0);
         if (pattern_offset == -1)
         {
-            pattern_offset = search(data, dllSize, "\x0F\xB6\x89\x38\x02\x00\x00", 7, 0); // usaneko/peace
+            pattern_offset = _search(data, dllSize, "\x0F\xB6\x89\x38\x02\x00\x00", 7, 0); // usaneko/peace
             if (pattern_offset == -1) {
                 LOG("popnhax: tachi rivals: cannot find get_rivals_ptr function\n");
                 return false;
@@ -1081,7 +1076,7 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
 
     /* retrieve rival_entry_size */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\xE5\x5D\xC2\x08\x00\x69\xDB", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\xE5\x5D\xC2\x08\x00\x69\xDB", 8, 0);
         if (pattern_offset == -1)
         {
             LOG("popnhax: tachi rivals: cannot find rival entry size\n");
@@ -1093,7 +1088,7 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
 
     /* retrieve offset where g_rival_count should be written */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x66\x83\xF8\xFF\x75\x07\x66\xFF\x87", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x66\x83\xF8\xFF\x75\x07\x66\xFF\x87", 9, 0);
         if (pattern_offset == -1)
         {
             LOG("popnhax: tachi rivals: cannot find rival entry size\n");
@@ -1105,7 +1100,7 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
 
     /* retrieve write_rival_score */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x66\x8B\x0A\x50\x8A\x42\x04\xE8", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x66\x8B\x0A\x50\x8A\x42\x04\xE8", 8, 0);
         if (pattern_offset == -1)
         {
             LOG("popnhax: tachi rivals: cannot find rival entry size\n");
@@ -1118,7 +1113,7 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
     /* hook credit end to reset "need to load conf" marker, if scorehook didn't already install it */
     if ( !scorehook ) {
         { // same as in local favorites patch / score challenge / score hook
-            int64_t pattern_offset = search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
+            int64_t pattern_offset = _search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: tachi rivals: cannot find check if logged function\n");
                 return false;
@@ -1127,16 +1122,16 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
         }
 
         {
-            int64_t pattern_offset = search(data, dllSize, "\x33\xC0\x89\x87\x18\x02\x00\x00\x89", 9, 0);
+            int64_t pattern_offset = _search(data, dllSize, "\x33\xC0\x89\x87\x18\x02\x00\x00\x89", 9, 0);
             if (pattern_offset == -1) {
-                pattern_offset = search(data, dllSize, "\x33\xC0\x89\x86\x18\x02\x00\x00\x89", 9, 0); // usaneko/peace
+                pattern_offset = _search(data, dllSize, "\x33\xC0\x89\x86\x18\x02\x00\x00\x89", 9, 0); // usaneko/peace
                 if (pattern_offset == -1) {
                     LOG("popnhax: tachi rivals: cannot find end of credit check if logged function\n");
                     return false;
                 }
             }
             uint64_t patch_addr = (int64_t)data + pattern_offset;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_end_of_credit,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_end_of_credit,
                          (void **)&real_end_of_credit);
         }
 
@@ -1144,7 +1139,7 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
 
     /* hook after mode select logged in check */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\xE5\x5D\xC3\x8B\xC6\xE8", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\xE5\x5D\xC3\x8B\xC6\xE8", 7, 0);
 
         if (pattern_offset == -1)
         {
@@ -1153,7 +1148,7 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 11;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_mode_select_rival_inject,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_mode_select_rival_inject,
                       (void **)&real_mode_select);
     }
 
@@ -1187,7 +1182,7 @@ bool patch_tachi_scorehook(const char *dllFilename, bool pfree, bool hidden_is_o
 
     /* retrieve song struct size */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x74\x24\x14\x0F\xB6\xC0", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x74\x24\x14\x0F\xB6\xC0", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: tachi scorehook: cannot retrieve score zone offset computation function\n");
             return false;
@@ -1200,7 +1195,7 @@ bool patch_tachi_scorehook(const char *dllFilename, bool pfree, bool hidden_is_o
     /* player data address (for friendid retrieval), same as local favorite patch */
     {
         //this is the same function used in score challenge patch, checking if we're logged in... but now we just directly retrieve the address
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: tachi scorehook: cannot find check if logged function\n");
             return false;
@@ -1210,9 +1205,9 @@ bool patch_tachi_scorehook(const char *dllFilename, bool pfree, bool hidden_is_o
     }
     /* hook credit end to reset "need to load conf" marker */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x33\xC0\x89\x87\x18\x02\x00\x00\x89", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x33\xC0\x89\x87\x18\x02\x00\x00\x89", 9, 0);
         if (pattern_offset == -1) {
-            pattern_offset = search(data, dllSize, "\x33\xC0\x89\x86\x18\x02\x00\x00\x89", 9, 0); // usaneko/peace
+            pattern_offset = _search(data, dllSize, "\x33\xC0\x89\x86\x18\x02\x00\x00\x89", 9, 0); // usaneko/peace
             if (pattern_offset == -1) {
             LOG("popnhax: tachi scorehook: cannot find end of credit check if logged function\n");
             return false;
@@ -1221,13 +1216,13 @@ bool patch_tachi_scorehook(const char *dllFilename, bool pfree, bool hidden_is_o
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_end_of_credit,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_end_of_credit,
                      (void **)&real_end_of_credit);
     }
 
     /* hook medal calculation */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x89\x84\x24\x68\x02\x00\x00\x8D\x44\x24\x20", 11, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x89\x84\x24\x68\x02\x00\x00\x8D\x44\x24\x20", 11, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: tachi hook: cannot retrieve medal handling function\n");
@@ -1235,13 +1230,13 @@ bool patch_tachi_scorehook(const char *dllFilename, bool pfree, bool hidden_is_o
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x13;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_medal_commit,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_medal_commit,
                       (void **)&real_medal_commit);
     }
 
     if (!pfree) //pfree already retrieves this info
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: tachi score hook: cannot find is_normal_mode function, fallback to best effort (active in all modes)\n");
         }

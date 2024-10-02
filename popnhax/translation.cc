@@ -3,8 +3,6 @@
 #include <io.h>
 #include <windows.h>
 
-#include "util/search.h"
-
 #include "util/log.h"
 #include "util/patch.h"
 
@@ -23,7 +21,7 @@ bool patch_sjis(const char *dllFilename, const char *find, uint8_t find_size, in
     uint64_t patch_addr;
     bool valid_sjis = false;
     do {
-        *offset = search(data, dllSize-*offset, find, find_size, *offset);
+        *offset = _search(data, dllSize-*offset, find, find_size, *offset);
         if (*offset == -1) {
             *offset = offset_orig;
             return false;

@@ -5,8 +5,6 @@
 
 #include "SearchFile.h"
 
-#include "util/search.h"
-
 #include "util/log.h"
 #include "util/patch.h"
 
@@ -15,9 +13,6 @@
 
 #include "imports/avs.h"
 #include "xmlhelper.h"
-
-#include "minhook/hde32.h"
-#include "minhook/include/MinHook.h"
 
 #include "custom_categs.h"
 
@@ -97,7 +92,7 @@ bool patch_ex_attract(uint16_t target_bpm)
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x81\xE7\x01\x00\x00\x80\x79\x05\x4F", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x81\xE7\x01\x00\x00\x80\x79\x05\x4F", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_ex: cannot find attract mode song info\n");
             return false;
@@ -105,14 +100,14 @@ bool patch_ex_attract(uint16_t target_bpm)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_ex_attract,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_ex_attract,
                      (void **)&real_attract);
     }
 
     if ( target_bpm != 0 )
     {
         g_attract_target_bpm = target_bpm;
-        int64_t pattern_offset = search(data, dllSize, "\x43\x83\xC1\x0C\x83\xEF\x01\x75", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x43\x83\xC1\x0C\x83\xEF\x01\x75", 8, 0);
         if (pattern_offset == -1) {
             LOG("WARNING: attract_ex: cannot find chart prepare function (cannot set target bpm)\n");
             return true;
@@ -120,7 +115,7 @@ bool patch_ex_attract(uint16_t target_bpm)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0A;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_ex_attract_hispeed,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_ex_attract_hispeed,
                      (void **)&real_chart_prepare);
 
         LOG("popnhax: attract mode will play EX charts at %u bpm\n", target_bpm);
@@ -137,7 +132,7 @@ bool patch_full_attract()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\xB8\xD0\x07\x00\x00\x66\xA3", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xB8\xD0\x07\x00\x00\x66\xA3", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_full: cannot find attract mode timer set function\n");
             return false;
@@ -230,7 +225,7 @@ bool patch_attract_interactive()
 
     /* retrieve autoplay marker address */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x33\xC4\x89\x44\x24\x0C\x56\x57\x53\xE8", 10, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x33\xC4\x89\x44\x24\x0C\x56\x57\x53\xE8", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_interactive: cannot find set autoplay marker function call\n");
             return false;
@@ -246,7 +241,7 @@ bool patch_attract_interactive()
 
     /* retrieve attract demo marker address */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x00\x00\x88\x46\x18\x88\x46", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x00\x00\x88\x46\x18\x88\x46", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_interactive: cannot find get songinfozone function call\n");
             return false;
@@ -254,19 +249,19 @@ bool patch_attract_interactive()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x02;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_retrieve_attractmarker,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_retrieve_attractmarker,
                      (void **)&real_rearm_marker);
     }
 
     /* enable interactive mode on button press (except red) */
     {
-        int64_t pattern_offset = wildcard_search(data, dllSize, "\xCC\xCC\x53\x32\xDB\xE8????\x84\xC0\x74\x78", 14, 0);
+        int64_t pattern_offset = _wildcard_search(data, dllSize, "\xCC\xCC\x53\x32\xDB\xE8????\x84\xC0\x74\x78", 14, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_interactive: cannot find attract mode demo loop function\n");
             return false;
         }
 
-        int64_t pattern_offset2 = search(data, dllSize-pattern_offset, "\x6A\x10\xE8", 3, pattern_offset);
+        int64_t pattern_offset2 = _search(data, dllSize-pattern_offset, "\x6A\x10\xE8", 3, pattern_offset);
         if (pattern_offset2 == -1) {
             LOG("popnhax: attract_interactive: cannot find isButtonPressed function\n");
             return false;
@@ -276,13 +271,13 @@ bool patch_attract_interactive()
         g_is_button_pressed_fn = patch_addr2+5+function_offset;
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x02;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter,
                      (void **)&real_attract_inter);
     }
 
     /* disable interactive mode after a while without button press */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x3D\x58\x02\x00\x00\x7C", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x3D\x58\x02\x00\x00\x7C", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_interactive: cannot find retire handling\n");
             return false;
@@ -290,13 +285,13 @@ bool patch_attract_interactive()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x07;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter_rearm,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter_rearm,
                      (void **)&real_retire_handling);
     }
 
     /* fix end of song crash */
     {
-        int64_t pattern_offset = search(data, dllSize, "\xB8\xD0\x07\x00\x00\x66\xA3", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xB8\xD0\x07\x00\x00\x66\xA3", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_full: cannot find attract mode timer set function\n");
             return false;
@@ -306,13 +301,13 @@ bool patch_attract_interactive()
         uint8_t new_pattern[8] = "\x66\x83\x05\x00\x00\x00\x00";
         memcpy(new_pattern+3, &timer_addr, 4);
 
-        pattern_offset = search(data, dllSize, (const char *)new_pattern, 7, 0);
+        pattern_offset = _search(data, dllSize, (const char *)new_pattern, 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_interactive: cannot find attract mode timer set function\n");
             return false;
         }
 
-        int64_t pattern_offset2 = search(data, dllSize-pattern_offset, "\x66\x85\xC0\x74", 4, pattern_offset);
+        int64_t pattern_offset2 = _search(data, dllSize-pattern_offset, "\x66\x85\xC0\x74", 4, pattern_offset);
         if (pattern_offset2 == -1) {
             LOG("popnhax: attract_interactive: cannot find end of song handling function\n");
             return false;
@@ -320,13 +315,13 @@ bool patch_attract_interactive()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset2 + 0x05;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter_songend_rearm,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter_songend_rearm,
                      (void **)&real_songend_handling);
     }
 
     /* fix crash when pressing test button during interactive mode */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x84\xC0\x74\x75\x38\x1D", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x04\x84\xC0\x74\x75\x38\x1D", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_interactive: cannot find test button handling\n");
             return false;
@@ -334,7 +329,7 @@ bool patch_attract_interactive()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x07;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter_rearm_test,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_inter_rearm_test,
                      (void **)&real_test_handling);
     }
 
@@ -370,7 +365,7 @@ bool patch_attract_lights()
 
     /* retrieve pressed button bitfield address */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x25\xFF\x0F\x00\x00\x5D\xC3\xCC\xCC\xCC\xCC\x55\x8B\xEC\x0F\xB6\x05", 17, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x25\xFF\x0F\x00\x00\x5D\xC3\xCC\xCC\xCC\xCC\x55\x8B\xEC\x0F\xB6\x05", 17, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_lights: cannot find button bitfield address\n");
             return false;
@@ -383,7 +378,7 @@ bool patch_attract_lights()
 
     /* hook autoplay button trigger to force corresponding button lamps */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x66\xC1\xE0\x08\x0F\xB7\xC8\x83\xC9\x02\x51", 11, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x66\xC1\xE0\x08\x0F\xB7\xC8\x83\xC9\x02\x51", 11, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: attract_lights: cannot find autopress button handling\n");
             return false;
@@ -391,7 +386,7 @@ bool patch_attract_lights()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_autoplay,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_attract_autoplay,
                      (void **)&real_autoplay_handling);
     }
 

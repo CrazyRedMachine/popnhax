@@ -5,8 +5,6 @@
 
 #include "SearchFile.h"
 
-#include "util/search.h"
-
 #include "util/log.h"
 #include "util/patch.h"
 
@@ -15,9 +13,6 @@
 
 #include "imports/avs.h"
 #include "xmlhelper.h"
-
-#include "minhook/hde32.h"
-#include "minhook/include/MinHook.h"
 
 #include "custom_categs.h"
 
@@ -657,9 +652,9 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
 
     //hook format string for song/genre name
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x50\x50\x68", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x50\x50\x68", 9, 0);
         if (pattern_offset == -1) {
-            pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x4C\x50\x68", 9, 0); //usaneko
+            pattern_offset = _search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x4C\x50\x68", 9, 0); //usaneko
             if (pattern_offset == -1) {
                 LOG("popnhax: custom_track_title_format: cannot find song/genre print function\n");
                 return false;
@@ -668,13 +663,13 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_song_printf,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_song_printf,
                      (void **)&real_song_printf);
     }
 
     //hook format string for artist
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x33\xFF\x8B\x43\x0C\x8B\x70\x04\x83\xC0\x04", 14, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x08\x33\xFF\x8B\x43\x0C\x8B\x70\x04\x83\xC0\x04", 14, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: custom_track_title_format: cannot find artist print function\n");
             return false;
@@ -682,7 +677,7 @@ static bool patch_custom_track_format(const char *game_dll_fn) {
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_artist_printf,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_artist_printf,
                      (void **)&real_artist_printf);
     }
 
@@ -748,7 +743,7 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
     char *data = getDllData(game_dll_fn, &dllSize);
 
     if (add_song_in_list == NULL) {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x4D\x10\x8B\x5D\x0C\x8B\xF1", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x4D\x10\x8B\x5D\x0C\x8B\xF1", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: local_favorites: cannot find add_song_in_list function\n");
             return false;
@@ -760,9 +755,9 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
 
     // patch category handling jumptable to add our processing
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
         if (pattern_offset == -1) {
-            pattern_offset = search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
+            pattern_offset = _search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
             if (pattern_offset == -1) {
                 LOG("popnhax: local_favorites: cannot find category jump table\n");
                 return false;
@@ -773,13 +768,13 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
             uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
             uint64_t function_addr = function_call_addr+5+function_offset;
 
-         MH_CreateHook((LPVOID)function_addr, (LPVOID)categ_inject_favorites,
+         _MH_CreateHook((LPVOID)function_addr, (LPVOID)categ_inject_favorites,
                      (void **)&real_categ_favorite);
     }
 
     //only active in normal mode
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: local_favorites: cannot find is_normal_mode function, fallback to best effort (active in all modes)\n");
         }
@@ -792,7 +787,7 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
     //categ_inject_favorites will need to force "logged in" status (for result screen)
     {
         //this is the same function used in score challenge patch, checking if we're logged in... but now we just directly retrieve the address
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: local_favorites: cannot find check if logged function\n");
             return false;
@@ -802,7 +797,7 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
     }
     //I need to remove the fake "logged in" status on credit end to prevent a crash
     {
-        int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x74\x07\xBB\x01\x00\x00\x00\xEB\x02\x33\xDB", 13, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x84\xC0\x74\x07\xBB\x01\x00\x00\x00\xEB\x02\x33\xDB", 13, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: local_favorites: cannot find end of credit check if logged function\n");
             return false;
@@ -810,20 +805,20 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x05;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_remove_fake_login,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_remove_fake_login,
                      (void **)&real_remove_fake_login);
     }
 
     //hook result screen to replace 3 functions
     {
-        int64_t first_loc = search(data, dllSize, "\xBF\x07\x00\x00\x00\xC6\x85", 7, 0);
+        int64_t first_loc = _search(data, dllSize, "\xBF\x07\x00\x00\x00\xC6\x85", 7, 0);
         if (first_loc == -1) {
             LOG("popnhax: local_favorites: cannot find result screen function\n");
             return false;
         }
 
 //song is in favorite
-        int64_t second_loc = search(data, 1000, "\x8B\xC8\xE8", 3, first_loc);
+        int64_t second_loc = _search(data, 1000, "\x8B\xC8\xE8", 3, first_loc);
         if (second_loc == -1) {
             LOG("popnhax: local_favorites: cannot retrieve is song in favorites call\n");
             return false;
@@ -831,11 +826,11 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
         uint64_t function_call_addr = (int64_t)(data + second_loc + 0x02);
         uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
         uint64_t function_addr = function_call_addr+5+function_offset;
-        MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_song_is_in_favorite,
+        _MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_song_is_in_favorite,
                      (void **)&real_song_is_in_favorite);
 
 //remove from favorites
-        int64_t third_loc = search(data, 1000, "\x6A\x01\x6A\x00\x68", 5, second_loc);
+        int64_t third_loc = _search(data, 1000, "\x6A\x01\x6A\x00\x68", 5, second_loc);
         if (third_loc == -1) {
             LOG("popnhax: local_favorites: cannot retrieve remove from favorites call\n");
             return false;
@@ -843,11 +838,11 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
         uint64_t function2_call_addr = (int64_t)(data + third_loc - 0x05);
         uint32_t function2_offset = *((uint32_t*)(function2_call_addr +0x01));
         uint64_t function2_addr = function2_call_addr+5+function2_offset;
-        MH_CreateHook((LPVOID)function2_addr, (LPVOID)hook_remove_from_favorite,
+        _MH_CreateHook((LPVOID)function2_addr, (LPVOID)hook_remove_from_favorite,
                      (void **)&real_remove_from_favorite);
 
 //add to favorites
-        int64_t fourth_loc = search(data, 1000, "\x6A\x01\x6A\x00\x68", 5, third_loc+2);
+        int64_t fourth_loc = _search(data, 1000, "\x6A\x01\x6A\x00\x68", 5, third_loc+2);
         if (fourth_loc == -1) {
             LOG("popnhax: local_favorites: cannot retrieve add to favorites call\n");
             return false;
@@ -855,14 +850,14 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
         uint64_t function3_call_addr = (int64_t)(data + fourth_loc - 0x05);
         uint32_t function3_offset = *((uint32_t*)(function3_call_addr +0x01));
         uint64_t function3_addr = function3_call_addr+5+function3_offset;
-        MH_CreateHook((LPVOID)function3_addr, (LPVOID)hook_add_to_favorite,
+        _MH_CreateHook((LPVOID)function3_addr, (LPVOID)hook_add_to_favorite,
                      (void **)&real_add_to_favorite);
     }
 
     //(202310+) I need to prevent the numpad9 option in song select when fake logged in to prevent a possible softlock
     if (with_numpad9_patch)
     {
-        int64_t first_loc = search(data, dllSize, "\x0F\xB6\xC8\x51\x56\x8B\xCD\xE8", 8, 0);
+        int64_t first_loc = _search(data, dllSize, "\x0F\xB6\xC8\x51\x56\x8B\xCD\xE8", 8, 0);
         if (first_loc == -1) {
             LOG("WARNING: local_favorites: cannot find song select screen function, do NOT press 9 on song select\n");
             goto local_favorite_ok;
@@ -871,7 +866,7 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
         uint64_t function_call_addr = (int64_t)(data + first_loc - 0x05);
         uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
         uint64_t function_addr = function_call_addr+5+function_offset;
-        MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_check_event_boosts,
+        _MH_CreateHook((LPVOID)function_addr, (LPVOID)hook_check_event_boosts,
                      (void **)&real_check_event_boosts);
     }
 
@@ -912,7 +907,7 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
 
     //patch format string for any category above 16 (prevent crash)
     {
-        int64_t pattern_offset = search(data, dllSize, "\x6A\xFF\x8B\xCB\xFF\xD2\x50", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x6A\xFF\x8B\xCB\xFF\xD2\x50", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: custom_categ: cannot find category title format string function\n");
             return false;
@@ -921,17 +916,17 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x07;
         real_categ_printf_call = (void (*)())(patch_addr + 0x08);
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_title_printf,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_title_printf,
                      (void **)&real_categ_title_printf);
     }
 
     // patch category handling jumptable to add our processing
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
         uint8_t jump_size = 0x75; //as seen in pattern
         if (pattern_offset == -1) {
             jump_size = 0x7C;  //as seen in pattern
-            pattern_offset = search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
+            pattern_offset = _search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
             if (pattern_offset == -1) {
                 LOG("popnhax: custom_categ: cannot find category jump table\n");
                 return false;
@@ -940,7 +935,7 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05 + jump_size; //hook at the end of jump table
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_listing,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_listing,
                      (void **)&real_categ_listing);
 
         if (g_subcategmode)
@@ -959,7 +954,7 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
 
             uint64_t patch_addr_2 = (int64_t)reimpl_func_2_generate_event_category + 80;
             //need to inject correct memory zone after generation as well
-            MH_CreateHook((LPVOID)patch_addr_2, (LPVOID)hook_event_categ_generation,
+            _MH_CreateHook((LPVOID)patch_addr_2, (LPVOID)hook_event_categ_generation,
                         (void **)&real_event_categ_generation);
         }
     }
@@ -971,7 +966,7 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
     }
     else
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x4D\x10\x8B\x5D\x0C\x8B\xF1", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x4D\x10\x8B\x5D\x0C\x8B\xF1", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: custom_categ: cannot find add_song_in_list function\n");
             return false;
@@ -987,7 +982,7 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
     if (!g_subcategmode)
     {
         {
-            int64_t pattern_offset = search(data, dllSize, "\x00\x8B\x56\x04\x0F\xB7\x02\xE8", 8, 0);
+            int64_t pattern_offset = _search(data, dllSize, "\x00\x8B\x56\x04\x0F\xB7\x02\xE8", 8, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: custom_categ: cannot find songlist processing table\n");
                 return false;
@@ -995,13 +990,13 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
 
             uint64_t patch_addr = (int64_t)data + pattern_offset + 0x07;
 
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_build_songlist,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_build_songlist,
                         (void **)&real_categ_build_songlist);
         }
 
         //force rearm songlist creation so that it keeps working
         {
-            int64_t pattern_offset = search(data, dllSize, "\xB8\x12\x00\x00\x00\xBA\x2B\x00\x00\x00\x89\x44\x24", 13, 0);
+            int64_t pattern_offset = _search(data, dllSize, "\xB8\x12\x00\x00\x00\xBA\x2B\x00\x00\x00\x89\x44\x24", 13, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: custom_categ: cannot find category generation function\n");
                 return false;
@@ -1009,7 +1004,7 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
 
             uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_reinit_songlist,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_reinit_songlist,
                          (void **)&real_categ_reinit_songlist);
         }
     }
@@ -1051,7 +1046,7 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
         //add the new name
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_get_categ_name,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_get_categ_name,
                      (void **)&real_get_categ_name);
     }
 
@@ -1078,7 +1073,7 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
         //add the new icon name
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_get_icon_name,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_get_icon_name,
                      (void **)&real_get_icon_name);
     }
 
@@ -1143,7 +1138,7 @@ bool patch_exclude(const char *game_dll_fn)
     char *data = getDllData(game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\xF8\x83\xC4\x08\x85\xFF\x7E\x42", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\xF8\x83\xC4\x08\x85\xFF\x7E\x42", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: custom_exclude_from_level: cannot find songlist processing table\n");
             return false;
@@ -1151,7 +1146,7 @@ bool patch_exclude(const char *game_dll_fn)
 
         uint64_t patch_addr = (int64_t)(data + pattern_offset);
 
-         MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_after_getlevel,
+         _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_after_getlevel,
                      (void **)&real_after_getlevel);
     }
 

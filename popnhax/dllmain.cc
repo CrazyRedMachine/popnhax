@@ -14,11 +14,6 @@
 #include <fcntl.h>
 #define access _access
 
-#include "util/search.h"
-
-#include "minhook/hde32.h"
-#include "minhook/include/MinHook.h"
-
 #include "popnhax/config.h"
 #include "util/membuf.h"
 #include "util/log.h"
@@ -75,7 +70,7 @@ bool patch_get_time(double time_rate)
 
     g_multiplier = time_rate;
     HMODULE hinstLib = GetModuleHandleA("winmm.dll");
-    MH_CreateHook((LPVOID)GetProcAddress(hinstLib, "timeGetTime"), (LPVOID)patch_timeGetTime,
+    _MH_CreateHook((LPVOID)GetProcAddress(hinstLib, "timeGetTime"), (LPVOID)patch_timeGetTime,
                       (void **)&real_timeGetTime);
 
     LOG("popnhax: time multiplier: %f\n", time_rate);
@@ -249,6 +244,8 @@ PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, translation_de
                  "/popnhax/translation_debug", false)
 PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_U16, struct popnhax_config, time_rate,
                  "/popnhax/time_rate", 0)
+PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, extended_debug,
+                 "/popnhax/extended_debug", false)
 PSMAP_END
 
 enum BufferIndexes {
@@ -737,21 +734,21 @@ bool patch_hispeed_auto(uint8_t mode)
 
     /* reset target to default bpm at the end of a credit */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x10\x8B\xC8\x8B\x42\x28\xFF\xE0\xCC", 10, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x10\x8B\xC8\x8B\x42\x28\xFF\xE0\xCC", 10, 0);
         if (pattern_offset == -1) {
             LOG("WARNING: popnhax: auto hi-speed: cannot find playerdata clean function\n");
             return false;
         } else {
             uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_rearm_hispeed,
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_rearm_hispeed,
                           (void **)&real_rearm_hispeed);
         }
     }
 
     /* retrieve hi-speed address */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x66\x89\x0C\x07\x0F\xB6\x45\x04", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x66\x89\x0C\x07\x0F\xB6\x45\x04", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot find hi-speed address\n");
             return false;
@@ -759,13 +756,13 @@ bool patch_hispeed_auto(uint8_t mode)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x04;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_set_hispeed,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_set_hispeed,
                       (void **)&real_set_hispeed);
     }
     /* write new hispeed according to target bpm */
     {
         /* improve compatibility with newer games */
-        int64_t pattern_offset = search(data, dllSize, "\x0B\x00\x83\xC4\x04\xEB\x57\x8B\xBC\x24", 10, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x0B\x00\x83\xC4\x04\xEB\x57\x8B\xBC\x24", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot find chart BPM address offset\n");
             return false;
@@ -779,7 +776,7 @@ bool patch_hispeed_auto(uint8_t mode)
             LOG("popnhax: auto hi-speed: WARNING: unexpected BPM address offset (%hu), might not work\n", g_low_bpm_ebp_offset);
         }
 
-        pattern_offset = search(data, dllSize, "\x98\x50\x66\x8B\x85", 5, 0);
+        pattern_offset = _search(data, dllSize, "\x98\x50\x66\x8B\x85", 5, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot find hi-speed apply address\n");
             return false;
@@ -787,12 +784,12 @@ bool patch_hispeed_auto(uint8_t mode)
 
         patch_addr = (int64_t)data + pattern_offset - 0x07;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_read_hispeed,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_read_hispeed,
                       (void **)&real_read_hispeed);
     }
     /* update target bpm on hispeed increase */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x66\xFF\x07\x0F\xB7\x07\x66\x83\xF8\x64", 10, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x66\xFF\x07\x0F\xB7\x07\x66\x83\xF8\x64", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot find hi-speed increase\n");
             return false;
@@ -800,12 +797,12 @@ bool patch_hispeed_auto(uint8_t mode)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_increase_hispeed,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_increase_hispeed,
                       (void **)&real_increase_hispeed);
     }
     /* update target bpm on hispeed decrease */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x66\xFF\x0F\x0F\xB7\x07\x66\x83\xF8\x0A", 10, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x66\xFF\x0F\x0F\xB7\x07\x66\x83\xF8\x0A", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot find hi-speed decrease\n");
             return false;
@@ -813,33 +810,33 @@ bool patch_hispeed_auto(uint8_t mode)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_decrease_hispeed,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_decrease_hispeed,
                       (void **)&real_decrease_hispeed);
     }
 
     /* set g_soflan_retry back to false when leaving options */
     {
-        int64_t first_loc = search(data, dllSize, "\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00\xE8", 12, 0);
+        int64_t first_loc = _search(data, dllSize, "\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00\xE8", 12, 0);
         if (first_loc == -1) {
             LOG("popnhax: auto hi-speed: cannot retrieve option screen loop function\n");
             return false;
         }
 
-        int64_t pattern_offset = search(data, 1000, "\x33\xC9\x51\x50\x8B", 5, first_loc);
+        int64_t pattern_offset = _search(data, 1000, "\x33\xC9\x51\x50\x8B", 5, first_loc);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot retrieve option screen leave\n");
             return false;
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)retry_soflan_reset,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)retry_soflan_reset,
                       (void **)&real_leave_options);
     }
 
     /* compute longest bpm for mode 3 */
     if (mode == 3)
     {
-        int64_t pattern_offset = search(data, dllSize, "\x00\x00\x72\x05\xB9\xFF", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x00\x00\x72\x05\xB9\xFF", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto hi-speed: cannot find chart address\n");
             return false;
@@ -854,13 +851,13 @@ bool patch_hispeed_auto(uint8_t mode)
             patch_addr += 9;
             g_longest_bpm_old_chart = true;
             LOG("popnhax: auto hi-speed: old game version\n");
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_retrieve_chart_addr_old,
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_retrieve_chart_addr_old,
                           (void **)&real_retrieve_chart_addr_old);
         }
         else
         {
             patch_addr += 11;
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_retrieve_chart_addr,
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_retrieve_chart_addr,
                           (void **)&real_retrieve_chart_addr);
         }
     }
@@ -1880,7 +1877,7 @@ static bool patch_purelong()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x80\x1A\x06\x00\x83\xFA\x08\x77\x08", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x80\x1A\x06\x00\x83\xFA\x08\x77\x08", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Couldn't find score increment function\n");
             return false;
@@ -1927,9 +1924,9 @@ static bool patch_normal0()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\xF8\x89\x7C\x24\x3C", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x08\x8B\xF8\x89\x7C\x24\x3C", 9, 0);
         if (pattern_offset == -1) {
-            pattern_offset = search(data, dllSize, "\x83\xC4\x08\x8B\xF8\x89\x7C\x24\x44", 9, 0);
+            pattern_offset = _search(data, dllSize, "\x83\xC4\x08\x8B\xF8\x89\x7C\x24\x44", 9, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: normal0: Couldn't find song list display function\n");
                 return false;
@@ -1937,7 +1934,7 @@ static bool patch_normal0()
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_normal0,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_normal0,
                       (void **)&real_normal0);
 
     }
@@ -1960,7 +1957,7 @@ static bool get_music_limit(uint32_t* limit) {
     DWORD_PTR reloc_delta = (DWORD_PTR)((int64_t)data - headers->OptionalHeader.ImageBase);
 
     {
-        int64_t string_loc = search(data, dllSize, "Illegal music no %d", 19, 0);
+        int64_t string_loc = _search(data, dllSize, "Illegal music no %d", 19, 0);
         if (string_loc == -1) {
             LOG("popnhax: patch_db: could not retrieve music limit error string\n");
             return false;
@@ -1970,7 +1967,7 @@ static bool get_music_limit(uint32_t* limit) {
         string_loc += 0x10000000; //entrypoint
         char *as_hex = (char *) &string_loc;
 
-        int64_t pattern_offset = search(data, dllSize, as_hex, 4, 0);
+        int64_t pattern_offset = _search(data, dllSize, as_hex, 4, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: could not retrieve music limit test function\n");
             return false;
@@ -2036,10 +2033,10 @@ static bool patch_datecode(char *datecode) {
         g_datecode_override = strdup(datecode);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
         if (pattern_offset != -1) {
             uint64_t patch_addr = (int64_t)data + pattern_offset + 0x08;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode,
                           (void **)&real_asm_patch_datecode);
 
             LOG("popnhax: datecode set to %s",g_datecode_override);
@@ -2059,10 +2056,10 @@ static bool patch_datecode(char *datecode) {
     DWORD avsdllSize = 0;
     char *avsdata = getDllData("libavs-win32.dll", &avsdllSize);
     {
-        int64_t pattern_offset = search(avsdata, avsdllSize, "\x57\x56\x89\x34\x24\x8B\xF2\x8B\xD0\x0F\xB6\x46\x2E", 13, 0);
+        int64_t pattern_offset = _search(avsdata, avsdllSize, "\x57\x56\x89\x34\x24\x8B\xF2\x8B\xD0\x0F\xB6\x46\x2E", 13, 0);
         if (pattern_offset != -1) {
             uint64_t patch_addr = (int64_t)avsdata + pattern_offset;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode_libavs,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)asm_patch_datecode_libavs,
                           (void **)&real_asm_patch_datecode_libavs);
 
             LOG(" (including network)\n");
@@ -2239,10 +2236,10 @@ static bool patch_database() {
     patch_normal0();
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8D\x44\x24\x10\x88\x4C\x24\x10\x88\x5C\x24\x11\x8D\x50\x01", 15, 0);
         if (pattern_offset != -1) {
             uint64_t patch_addr = (int64_t)data + pattern_offset;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)omnimix_patch_jbx,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)omnimix_patch_jbx,
                           (void **)&real_omnimix_patch_jbx);
 
             LOG("popnhax: Patched X rev for omnimix\n");
@@ -2398,7 +2395,7 @@ static bool patch_database() {
             case 0: {
                 // Peace hook
                 printf("Hooking %llx %p\n", hook_offsets[i]->offset, _moduleBase);
-                MH_CreateHook((void*)((uint8_t*)_moduleBase + (hook_offsets[i]->offset - 0x10000000)), (void *)&check_music_idx, (void **)&real_check_music_idx);
+                _MH_CreateHook((void*)((uint8_t*)_moduleBase + (hook_offsets[i]->offset - 0x10000000)), (void *)&check_music_idx, (void **)&real_check_music_idx);
                 break;
             }
 
@@ -2407,7 +2404,7 @@ static bool patch_database() {
                 printf("Hooking %llx %p\n", hook_offsets[i]->offset, _moduleBase);
                 uint8_t nops[] = { 0x90, 0x90, 0x90, 0x90, 0x90, 0x90 };
                 patch_memory((uint64_t)((uint8_t*)_moduleBase + (hook_offsets[i]->offset - 0x10000000) - 6), (char *)&nops, 6);
-                MH_CreateHook((void*)((uint8_t*)_moduleBase + (hook_offsets[i]->offset - 0x10000000)), (void *)&check_music_idx_usaneko, (void **)&real_check_music_idx_usaneko);
+                _MH_CreateHook((void*)((uint8_t*)_moduleBase + (hook_offsets[i]->offset - 0x10000000)), (void *)&check_music_idx_usaneko, (void **)&real_check_music_idx_usaneko);
                 break;
             }
 
@@ -2437,12 +2434,12 @@ static bool patch_unset_volume() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = search(data, dllSize, "\x04\x00\x81\xC4\x00\x01\x00\x00\xC3\xCC", 10, 0);
+    int64_t first_loc = _search(data, dllSize, "\x04\x00\x81\xC4\x00\x01\x00\x00\xC3\xCC", 10, 0);
     if (first_loc == -1) {
             return false;
     }
 
-    int64_t pattern_offset = search(data, 0x10, "\x83", 1, first_loc);
+    int64_t pattern_offset = _search(data, 0x10, "\x83", 1, first_loc);
     if (pattern_offset == -1) {
         return false;
     }
@@ -2471,12 +2468,12 @@ static bool patch_remove_timer() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = search(data, dllSize, "\x8B\xAC\x24\x68\x01", 5, 0);
+    int64_t first_loc = _search(data, dllSize, "\x8B\xAC\x24\x68\x01", 5, 0);
     if (first_loc == -1) {
         return false;
     }
 
-    int64_t pattern_offset = search(data, 0x15, "\x0F", 1, first_loc);
+    int64_t pattern_offset = _search(data, 0x15, "\x0F", 1, first_loc);
     if (pattern_offset == -1) {
         return false;
     }
@@ -2505,12 +2502,12 @@ static bool patch_skip_tutorials() {
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t first_loc = search(data, dllSize, "\xFD\xFF\x5E\xC2\x04\x00\xE8", 7, 0);
+        int64_t first_loc = _search(data, dllSize, "\xFD\xFF\x5E\xC2\x04\x00\xE8", 7, 0);
         if (first_loc == -1) {
             return false;
         }
 
-        int64_t pattern_offset = search(data, 0x10, "\x84\xC0\x74", 3, first_loc);
+        int64_t pattern_offset = _search(data, 0x10, "\x84\xC0\x74", 3, first_loc);
         if (pattern_offset == -1) {
             return false;
         }
@@ -2520,7 +2517,7 @@ static bool patch_skip_tutorials() {
     }
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x66\x85\xC0\x75\x5E\x6A", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x66\x85\xC0\x75\x5E\x6A", 6, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -2530,7 +2527,7 @@ static bool patch_skip_tutorials() {
     }
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x00\x5F\x5E\x66\x83\xF8\x01\x75", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x00\x5F\x5E\x66\x83\xF8\x01\x75", 8, 0);
         if (pattern_offset == -1) {
             return false;
         }
@@ -2564,7 +2561,7 @@ bool force_unlock_songs() {
 
     {
         // 0xac here is the size of music_entry. May change in the future
-        int64_t pattern_offset = search(data, dllSize, "\x69\xC0\xAC\x00\x00\x00\x8B\x80", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x69\xC0\xAC\x00\x00\x00\x8B\x80", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: couldn't unlock songs and charts\n");
             return false;
@@ -2614,7 +2611,7 @@ bool force_unlock_charas() {
 
     {
         // 0x4c here is the size of character_entry. May change in the future
-        int64_t pattern_offset = search(data, dllSize, "\x98\x6B\xC0\x4C\x8B\x80", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x98\x6B\xC0\x4C\x8B\x80", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: couldn't unlock characters\n");
             return false;
@@ -2661,7 +2658,7 @@ static bool patch_unlocks_offline() {
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize-0xE0000, "\xB8\x49\x06\x00\x00\x66\x3B", 7, 0xE0000);
+        int64_t pattern_offset = _search(data, dllSize-0xE0000, "\xB8\x49\x06\x00\x00\x66\x3B", 7, 0xE0000);
         if (pattern_offset == -1) {
             LOG("Couldn't find first song unlock\n");
             return false;
@@ -2709,7 +2706,7 @@ static bool get_addr_icca(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t pattern_offset = search(data, dllSize, "\xE8\x4B\x14\x00\x00\x84\xC0\x74\x03\x33\xC0\xC3\x8B\x0D", 14, 0);
+    int64_t pattern_offset = _search(data, dllSize, "\xE8\x4B\x14\x00\x00\x84\xC0\x74\x03\x33\xC0\xC3\x8B\x0D", 14, 0);
     if (pattern_offset == -1) {
         return false;
     }
@@ -2736,7 +2733,7 @@ static bool get_addr_timing_offset(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t pattern_offset = search(data, dllSize, "\xB8\xB4\xFF\xFF\xFF", 5, 0);
+    int64_t pattern_offset = _search(data, dllSize, "\xB8\xB4\xFF\xFF\xFF", 5, 0);
     if (pattern_offset == -1) {
             return false;
     }
@@ -2764,7 +2761,7 @@ static bool get_addr_beam_brightness(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t pattern_offset = search(data, dllSize, "\xB8\x64\x00\x00\x00\xD9", 6, 0);
+    int64_t pattern_offset = _search(data, dllSize, "\xB8\x64\x00\x00\x00\xD9", 6, 0);
     if (pattern_offset == -1) {
         return false;
     }
@@ -2791,7 +2788,7 @@ static bool get_addr_sd_timing(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t pattern_offset = search(data, dllSize, "\xB8\xC4\xFF\xFF\xFF", 5, 0);
+    int64_t pattern_offset = _search(data, dllSize, "\xB8\xC4\xFF\xFF\xFF", 5, 0);
     if (pattern_offset == -1) {
         return false;
     }
@@ -2818,7 +2815,7 @@ static bool get_addr_hd_timing(uint32_t *res)
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t pattern_offset = search(data, dllSize, "\xB8\xB4\xFF\xFF\xFF", 5, 0);
+    int64_t pattern_offset = _search(data, dllSize, "\xB8\xB4\xFF\xFF\xFF", 5, 0);
     if (pattern_offset == -1) {
         return false;
     }
@@ -2879,10 +2876,10 @@ static bool patch_hidden_is_offset()
     {
         /* find option commit function (unilab) */
         uint8_t shift = 6;
-        int64_t pattern_offset = search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
         if (pattern_offset == -1) {
             /* wasn't found, look for older function */
-            pattern_offset = search(data, dllSize, "\x0F\xB6\xC3\x03\xCF\x8D", 6, 0);
+            pattern_offset = _search(data, dllSize, "\x0F\xB6\xC3\x03\xCF\x8D", 6, 0);
             shift = 14;
 
             if (pattern_offset == -1) {
@@ -2895,7 +2892,7 @@ static bool patch_hidden_is_offset()
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + shift;
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hidden_is_offset_commit_options,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hidden_is_offset_commit_options,
                       (void **)&real_commit_options);
     }
 
@@ -2905,14 +2902,14 @@ static bool patch_hidden_is_offset()
         uint32_t *cast_code = (uint32_t*) &set_offset_fun[1];
         *cast_code = g_timing_addr;
 
-        int64_t pattern_offset = search(data, dllSize, set_offset_fun, 5, 0);
+        int64_t pattern_offset = _search(data, dllSize, set_offset_fun, 5, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: hidden is offset: cannot find offset update function\n");
             return false;
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)modded_set_timing_func,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)modded_set_timing_func,
                       (void **)&real_set_timing_func);
 
     }
@@ -2925,18 +2922,18 @@ static bool patch_show_hidden_adjust_result_screen() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = search(data, dllSize, "\x6A\x00\x0F\xBE\xCB", 5, 0);
+    int64_t first_loc = _search(data, dllSize, "\x6A\x00\x0F\xBE\xCB", 5, 0);
     if (first_loc == -1)
         return false;
 
 
-    int64_t pattern_offset = search(data, 0x200, "\x80\xBC\x24", 3, first_loc);
+    int64_t pattern_offset = _search(data, 0x200, "\x80\xBC\x24", 3, first_loc);
     if (pattern_offset == -1) {
         return false;
     }
     g_show_hidden_addr = *((uint32_t *)((int64_t)data + pattern_offset + 0x03));
     uint64_t hook_addr = (int64_t)data + pattern_offset;
-    MH_CreateHook((LPVOID)(hook_addr), (LPVOID)asm_show_hidden_result,
+    _MH_CreateHook((LPVOID)(hook_addr), (LPVOID)asm_show_hidden_result,
                   (void **)&real_show_hidden_result);
 
 
@@ -2949,13 +2946,13 @@ static bool force_show_fast_slow() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = search(data, dllSize, "\x6A\x00\x0F\xBE\xCB", 5, 0);
+    int64_t first_loc = _search(data, dllSize, "\x6A\x00\x0F\xBE\xCB", 5, 0);
     if (first_loc == -1) {
         return false;
     }
 
     {
-        int64_t pattern_offset = search(data, 0x50, "\x0F\x85", 2, first_loc);
+        int64_t pattern_offset = _search(data, 0x50, "\x0F\x85", 2, first_loc);
         if (pattern_offset == -1) {
             return false;
         }
@@ -3000,14 +2997,14 @@ static bool force_show_details_result() {
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    int64_t first_loc = search(data, dllSize, "\x8B\x45\x48\x8B\x58\x0C\x6A\x09\x68\x80\x00\x00\x00", 13, 0);
+    int64_t first_loc = _search(data, dllSize, "\x8B\x45\x48\x8B\x58\x0C\x6A\x09\x68\x80\x00\x00\x00", 13, 0);
     if (first_loc == -1) {
         LOG("popnhax: show details: cannot find result screen button check (1)\n");
         return false;
     }
 
     {
-        int64_t pattern_offset = search(data, 0x50, "\x84\xC0", 2, first_loc);
+        int64_t pattern_offset = _search(data, 0x50, "\x84\xC0", 2, first_loc);
         if (pattern_offset == -1) {
             LOG("popnhax: show details: cannot find result screen button check (2)\n");
             return false;
@@ -3015,7 +3012,7 @@ static bool force_show_details_result() {
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_show_detail_result,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_show_detail_result,
                      (void **)&real_show_detail_result);
     }
 
@@ -3228,7 +3225,7 @@ static bool patch_pfree() {
 
     /* retrieve is_normal_mode function */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: pfree: cannot find is_normal_mode function, fallback to best effort (active in all modes)\n");
         }
@@ -3240,7 +3237,7 @@ static bool patch_pfree() {
 
     /* stop stage counter (2 matches, 1st one is the good one) */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x04\x77\x3E", 5, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x04\x77\x3E", 5, 0);
         if (pattern_offset == -1) {
             LOG("couldn't find stop stage counter\n");
             return false;
@@ -3250,7 +3247,7 @@ static bool patch_pfree() {
         g_stage_addr = *(uint32_t*)(patch_addr+1);
 
         /* hook to retrieve address for exit to thank you for playing screen */
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update,
                      (void **)&real_stage_update);
 
     }
@@ -3260,7 +3257,7 @@ static bool patch_pfree() {
     char offset_from_stage1[2] = {0x00, 0x00};
     int64_t child_fun_loc = 0;
     {
-        int64_t offset = search(data, dllSize, "\x8D\x46\xFF\x83\xF8\x0A\x0F", 7, 0);
+        int64_t offset = _search(data, dllSize, "\x8D\x46\xFF\x83\xF8\x0A\x0F", 7, 0);
         if (offset == -1) {
         #if DEBUG == 1
             LOG("popnhax: pfree: failed to retrieve struct size and offset\n");
@@ -3277,7 +3274,7 @@ static bool patch_pfree() {
     }
 
     {
-        int64_t pattern_offset = search(data, 0x40, "\xCB\x69", 2, child_fun_loc);
+        int64_t pattern_offset = _search(data, 0x40, "\xCB\x69", 2, child_fun_loc);
         if (pattern_offset == -1) {
             LOG("popnhax: pfree: failed to retrieve offset from stage1 (child_fun_loc = %llx\n",child_fun_loc);
             return false;
@@ -3291,7 +3288,7 @@ static bool patch_pfree() {
     }
 
     {
-        int64_t pattern_offset = search(data, 0x40, "\x8d\x74\x01", 3, child_fun_loc);
+        int64_t pattern_offset = _search(data, 0x40, "\x8d\x74\x01", 3, child_fun_loc);
         if (pattern_offset == -1) {
             LOG("popnhax: pfree: failed to retrieve offset from base\n");
             return false;
@@ -3310,7 +3307,7 @@ pfree_apply:
 
     /* cleanup score and stats */
     {
-        int64_t pattern_offset = search(data, dllSize, "\xFE\x46\x0E\x80", 4, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xFE\x46\x0E\x80", 4, 0);
         if (pattern_offset == -1) {
         LOG("popnhax: pfree: cannot find stage update function\n");
             return false;
@@ -3321,20 +3318,20 @@ pfree_apply:
         /* replace stage number increment with a score cleanup function */
         if ( simple )
         {
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup_simple,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup_simple,
                         (void **)&real_pfree_cleanup);
             LOG("popnhax: premium free enabled (WARN: no power points fix)\n");
             return true;
         }
 
         /* compute and save power points to g_pplist before cleaning up memory zone */
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_cleanup,
                      (void **)&real_pfree_cleanup);
     }
 
     /* fix power points */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8A\xD8\x8B\x44\x24\x0C\xE8", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8A\xD8\x8B\x44\x24\x0C\xE8", 7, 0);
         if (pattern_offset == -1) {
         LOG("popnhax: pfree: cannot find get_power_points function\n");
             return false;
@@ -3344,7 +3341,7 @@ pfree_apply:
     }
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x3D\x50\xC3\x00\x00\x7D\x05", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x3D\x50\xC3\x00\x00\x7D\x05", 7, 0);
         if (pattern_offset == -1) {
         LOG("popnhax: pfree: cannot find get_power_points function\n");
             return false;
@@ -3354,7 +3351,7 @@ pfree_apply:
     }
     /* init pp_list */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x6B\xD2\x64\x2B\xCA\x51\x50\x68", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x6B\xD2\x64\x2B\xCA\x51\x50\x68", 8, 0);
         if (pattern_offset == -1) {
         LOG("popnhax: pfree: cannot find power point load function\n");
             return false;
@@ -3363,13 +3360,13 @@ pfree_apply:
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x1A;
 
         /* copy power point list to g_pplist on profile load and init g_pplist_idx */
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_init,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_init,
                      (void **)&real_pfree_pplist_init);
     }
 
     /* inject pp_list at end of credit */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x74\x24\x3C\x66\x8B\x04\x9E", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x74\x24\x3C\x66\x8B\x04\x9E", 8, 0);
         if (pattern_offset == -1) {
         LOG("popnhax: pfree: cannot find end of credit power point handling function (1)\n");
             return false;
@@ -3378,13 +3375,13 @@ pfree_apply:
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
 
         /* make power point list pointers point to g_pplist at the end of processing */
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_inject,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_inject,
                      (void **)&real_pfree_pplist_inject);
     }
 
     /* restore pp_list pointer so that it is freed at end of credit */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x7E\x04\x2B\xC1\x8B\xF8\x3B\xF5", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x7E\x04\x2B\xC1\x8B\xF8\x3B\xF5", 8, 0);
         if (pattern_offset == -1) {
         LOG("popnhax: pfree: cannot find end of credit power point handling function (2)\n");
             return false;
@@ -3393,7 +3390,7 @@ pfree_apply:
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x06;
 
         /* make power point list pointers point to g_pplist at the end of processing */
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_inject_cleanup,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pfree_pplist_inject_cleanup,
                      (void **)&real_pfree_pplist_inject_cleanup);
     }
 
@@ -3412,7 +3409,7 @@ static bool patch_quick_retire(bool pfree)
         /* pfree already installs this hook
          */
         {
-            int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x04\x77\x3E", 5, 0);
+            int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x04\x77\x3E", 5, 0);
             if (pattern_offset == -1) {
                 LOG("couldn't find stop stage counter\n");
                 return false;
@@ -3422,7 +3419,7 @@ static bool patch_quick_retire(bool pfree)
             g_stage_addr = *(uint32_t*)(patch_addr+1);
 
             /* hook to retrieve address for exit to thank you for playing screen */
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_update,
                          (void **)&real_stage_update);
 
         }
@@ -3430,7 +3427,7 @@ static bool patch_quick_retire(bool pfree)
         /* prevent stage number increment when going back to song select without pfree */
         if (config.back_to_song_select)
         {
-            int64_t pattern_offset = search(data, dllSize, "\xFE\x46\x0E\x80", 4, 0);
+            int64_t pattern_offset = _search(data, dllSize, "\xFE\x46\x0E\x80", 4, 0);
             if (pattern_offset == -1) {
             LOG("popnhax: quick retire: cannot find stage update function\n");
                 return false;
@@ -3438,14 +3435,14 @@ static bool patch_quick_retire(bool pfree)
 
             uint64_t patch_addr = (int64_t)data + pattern_offset;
             /* hook to retrieve address for exit to thank you for playing screen */
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_increment,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_stage_increment,
                          (void **)&real_stage_increment);
         }
 
         /* pfree already retrieves this function
          */
         {
-            int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
+            int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x0C\x33\xC0\xC3\xCC\xCC\xCC\xCC\xE8", 11, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax:  quick retire: cannot find is_normal_mode function, fallback to best effort (active in all modes)\n");
             }
@@ -3458,7 +3455,7 @@ static bool patch_quick_retire(bool pfree)
 
     /* instant retire with numpad 9 in song */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x55\x8B\xEC\x83\xE4\xF8\x83\xEC\x08\x0F\xBF\x05", 12, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x55\x8B\xEC\x83\xE4\xF8\x83\xEC\x08\x0F\xBF\x05", 12, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: cannot retrieve song loop\n");
@@ -3472,13 +3469,13 @@ static bool patch_quick_retire(bool pfree)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_game_loop,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_game_loop,
                       (void **)&real_game_loop);
     }
 
     {
         // PlaySramSound func
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x51\x56\x8B\xF0\x85\xF6\x74\x6C\x6B\xC0\x2C", 11, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: PlaySramSound_addr was not found.\n");
@@ -3489,14 +3486,14 @@ static bool patch_quick_retire(bool pfree)
 
     /* instant exit with numpad 9 on result screen */
     {
-        int64_t first_loc = search(data, dllSize, "\xBF\x03\x00\x00\x00\x81\xC6", 7, 0);
+        int64_t first_loc = _search(data, dllSize, "\xBF\x03\x00\x00\x00\x81\xC6", 7, 0);
 
         if (first_loc == -1) {
             LOG("popnhax: cannot retrieve result screen loop first loc\n");
             return false;
         }
 
-        int64_t pattern_offset = search(data, 0x50, "\x55\x8B\xEC\x83\xE4", 5, first_loc-0x50);
+        int64_t pattern_offset = _search(data, 0x50, "\x55\x8B\xEC\x83\xE4", 5, first_loc-0x50);
         if (pattern_offset == -1) {
             LOG("popnhax: cannot retrieve result screen loop\n");
             return false;
@@ -3509,18 +3506,18 @@ static bool patch_quick_retire(bool pfree)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_loop,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_loop,
                       (void **)&real_result_loop);
     }
 
     /* no need to press red button when numpad 8 or 9 is pressed on result screen */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x75\x0F\x8B\x8D\x1C\x0A\x00\x00\xE8", 11, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x84\xC0\x75\x0F\x8B\x8D\x1C\x0A\x00\x00\xE8", 11, 0);
         int adjust = 0;
 
         if (pattern_offset == -1) {
             /* fallback */
-            pattern_offset = search(data, dllSize, "\x09\x00\x84\xC0\x75\x0F\x8B\x8D", 8, 0);
+            pattern_offset = _search(data, dllSize, "\x09\x00\x84\xC0\x75\x0F\x8B\x8D", 8, 0);
             adjust = 2;
             if (pattern_offset == -1) {
                 LOG("popnhax: cannot retrieve result screen button check\n");
@@ -3529,7 +3526,7 @@ static bool patch_quick_retire(bool pfree)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x1A + adjust;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_button_loop,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_result_button_loop,
                       (void **)&real_result_button_loop);
 
     }
@@ -3538,12 +3535,12 @@ static bool patch_quick_retire(bool pfree)
 
     /* retrieve songstart function pointer for quick retry */
     {
-        int64_t pattern_offset = search(data, dllSize, "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
         int delta = -4;
 
         if (pattern_offset == -1) {
             delta = 18;
-            pattern_offset = search(data, dllSize, "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, 0);
+            pattern_offset = _search(data, dllSize, "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: quick retry: cannot retrieve song start function\n");
                 return false;
@@ -3557,7 +3554,7 @@ static bool patch_quick_retire(bool pfree)
     /* instant retry (go back to option select) with numpad 8 */
     {
         /* retrieve current stage score addr for cleanup (also used to fix quick retire medal) */
-        int64_t pattern_offset = search(data, dllSize, "\xF3\xA5\x5F\x5E\x5B\xC2\x04\x00", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xF3\xA5\x5F\x5E\x5B\xC2\x04\x00", 8, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve score addr\n");
@@ -3565,12 +3562,12 @@ static bool patch_quick_retire(bool pfree)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 5;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickretry_retrieve_score,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickretry_retrieve_score,
                       (void **)&real_retrieve_score);
     }
     {
         /* hook quick retire transition to go back to option select instead */
-        int64_t pattern_offset = search(data, dllSize, "\x8B\xE8\x8B\x47\x30\x83\xF8\x17", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\xE8\x8B\x47\x30\x83\xF8\x17", 8, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve screen transition function\n");
@@ -3578,7 +3575,7 @@ static bool patch_quick_retire(bool pfree)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_screen_transition,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_screen_transition,
                       (void **)&real_screen_transition);
     }
 
@@ -3587,7 +3584,7 @@ static bool patch_quick_retire(bool pfree)
      * because of special behavior, ac tsumtsum goes A->C so I cannot keep the patch in B else tsumtsum gets stuck in a never ending option select loop
      * former patch in B now sets a flag in A which is processed in B, then C also processes it in case the flag is still there */
     {
-        int64_t pattern_offset = search(data, dllSize, "\xE4\xF8\x51\x56\x8B\xF1\x80\xBE", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xE4\xF8\x51\x56\x8B\xF1\x80\xBE", 8, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve option screen loop\n");
@@ -3601,11 +3598,11 @@ static bool patch_quick_retire(bool pfree)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x04;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen,
                       (void **)&real_option_screen);
     }
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\xF0\x83\x7E\x0C\x00\x0F\x84", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\xF0\x83\x7E\x0C\x00\x0F\x84", 8, 0);
 
         if (pattern_offset == -1) {
             LOG("popnhax: quick retry: cannot retrieve option screen loop\n");
@@ -3613,16 +3610,16 @@ static bool patch_quick_retire(bool pfree)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x0F;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen_apply_skip,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen_apply_skip,
                       (void **)&real_option_screen_apply_skip);
     }
     {
-        int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0); //unilab
+        int64_t pattern_offset = _search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0); //unilab
         uint8_t adjust = 15;
         g_transition_offset = 0xA10;
         if (pattern_offset == -1) {
             /* fallback */
-            pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
+            pattern_offset = _search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
             adjust = 12;
             g_transition_offset = 0xA0C;
         }
@@ -3633,7 +3630,7 @@ static bool patch_quick_retire(bool pfree)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - adjust;
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen_apply_skip_tsum,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen_apply_skip_tsum,
                       (void **)&real_option_screen_apply_skip_tsum);
     }
 
@@ -3652,7 +3649,7 @@ static bool patch_quick_retire(bool pfree)
 
         {
             // loadnew2dx func
-            int64_t pattern_offset = search(data, dllSize,
+            int64_t pattern_offset = _search(data, dllSize,
                      "\x53\x55\x8B\x6C\x24\x0C\x56\x57\x8B\xCD", 10, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: loadnew2dx_addr was not found.\n");
@@ -3663,7 +3660,7 @@ static bool patch_quick_retire(bool pfree)
 
         {
             // playgeneralsound  func
-            int64_t pattern_offset = search(data, dllSize,
+            int64_t pattern_offset = _search(data, dllSize,
                      "\x33\xC0\x5B\xC3\xCC\xCC\xCC\xCC\xCC\x55\x8B\xEC\x83\xE4\xF8", 15, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: playgeneralsound_addr was not found.\n");
@@ -3680,12 +3677,12 @@ static bool patch_quick_retire(bool pfree)
 
             int i = 0;
             do {
-                pattern_offset = search(data, dllSize-pattern_offset-10, "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, pattern_offset+10);
+                pattern_offset = _search(data, dllSize-pattern_offset-10, "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, pattern_offset+10);
                 if (pattern_offset == -1) {
                     LOG("popnhax: cannot find \"here we go\" sound play (occurrence %d).\n",i+1);
                 } else {
                     uint64_t patch_addr = (int64_t)data + pattern_offset + 7;
-                    MH_CreateHook((LPVOID)patch_addr, hook[i],real[i]);
+                    _MH_CreateHook((LPVOID)patch_addr, hook[i],real[i]);
                     i++;
                 }
             } while (i < 3 && pattern_offset != -1);
@@ -3698,13 +3695,13 @@ static bool patch_quick_retire(bool pfree)
             uint8_t adjust = 0;
 
             if (config.game_version < 27) {
-                pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
+                pattern_offset = _search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
                 adjust = 0;
             } else if (config.game_version == 27) {
-                pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0);
+                pattern_offset = _search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0);
                 adjust = 3;
             } else { // let's hope for the future
-                pattern_offset = search(data, dllSize, "\x8B\x85\x10\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
+                pattern_offset = _search(data, dllSize, "\x8B\x85\x10\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
                 adjust = 0;
             }
 
@@ -3714,7 +3711,7 @@ static bool patch_quick_retire(bool pfree)
             }
 
             uint64_t patch_addr = (int64_t)data + pattern_offset - adjust;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen,
                           (void **)&real_option_screen_later);
         }
         /* automatically leave option screen after numpad 9 press */
@@ -3722,10 +3719,10 @@ static bool patch_quick_retire(bool pfree)
             int64_t pattern_offset = -1;
             uint8_t adjust = 0;
             if ( config.game_version <= 27 ) {
-                pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00\xE8", 12, 0);
+                pattern_offset = _search(data, dllSize, "\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00\xE8", 12, 0);
                 adjust = 7;
             } else {
-                pattern_offset = search(data, dllSize, "\x84\xC0\x0F\x85\x91\x00\x00\x00\x8B", 9, 0);
+                pattern_offset = _search(data, dllSize, "\x84\xC0\x0F\x85\x91\x00\x00\x00\x8B", 9, 0);
                 adjust = 0;
             }
 
@@ -3735,17 +3732,17 @@ static bool patch_quick_retire(bool pfree)
             }
 
             uint64_t patch_addr = (int64_t)data + pattern_offset - adjust;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen_auto_leave,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen_auto_leave,
                           (void **)&real_backtosongselect_option_screen_auto_leave);
         }
 
         /* go back to song select with numpad 9 on song option screen (after pressing yellow) */
         {
-            int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x38\x00\x75\x3D\x68", 10, 0); //unilab
+            int64_t pattern_offset = _search(data, dllSize, "\x0A\x00\x00\x83\x78\x38\x00\x75\x3D\x68", 10, 0); //unilab
             uint8_t adjust = 3;
             if (pattern_offset == -1) {
                 /* fallback */
-                pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x38\x00\x75", 11, 0);
+                pattern_offset = _search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x38\x00\x75", 11, 0);
                 adjust = 0;
             }
 
@@ -3755,12 +3752,12 @@ static bool patch_quick_retire(bool pfree)
             }
 
             uint64_t patch_addr = (int64_t)data + pattern_offset - adjust;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_yellow,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_yellow,
                           (void **)&real_option_screen_yellow);
         }
         /* automatically leave after numpad 9 press */
         {
-            int64_t pattern_offset = search(data, dllSize, "\x8B\x55\x00\x8B\x82\x9C\x00\x00\x00\x6A\x01\x8B\xCD\xFF\xD0\x80\xBD", 17, 0);
+            int64_t pattern_offset = _search(data, dllSize, "\x8B\x55\x00\x8B\x82\x9C\x00\x00\x00\x6A\x01\x8B\xCD\xFF\xD0\x80\xBD", 17, 0);
 
             if (pattern_offset == -1) {
                 LOG("popnhax: back to song select: cannot retrieve option screen yellow leave addr\n");
@@ -3768,7 +3765,7 @@ static bool patch_quick_retire(bool pfree)
             }
 
             g_option_yellow_leave_addr = (int32_t)data + pattern_offset - 0x05;
-            pattern_offset = search(data, dllSize, "\x84\xC0\x0F\x84\xF1\x00\x00\x00\x8B\xC5", 10, 0);
+            pattern_offset = _search(data, dllSize, "\x84\xC0\x0F\x84\xF1\x00\x00\x00\x8B\xC5", 10, 0);
 
             if (pattern_offset == -1) {
                 LOG("popnhax: back to song select: cannot retrieve option screen yellow button check function\n");
@@ -3776,7 +3773,7 @@ static bool patch_quick_retire(bool pfree)
             }
 
             uint64_t patch_addr = (int64_t)data + pattern_offset;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen_yellow_auto_leave,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen_yellow_auto_leave,
                           (void **)&real_backtosongselect_option_screen_yellow_auto_leave);
         }
 
@@ -4200,7 +4197,7 @@ static bool patch_enhanced_polling(uint8_t debounce, bool stats)
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\xC6\x44\x24\x0C\x00\xE8", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xC6\x44\x24\x0C\x00\xE8", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: enhanced polling: cannot find eval timing function\n");
             return false;
@@ -4208,19 +4205,19 @@ static bool patch_enhanced_polling(uint8_t debounce, bool stats)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_enhanced_poll,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_enhanced_poll,
                       (void **)&real_enhanced_poll); // substract
 
     }
 
     /* patch calls to usbPadRead and usbPadReadLast */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: enhanced polling: cannot find usbPadRead call (1)\n");
             return false;
         }
-        pattern_offset = search(data, dllSize-pattern_offset-1, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, pattern_offset+1);
+        pattern_offset = _search(data, dllSize-pattern_offset-1, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, pattern_offset+1);
         if (pattern_offset == -1) {
             LOG("popnhax: enhanced polling: cannot find usbPadRead call (2)\n");
             return false;
@@ -4609,7 +4606,7 @@ static bool patch_disable_keysound()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x00\x00\x72\x05\xB9\xFF", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x00\x00\x72\x05\xB9\xFF", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: keysound disable: cannot find offset\n");
             return false;
@@ -4623,12 +4620,12 @@ static bool patch_disable_keysound()
         {
             LOG("popnhax: keysound disable: old game version\n");
             //return false;
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_chart_load_old,
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_chart_load_old,
                           (void **)&real_chart_load);
         }
         else
         {
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_chart_load,
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)patch_chart_load,
                           (void **)&real_chart_load); //rewrite chart to get rid of keysounds
         }
 
@@ -4647,7 +4644,7 @@ static bool patch_keysound_offset(int8_t value)
     patch_add_to_base_offset(value);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\xC6\x44\x24\x0C\x00\xE8", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xC6\x44\x24\x0C\x00\xE8", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: keysound offset: cannot prepatch\n");
             return false;
@@ -4656,7 +4653,7 @@ static bool patch_keysound_offset(int8_t value)
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
         patch_memory(patch_addr, (char *)"\x03", 1); // change "mov esi" into "add esi"
 
-        MH_CreateHook((LPVOID)(patch_addr-0x03), (LPVOID)patch_eval_timing,
+        _MH_CreateHook((LPVOID)(patch_addr-0x03), (LPVOID)patch_eval_timing,
                       (void **)&real_eval_timing); // preload esi with g_keysound_offset
 
         if (!config.audio_offset)
@@ -4795,7 +4792,7 @@ static bool patch_score_challenge()
     /* Part1: retrieve course id and song id, useful and will simplify a little */
     {
 
-        int64_t pattern_offset = search(data, dllSize, "\x81\xC6\xCC\x08\x00\x00\xC7\x44\x24", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x81\xC6\xCC\x08\x00\x00\xC7\x44\x24", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find course/song address\n");
             return false;
@@ -4803,13 +4800,13 @@ static bool patch_score_challenge()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)score_challenge_retrieve_addr,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)score_challenge_retrieve_addr,
                       (void **)&real_parse_ranking_info);
     }
 
     /* Part2: retrieve subfunctions which used to be called by the now stubbed function */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x66\x89\x08\x88\x50\x02", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x66\x89\x08\x88\x50\x02", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find song data prep function\n");
             return false;
@@ -4820,7 +4817,7 @@ static bool patch_score_challenge()
         score_challenge_prep_songdata = (void(*)())patch_addr;
     }
     {
-        int64_t pattern_offset = search(data, dllSize-0x60000, "\x8B\x4F\x0C\x83\xEC\x10\x56\x85\xC9\x75\x04\x33\xC0\xEB\x08\x8B\x47\x14\x2B\xC1\xC1\xF8\x02\x8B\x77\x10\x8B\xD6\x2B\xD1\xC1\xFA\x02\x3B\xD0\x73\x2B", 37, 0x60000);
+        int64_t pattern_offset = _search(data, dllSize-0x60000, "\x8B\x4F\x0C\x83\xEC\x10\x56\x85\xC9\x75\x04\x33\xC0\xEB\x08\x8B\x47\x14\x2B\xC1\xC1\xF8\x02\x8B\x77\x10\x8B\xD6\x2B\xD1\xC1\xFA\x02\x3B\xD0\x73\x2B", 37, 0x60000);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find category song inject function\n");
             return false;
@@ -4831,7 +4828,7 @@ static bool patch_score_challenge()
         score_challenge_song_inject = (void(*)())patch_addr;
     }
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x01\x8B\x50\x14\xFF\xE2\xC3\xCC\xCC\xCC\xCC", 12, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find check if logged function\n");
             return false;
@@ -4842,7 +4839,7 @@ static bool patch_score_challenge()
         score_challenge_test_if_logged1 = (void(*)())patch_addr;
     }
     {
-        int64_t pattern_offset = search(data, dllSize, "\xF7\xD8\x1B\xC0\x40\xC3\xE8", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xF7\xD8\x1B\xC0\x40\xC3\xE8", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: score challenge: cannot find check if normal mode function\n");
             return false;
@@ -4855,9 +4852,9 @@ static bool patch_score_challenge()
 
     /* Part3: "unstub" the score challenge category creation */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
         if (pattern_offset == -1) {
-            pattern_offset = search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
+            pattern_offset = _search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
             if (pattern_offset == -1) {
                 LOG("popnhax: score challenge: cannot find category building loop\n");
                 return false;
@@ -4869,7 +4866,7 @@ static bool patch_score_challenge()
         uint32_t function_offset = *((uint32_t*)(patch_addr+0x01));
         uint64_t function_addr = patch_addr+5+function_offset;
 
-        MH_CreateHook((LPVOID)(function_addr), (LPVOID)make_score_challenge_category,
+        _MH_CreateHook((LPVOID)(function_addr), (LPVOID)make_score_challenge_category,
                       (void **)&real_make_score_challenge_category);
     }
 
@@ -5070,7 +5067,7 @@ static bool patch_autopin()
     memcpy(&g_pincode, line, 4);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\x33\xC4\x89\x44\x24\x14\xA1", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x33\xC4\x89\x44\x24\x14\xA1", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: autopin: cannot find pincode handling function\n");
             return false;
@@ -5078,7 +5075,7 @@ static bool patch_autopin()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_pincode,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_pincode,
                       (void **)&real_pincode);
     }
     LOG("popnhax: autopin enabled\n");
@@ -5109,7 +5106,7 @@ static bool version_check() {
 
     /* check Part 1: (21-23 , 24-27) */
     {
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
             "\x70\x64\x61\x74\x61\x5F\x66\x69\x6C\x65\x6E\x61\x6D\x65", 14, 0); // "pdata_filename"
         if (pattern_offset == -1) {
             old_db = true;
@@ -5122,7 +5119,7 @@ static bool version_check() {
 
     /* check Part 2: prepare for g_chartbase_addr */
     {
-        pre_gchartaddr = search(data, dllSize, "\x8A\xC8\xBA", 3, 0);
+        pre_gchartaddr = _search(data, dllSize, "\x8A\xC8\xBA", 3, 0);
         if (pre_gchartaddr == -1) {
             #if DEBUG == 1
                 LOG("popnhax: chart_baseaddr was not found\n");
@@ -5146,7 +5143,7 @@ static bool version_check() {
 
         {
             if (p_version == 0) {
-                int64_t pattern_offset = search(data, dllSize, "\x83\xF8\x03\x77\x6B", 5, 0);
+                int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x03\x77\x6B", 5, 0);
                 if (pattern_offset == -1) {
                     LOG("popnhax: pop'n 23 eclale\n");
                     p_version = 3;
@@ -5158,7 +5155,7 @@ static bool version_check() {
         }
     } else {
         //old_db = false;
-        int64_t pattern_offset = search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: pop'n 24 - pop'n 26 (not Unilabo) \n");
             p_version = 4;
@@ -6207,7 +6204,7 @@ static bool get_rendaddr()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
              "\x3b\xC3\x74\x13\xC7\x00\x02\x00\x00\x00\x89\x58\x04\x89\x58\x08", 16, 0);
         if (pattern_offset == -1) {
             return false;
@@ -6217,7 +6214,7 @@ static bool get_rendaddr()
     }
 
     {
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
              "\xC3\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x8B\x4C\x24\x0C\x8D\x44\x24\x10", 24, 0);
         if (pattern_offset == -1) {
             return false;
@@ -6822,7 +6819,7 @@ static bool patch_practice_mode()
 
     {
         /* AGING MODE to Practice Mode */
-        int64_t pattern_offset = search(data, dllSize-0x100000,
+        int64_t pattern_offset = _search(data, dllSize-0x100000,
                          "\x83\xEC\x40\x53\x56\x57", 6, 0x100000);
 
         if (pattern_offset == -1) {
@@ -6832,7 +6829,7 @@ static bool patch_practice_mode()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 6;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)new_menu,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)new_menu,
                       (void **)&real_aging_loop);
 
         #if DEBUG == 1
@@ -6848,7 +6845,7 @@ static bool patch_practice_mode()
     }
     {
         /* INPUT numkey */
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
              "\x85\xC9\x74\x08\x8B\x01\x8B\x40\x24\x52\xFF\xD0", 12, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find input_func address\n");
@@ -6863,7 +6860,7 @@ static bool patch_practice_mode()
     }
     {
         /* player_options_addr */
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x14\xFF\xE2\xC3\xCC\xCC", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find player_options_addr\n");
@@ -6874,7 +6871,7 @@ static bool patch_practice_mode()
     /* speed change */
     {
         // first step : 2dx hook
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x83\xC4\x0C\x8B\xC3\x8D\x7C\x24", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find 2dxLoad address\n");
@@ -6883,7 +6880,7 @@ static bool patch_practice_mode()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset +0x10;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)ex_2dx_speed,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)ex_2dx_speed,
                     (void **)&real_2dx_addr);
 
         #if DEBUG == 1
@@ -6892,7 +6889,7 @@ static bool patch_practice_mode()
     }
     {
         // second step : chart hook
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x8B\x74\x24\x18\x8D\x0C\x5B\x8B\x54\x8E\xF4", 11, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find chartLoad address\n");
@@ -6901,7 +6898,7 @@ static bool patch_practice_mode()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)ex_chart_speed,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)ex_chart_speed,
                     (void **)&real_chart_addr);
 
         #if DEBUG == 1
@@ -6914,7 +6911,7 @@ static bool patch_practice_mode()
     /* r_random hook */
     {
         // random_function_addr
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
              "\x51\x55\x56\xC7\x44\x24\x08\x00\x00\x00", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find random_function address\n");
@@ -6924,7 +6921,7 @@ static bool patch_practice_mode()
     }
     {
         // button_addr
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                      "\x03\xC5\x83\xF8\x09\x7C\xDE", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find button address\n");
@@ -6934,7 +6931,7 @@ static bool patch_practice_mode()
     }
     {
         // r-ran hook addr
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x83\xC4\x04\xB9\x02\x00\x00\x00", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find address for r-ran hook addr\n");
@@ -6943,12 +6940,12 @@ static bool patch_practice_mode()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset -0x13;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)r_random,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)r_random,
                     (void **)&real_get_random);
     }
     {
         // restore player options
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                      "\x5E\x8B\xE5\x5D\xC2\x04\x00\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x55\x8B\xEC\x83\xE4\xF8\x51\x56\x8B\xF1\x8B", 32, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: Cannot find address for restore addr\n");
@@ -6957,7 +6954,7 @@ static bool patch_practice_mode()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset -11;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)restore_playoptions,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)restore_playoptions,
                     (void **)&restore_op);
     }
 
@@ -6983,7 +6980,7 @@ static bool patch_record_mode(bool quickretire)
     if (!quickretire) {
         {
         /* hook quick retire transition to go back to option select instead */
-            int64_t pattern_offset = search(data, dllSize,
+            int64_t pattern_offset = _search(data, dllSize,
                      "\x8B\xE8\x8B\x47\x30\x83\xF8\x17", 8, 0);
 
             if (pattern_offset == -1) {
@@ -6992,18 +6989,18 @@ static bool patch_record_mode(bool quickretire)
             }
 
             uint64_t patch_addr = (int64_t)data + pattern_offset;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_screen_transition,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_screen_transition,
                         (void **)&real_screen_transition);
         }
         /* retrieve songstart function pointer for quick retry */
         {
-            int64_t pattern_offset = search(data, dllSize,
+            int64_t pattern_offset = _search(data, dllSize,
                      "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
             int delta = -4;
 
             if (pattern_offset == -1) {
                 delta = 18;
-                pattern_offset = search(data, dllSize,
+                pattern_offset = _search(data, dllSize,
                      "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, 0);
                 if (pattern_offset == -1) {
                     LOG("popnhax: record reload: cannot retrieve song start function\n");
@@ -7016,7 +7013,7 @@ static bool patch_record_mode(bool quickretire)
         }
         /* instant launch song with numpad 8 on option select (hold 8 during song for quick retry) */
         {
-            int64_t pattern_offset = search(data, dllSize,
+            int64_t pattern_offset = _search(data, dllSize,
                      "\x8B\xF0\x83\x7E\x0C\x00\x0F\x84", 8, 0);
 
             if (pattern_offset == -1) {
@@ -7025,7 +7022,7 @@ static bool patch_record_mode(bool quickretire)
             }
 
             uint64_t patch_addr = (int64_t)data + pattern_offset - 0x0F;
-            MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen_simple,
+            _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickexit_option_screen_simple,
                         (void **)&real_option_screen_simple);
         }
 
@@ -7035,7 +7032,7 @@ static bool patch_record_mode(bool quickretire)
     /* record_mode hook */
     {
         //??_7CMusicSelectScene@@6B@
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x8B\x44\x24\x04\x56\x57\x50\x8B\xF9", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: MusicSelectScene_addr was not found.\n");
@@ -7044,12 +7041,12 @@ static bool patch_record_mode(bool quickretire)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_musicselect,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_musicselect,
                       (void **)&real_musicselect);
     }
     {
         // g_elapsed_time
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x02\x8B\xF0\x7C", 4, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: elapsed_time_addr was not found.\n");
@@ -7058,13 +7055,13 @@ static bool patch_record_mode(bool quickretire)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset +1;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)get_elapsed_time,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)get_elapsed_time,
                       (void **)&get_elapsed_time_hook);
     }
     /*
     {
         // NoteQue_func
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x0F\xB6\xC1\x88\x4F\x11\x88\x4F\x12", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: noteque_func_addr was not found.\n");
@@ -7073,13 +7070,13 @@ static bool patch_record_mode(bool quickretire)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset +3;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)noteque_rewrite,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)noteque_rewrite,
                       (void **)&real_noteque_addr);
     }
     */
     {
         // ifs_name
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x83\xC4\x04\x50\x8B\xC7\x85\xDB", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: ifs_name_ptr was not found.\n");
@@ -7088,12 +7085,12 @@ static bool patch_record_mode(bool quickretire)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)get_ifs_filename,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)get_ifs_filename,
                       (void **)&get_ifs_name);
     }
     {
         // for reload
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: record reload: cannot retrieve song start function\n");
@@ -7102,12 +7099,12 @@ static bool patch_record_mode(bool quickretire)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset -0x14;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_optionloop_after_pressing_red,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_optionloop_after_pressing_red,
                       (void **)&real_optionloop_after_pressing_red);
     }
     {
         // next step (after pressing yellow)
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
              "\x8B\x55\x00\x8B\x82\x9C\x00\x00\x00\x6A\x01\x8B\xCD\xFF\xD0\x80\xBD", 17, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: record reload: cannot retrieve option screen yellow leave addr\n");
@@ -7116,12 +7113,12 @@ static bool patch_record_mode(bool quickretire)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset +0x2C;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_optionloop_after_pressing_yellow,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_optionloop_after_pressing_yellow,
                       (void **)&real_optionloop_after_pressing_yellow);
     }
     {
         // play1_addr(judge start)
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\xC1\xE8\x07\x24\x01\x8A\xD8", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: recmode_forplay1_addr was not found.\n");
@@ -7130,12 +7127,12 @@ static bool patch_record_mode(bool quickretire)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_firststep,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_firststep,
                       (void **)&hook_playfirst);
     }
     {
         // play3_addr (first_auto_flag_check)
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x84\xC0\x0F\x84\x08\x01\x00\x00", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: recmode_forplay3_addr was not found.\n");
@@ -7144,11 +7141,11 @@ static bool patch_record_mode(bool quickretire)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_thirdstep,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_thirdstep,
                       (void **)&first_auto_flag_check);
 
         // play2_addr (last_auto_flag_check) , p_note
-        int64_t pattern_offset_p2 = search(data, dllSize,
+        int64_t pattern_offset_p2 = _search(data, dllSize,
                  "\x84\xC0\x74\x53", 4, pattern_offset);
         if (pattern_offset_p2 == -1) {
             LOG("popnhax: recmode_forplay2_addr was not found.\n");
@@ -7158,12 +7155,12 @@ static bool patch_record_mode(bool quickretire)
         p_note = (uint32_t*)((int64_t)data + pattern_offset_p2 +6);
         uint64_t patch_addr_p2 = (int64_t)data + pattern_offset_p2;
 
-        MH_CreateHook((LPVOID)(patch_addr_p2), (LPVOID)play_secondstep,
+        _MH_CreateHook((LPVOID)(patch_addr_p2), (LPVOID)play_secondstep,
                       (void **)&last_auto_flag_check);
     }
     {
         // play4_addr(long_end_flow)
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
              "\x83\xC4\x04\xEB\x2E\xBA\x80\x00\x00\x00", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: recmode_forplay4_addr was not found.\n");
@@ -7171,16 +7168,16 @@ static bool patch_record_mode(bool quickretire)
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset -11;
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_fourthstep,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_fourthstep,
                       (void **)&long_end_flow);
     }
     {
         // rec1_addr, judge_bar_func
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\xE3\x00\x00\x83\xC4\x0C\x80\x7C\x24", 9, 0);
         if (pattern_offset == -1) {
-            //next search
-            pattern_offset = search(data, dllSize,
+            //next _search
+            pattern_offset = _search(data, dllSize,
                  "\xE4\x00\x00\x83\xC4\x0C\x80\x7C\x24", 9, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: recmode_addr was not found.\n");
@@ -7192,12 +7189,12 @@ static bool patch_record_mode(bool quickretire)
         judge_bar_func = (uint32_t)((int64_t)data +pattern_offset + *tmp_addr +3);
         uint64_t patch_addr = (int64_t)data + pattern_offset -2;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)record_playdata,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)record_playdata,
                       (void **)&get_judge);
     }
     {
         // rec2_addr
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x24\x0F\x66\x0F\xB6\xC8\x66\xC1", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: recmode_addr2 was not found.\n");
@@ -7206,13 +7203,13 @@ static bool patch_record_mode(bool quickretire)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset +0x10;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)record_playdata_poor,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)record_playdata_poor,
                       (void **)&get_poor);
     }
     /* other functions */
     {
         // PlaySramSound func
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                  "\x51\x56\x8B\xF0\x85\xF6\x74\x6C\x6B\xC0\x2C", 11, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: PlaySramSound_addr was not found.\n");
@@ -7222,7 +7219,7 @@ static bool patch_record_mode(bool quickretire)
     }
     {
         // j_win_addr
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
                      "\x84\xC0\x74\x18\x8B\x04\xFD", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: j_win_addr was not found.\n");
@@ -7232,7 +7229,7 @@ static bool patch_record_mode(bool quickretire)
     }
     {
         // for rec_date
-        int64_t pattern_offset = search(data, dllSize, "\x83\xEC\x2C\x6A\x00", 5, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xEC\x2C\x6A\x00", 5, 0);
         if (pattern_offset == -1) {
                 LOG("popnhax: date_func was not found.\n");
                 return false;
@@ -7241,7 +7238,7 @@ static bool patch_record_mode(bool quickretire)
     }
     {
         // for no-pfree
-        int64_t pattern_offset = search(data, dllSize,
+        int64_t pattern_offset = _search(data, dllSize,
              "\x83\xF8\x04\x0F\xB6\xC1\x75\x13\x69\xC0", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: record: player-option offset: not found.\n");
@@ -7252,12 +7249,12 @@ static bool patch_record_mode(bool quickretire)
     }
     {
         // usbPadReadLast
-        int64_t pattern_offset = search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: record: cannot find usbPadRead call (1)\n");
             return false;
         }
-        pattern_offset = search(data, dllSize-pattern_offset-1, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, pattern_offset+1);
+        pattern_offset = _search(data, dllSize-pattern_offset-1, "\x83\xC4\x04\x5D\xC3\xCC\xCC", 7, pattern_offset+1);
         if (pattern_offset == -1) {
             LOG("popnhax: record: cannot find usbPadRead call (2)\n");
             return false;
@@ -7271,7 +7268,7 @@ static bool patch_record_mode(bool quickretire)
         {
             LOG("popnhax: record: custom popkun assets found. Using %s\n", popkun_change);
 
-            int64_t pattern_offset = search(data, dllSize,
+            int64_t pattern_offset = _search(data, dllSize,
                  "\x5E\x83\xC4\x10\xC3\x51\xE8", 7, 0);
             if (pattern_offset == -1) {
                 LOG("popnhax: record: ifs load address not found.\n");
@@ -7280,7 +7277,7 @@ static bool patch_record_mode(bool quickretire)
 
             uint64_t patch_addr = (int64_t)data + pattern_offset +13;
 
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)loadtexhook,
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)loadtexhook,
                           (void **)&gm_ifs_load);
 
             #if DEBUG == 1
@@ -7405,7 +7402,7 @@ static bool patch_enhanced_polling_stats()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize-0x100000, "\x83\xEC\x40\x53\x56\x57", 6, 0x100000);
+        int64_t pattern_offset = _search(data, dllSize-0x100000, "\x83\xEC\x40\x53\x56\x57", 6, 0x100000);
 
         if (pattern_offset == -1) {
             LOG("popnhax: enhanced_polling_stats: cannot retrieve aging loop\n");
@@ -7419,7 +7416,7 @@ static bool patch_enhanced_polling_stats()
             return false;
         }
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)enhanced_polling_stats_disp,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)enhanced_polling_stats_disp,
                       (void **)&real_render_loop);
 
     }
@@ -7563,7 +7560,7 @@ bool patch_hard_gauge_survival(uint8_t severity)
 
     /* change is_survival_gauge function behavior */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x33\xC9\x83\xF8\x04\x0F\x94\xC1\x8A\xC1", 10, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x33\xC9\x83\xF8\x04\x0F\x94\xC1\x8A\xC1", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: survival gauge: cannot find survival gauge check function\n");
             return false;
@@ -7571,13 +7568,13 @@ bool patch_hard_gauge_survival(uint8_t severity)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x02;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_check_survival_gauge,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_check_survival_gauge,
                       (void **)&real_check_survival_gauge);
     }
 
     /* change get_retire_timer function behavior (fix bug with song not exiting on empty gauge when paseli is on) */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x3D\xB0\x04\x00\x00\x7C", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x3D\xB0\x04\x00\x00\x7C", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: survival gauge: cannot find get retire timer function\n");
             return false;
@@ -7586,24 +7583,24 @@ bool patch_hard_gauge_survival(uint8_t severity)
         int64_t fun_rel = *(int32_t *)(data + pattern_offset - 0x04 ); // function call is just before our pattern
         uint64_t patch_addr = (int64_t)data + pattern_offset + fun_rel;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_get_retire_timer,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_get_retire_timer,
                       (void **)&real_get_retire_timer);
     }
 
     /* hook commit option to flag hard gauge being selected */
     {
         /* find option commit function (unilab) */
-        int64_t pattern_offset = search(data, dllSize, "\x89\x48\x0C\x8B\x56\x10\x89\x50\x10\x66\x8B\x4E\x14\x66\x89\x48\x14\x5B\xC3\xCC", 20, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x89\x48\x0C\x8B\x56\x10\x89\x50\x10\x66\x8B\x4E\x14\x66\x89\x48\x14\x5B\xC3\xCC", 20, 0);
         if (pattern_offset == -1) {
             /* wasn't found, look for older function */
-            int64_t first_loc = search(data, dllSize, "\x0F\xB6\xC3\x03\xCF\x8D", 6, 0);
+            int64_t first_loc = _search(data, dllSize, "\x0F\xB6\xC3\x03\xCF\x8D", 6, 0);
 
             if (first_loc == -1) {
                 LOG("popnhax: survival gauge: cannot find option commit function (1)\n");
                 return false;
             }
 
-            pattern_offset = search(data, 0x50, "\x89\x50\x0C", 3, first_loc);
+            pattern_offset = _search(data, 0x50, "\x89\x50\x0C", 3, first_loc);
 
             if (pattern_offset == -1) {
                 LOG("popnhax: survival gauge: cannot find option commit function (2)\n");
@@ -7611,13 +7608,13 @@ bool patch_hard_gauge_survival(uint8_t severity)
             }
 
             uint64_t patch_addr = (int64_t)data + pattern_offset;
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_flag_hard_gauge_old,
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_flag_hard_gauge_old,
                         (void **)&real_survival_flag_hard_gauge_old);
         }
         else
         {
             uint64_t patch_addr = (int64_t)data + pattern_offset;
-            MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_flag_hard_gauge,
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_flag_hard_gauge,
                         (void **)&real_survival_flag_hard_gauge);
         }
 
@@ -7625,7 +7622,7 @@ bool patch_hard_gauge_survival(uint8_t severity)
 
     /* Fix medal calculation */
     {
-        int64_t addr = search(data, dllSize, "\x0F\xB7\x47\x12\x66\x83\xF8\x14", 8, 0);
+        int64_t addr = _search(data, dllSize, "\x0F\xB7\x47\x12\x66\x83\xF8\x14", 8, 0);
         if (addr == -1) {
             LOG("popnhax: survival gauge: cannot find medal computation\n");
             return false;
@@ -7634,7 +7631,7 @@ bool patch_hard_gauge_survival(uint8_t severity)
         uint64_t function_addr = (int64_t)data + addr;
         real_survival_gauge_medal_clear = (void (*)())function_addr;
 
-        int64_t pattern_offset = search(data, dllSize, "\x0F\x9F\xC1\x5E\x8B\xD0\x3B\xC1\x7F\x02", 10, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x0F\x9F\xC1\x5E\x8B\xD0\x3B\xC1\x7F\x02", 10, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: survival gauge: cannot find medal computation hook\n");
             return false;
@@ -7642,7 +7639,7 @@ bool patch_hard_gauge_survival(uint8_t severity)
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x04;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_gauge_medal,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_gauge_medal,
                       (void **)&real_survival_gauge_medal);
     }
 
@@ -7705,7 +7702,7 @@ bool patch_survival_iidx()
 
     /* put half the decrease value in the first slot */
     {
-        int64_t pattern_offset = search(data, dllSize, "\xE9\x8C\x00\x00\x00\x8B\xC6", 7, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xE9\x8C\x00\x00\x00\x8B\xC6", 7, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: iidx survival gauge: cannot find survival gauge prepare function\n");
             return false;
@@ -7713,13 +7710,13 @@ bool patch_survival_iidx()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_iidx_prepare_gauge,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_iidx_prepare_gauge,
                       (void **)&real_survival_iidx_prepare_gauge);
     }
 
     /* switch slot depending on gauge value (get halved value when 30% or less) */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x66\x83\xF8\x01\x75\x5E\x66\xA1", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x66\x83\xF8\x01\x75\x5E\x66\xA1", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: iidx survival gauge: cannot find survival gauge update function\n");
             return false;
@@ -7727,7 +7724,7 @@ bool patch_survival_iidx()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0C;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_iidx_apply_gauge,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_survival_iidx_apply_gauge,
                       (void **)&real_survival_iidx_apply_gauge);
     }
 
@@ -7832,7 +7829,7 @@ bool patch_db_power_points()
 
     int64_t child_fun_loc = 0;
     {
-        int64_t offset = search(data, dllSize, "\x8D\x46\xFF\x83\xF8\x0A\x0F", 7, 0);
+        int64_t offset = _search(data, dllSize, "\x8D\x46\xFF\x83\xF8\x0A\x0F", 7, 0);
         if (offset == -1) {
         #if DEBUG == 1
             LOG("popnhax: patch_db: failed to retrieve struct size and offset\n");
@@ -7844,7 +7841,7 @@ bool patch_db_power_points()
     }
 
     {
-        int64_t pattern_offset = search(data, 0x40, "\x8d\x74\x01", 3, child_fun_loc);
+        int64_t pattern_offset = _search(data, 0x40, "\x8d\x74\x01", 3, child_fun_loc);
         if (pattern_offset == -1) {
             LOG("popnhax: patch_db: failed to retrieve offset from base\n");
             g_pfree_song_offset = 0x54; // best effort
@@ -7856,20 +7853,20 @@ bool patch_db_power_points()
 
     /* skip cs_omni and customs in power point convergence value */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8B\x6C\x24\x30\x8B\x4C\x24\x2C", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x6C\x24\x30\x8B\x4C\x24\x2C", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: patch_db: cannot find power point convergence value computation loop\n");
             return false;
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset - 0x08;
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_pp_convergence_loop,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_pp_convergence_loop,
                       (void **)&real_pp_convergence_loop);
     }
 
     /* make sure they cannot count (sanity check) */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x84\xC0\x75\x11\x8D\x44\x24\x38", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x84\xC0\x75\x11\x8D\x44\x24\x38", 8, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: patch_db: cannot find convergence value computation\n");
             return false;
@@ -7878,13 +7875,13 @@ bool patch_db_power_points()
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x08;
 
         skip_convergence_value_get_score = (void(*)()) (patch_addr + 0x05);
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_convergence_value_compute,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_convergence_value_compute,
                       (void **)&real_convergence_value_compute);
     }
 
     /* skip cs_omni and customs in new stages pplist */
     {
-        int64_t pattern_offset = search(data, dllSize, "\x8A\x1E\x6A\x00\x51\xE8", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x8A\x1E\x6A\x00\x51\xE8", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: patch_db: cannot find pp increment computation\n");
             return false;
@@ -7892,10 +7889,10 @@ bool patch_db_power_points()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x02;
 
-        MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_pp_increment_compute,
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_pp_increment_compute,
                       (void **)&real_pp_increment_compute);
 
-        int64_t jump_addr_offset = search(data, dllSize, "\x8B\x54\x24\x5C\x0F\xB6\x42\x0E\x45", 9, 0);
+        int64_t jump_addr_offset = _search(data, dllSize, "\x8B\x54\x24\x5C\x0F\xB6\x42\x0E\x45", 9, 0);
         if (jump_addr_offset == -1) {
             LOG("popnhax: patch_db: cannot find pp increment computation next iter\n");
             return false;
@@ -7913,7 +7910,7 @@ bool patch_db_power_points()
 
     /* prevent another crash when playing only customs in a credit (sanity check) */
     {
-        int64_t pattern_offset = search(data, dllSize, "\xC1\xF9\x02\x33\xD2\xF7\xF1\x8B\xC8", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xC1\xF9\x02\x33\xD2\xF7\xF1\x8B\xC8", 9, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: patch_db: cannot find power point mean computation\n");
             return false;
@@ -7923,7 +7920,7 @@ bool patch_db_power_points()
         patch_memory(patch_addr, (char*)"\x90\x90", 2); // erase original div ecx (is taken care of in hook_pp_mean_compute)
 
         /* fix possible divide by zero error */
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pp_mean_compute,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_pp_mean_compute,
                      (void **)&real_pp_mean_compute);
     }
 
@@ -8051,7 +8048,7 @@ static bool get_music_limit_from_file(const char *filepath, uint32_t *limit){
 
     //first retrieve .rdata virtual and raw addresses to compute delta
     {
-        int64_t string_loc = search(data, liFileSize.QuadPart, ".rdata", 6, 0);
+        int64_t string_loc = _search(data, liFileSize.QuadPart, ".rdata", 6, 0);
         if (string_loc == -1) {
             LOG("popnhax: auto_diag: could not retrieve .rdata section header\n");
             UnmapViewOfFile(lpBasePtr);
@@ -8066,7 +8063,7 @@ static bool get_music_limit_from_file(const char *filepath, uint32_t *limit){
 
     //now attempt to find music limit from the dll
     {
-        int64_t string_loc = search(data, liFileSize.QuadPart, "Illegal music no %d", 19, 0);
+        int64_t string_loc = _search(data, liFileSize.QuadPart, "Illegal music no %d", 19, 0);
         if (string_loc == -1) {
             LOG("popnhax: auto_diag: could not retrieve music limit error string\n");
             UnmapViewOfFile(lpBasePtr);
@@ -8079,7 +8076,7 @@ static bool get_music_limit_from_file(const char *filepath, uint32_t *limit){
         string_loc += 0x10000000; //entrypoint
 
         char *as_hex = (char *) &string_loc;
-        int64_t pattern_offset = search(data, liFileSize.QuadPart, as_hex, 4, 0);
+        int64_t pattern_offset = _search(data, liFileSize.QuadPart, as_hex, 4, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: auto_diag: could not retrieve music limit test function\n");
             UnmapViewOfFile(lpBasePtr);
@@ -8121,7 +8118,7 @@ static bool patch_half_timer_speed()
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
     {
-        int64_t pattern_offset = search(data, dllSize, "\xFF\x45\x44\x3B\x75\x04", 6, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\xFF\x45\x44\x3B\x75\x04", 6, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: high_framerate: cannot find timer increase function\n");
             return false;
@@ -8129,7 +8126,7 @@ static bool patch_half_timer_speed()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x03;
 
-        MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_timer_increase,
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_timer_increase,
                      (void **)&real_timer_increase);
     }
     LOG("popnhax: halve timer speed\n");
@@ -8242,6 +8239,50 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (g_game_dll_fn == NULL)
             g_game_dll_fn = strdup("popn22.dll");
 
+
+        uint8_t game_version = get_version();
+
+        LOG("popnhax: game dll: %s ",g_game_dll_fn);
+        if ( game_version != 0 )
+            LOG ("(popn%d)", game_version);
+        LOG("\n");
+
+        if (g_config_fn == NULL)
+        {
+            /* if there's an xml named like the custom game dll, it takes priority */
+            char *tmp_name = strdup(g_game_dll_fn);
+            strcpy(tmp_name+strlen(tmp_name)-3, "xml");
+            if (access(tmp_name, F_OK) == 0)
+                g_config_fn = strdup(tmp_name);
+            else
+                g_config_fn = strdup("popnhax.xml");
+            free(tmp_name);
+        }
+
+        LOG("popnhax: config file: %s\n",g_config_fn);
+
+        if ( !config_process(g_config_fn) )
+        {
+            LOG("FATAL ERROR: Could not pre-process config file\n");
+            exit(1);
+        }
+
+        strcpy(g_config_fn+strlen(g_config_fn)-3, "opt");
+
+        if (!_load_config(g_config_fn, &config, config_psmap))
+        {
+            LOG("popnhax: FATAL ERROR: failed to load %s. Running advanced diagnostic...\n", g_config_fn);
+            config_diag(g_config_fn, config_psmap);
+            exit(1);
+        }
+
+        config.game_version = game_version;
+
+        if ( config.extended_debug )
+        {
+            enable_extended_debug();
+        }
+
         if ( strcmp(g_game_dll_fn, "popn22.dll") == 0 )
         {
             //ensure you're not running popn22.dll from the modules subfolder
@@ -8265,44 +8306,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                 LOG("ERROR: a newer version of popn22.dll seems to be present in modules subfolder (%d vs %d songs). Please copy dlls back to contents folder\n", modules_limit, current_limit);
             }
         }
-
-        if (g_config_fn == NULL)
-        {
-            /* if there's an xml named like the custom game dll, it takes priority */
-            char *tmp_name = strdup(g_game_dll_fn);
-            strcpy(tmp_name+strlen(tmp_name)-3, "xml");
-            if (access(tmp_name, F_OK) == 0)
-                g_config_fn = strdup(tmp_name);
-            else
-                g_config_fn = strdup("popnhax.xml");
-            free(tmp_name);
-        }
-
-        uint8_t game_version = get_version();
-
-        LOG("popnhax: game dll: %s ",g_game_dll_fn);
-        if ( game_version != 0 )
-            LOG ("(popn%d)", game_version);
-        LOG("\n");
-
-        LOG("popnhax: config file: %s\n",g_config_fn);
-
-        if ( !config_process(g_config_fn) )
-        {
-            LOG("FATAL ERROR: Could not pre-process config file\n");
-            exit(1);
-        }
-
-        strcpy(g_config_fn+strlen(g_config_fn)-3, "opt");
-
-        if (!_load_config(g_config_fn, &config, config_psmap))
-        {
-            LOG("popnhax: FATAL ERROR: failed to load %s. Running advanced diagnostic...\n", g_config_fn);
-            config_diag(g_config_fn, config_psmap);
-            exit(1);
-        }
-
-        config.game_version = game_version;
 
         if (force_trans_debug)
             config.translation_debug = true;
