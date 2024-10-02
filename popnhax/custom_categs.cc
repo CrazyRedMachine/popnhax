@@ -18,7 +18,6 @@
 
 #define F_OK 0
 
-
 //game code takes array start address from offset 0xC and the address after the list end from offset 0x10
 typedef struct songlist_s {
     uint32_t dummy[3];
@@ -566,8 +565,8 @@ void (*real_categ_printf_call)();
 void (*real_categ_title_printf)();
 void hook_categ_title_printf()
 {
-    __asm("cmp edi, 0x10\n");
-    __asm("jle categ_title_printf_ok\n");
+    __asm("cmp edi, [_g_max_categ_idx]\n");
+    __asm("jl categ_title_printf_ok\n");
     __asm("mov eax, _g_categformat\n");
     __asm("push eax\n");
     __asm("jmp [_real_categ_printf_call]\n");
@@ -590,12 +589,16 @@ void hook_categ_listing()
     real_categ_listing();
 }
 
+uint32_t g_songid_offset_title = 0; // offset from ESP to find songid in song printf
+uint32_t g_songid_offset_artist = 0; // offset from ESP to find songid in artist printf
 void (*real_song_printf)();
 void hook_song_printf()
 {
     __asm("push eax\n");
     __asm("push ebx\n");
-    __asm("mov eax, [esp+0x50]\n");
+    __asm("mov eax, [_g_songid_offset_title]\n");
+    __asm("add eax, esp\n");
+    __asm("mov eax, [eax]\n");
 
     __asm("push ecx\n");
     __asm("push edx\n");
@@ -624,7 +627,9 @@ void hook_artist_printf()
 {
     __asm("push eax\n");
     __asm("push ebx\n");
-    __asm("mov eax, [esp+0x50]\n");
+    __asm("mov eax, [_g_songid_offset_artist]\n");
+    __asm("add eax, esp\n");
+    __asm("mov eax, [eax]\n");
 
     __asm("push ecx\n");
     __asm("push edx\n");
@@ -648,15 +653,18 @@ void hook_artist_printf()
     real_artist_printf();
 }
 
-static bool patch_custom_track_format(const char *game_dll_fn) {
+static bool patch_custom_track_format(const char *game_dll_fn, uint8_t game_version) {
     DWORD dllSize = 0;
     char *data = getDllData(game_dll_fn, &dllSize);
+
+    g_songid_offset_title = (game_version>27) ? 0x34 : 0x50;
+    g_songid_offset_artist = (game_version>27) ? 0x4C : 0x50;
 
     //hook format string for song/genre name
     {
         int64_t pattern_offset = _search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x50\x50\x68", 9, 0);
         if (pattern_offset == -1) {
-            pattern_offset = _search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x4C\x50\x68", 9, 0); //usaneko
+            pattern_offset = _search(data, dllSize, "\x83\xC4\x08\x8B\x44\x24\x4C\x50\x68", 9, 0); //usaneko or jamfizz+
             if (pattern_offset == -1) {
                 LOG("popnhax: custom_track_title_format: cannot find song/genre print function\n");
                 return false;
@@ -1217,7 +1225,7 @@ bool patch_custom_categs(const char *dllFilename, struct popnhax_config *config)
         g_customformat = config->custom_track_title_format;
 
     if ( g_customformat != NULL )
-        patch_custom_track_format(dllFilename);
+        patch_custom_track_format(dllFilename, config->game_version);
 
     if (config->custom_exclude_from_version)
         LOG("popnhax: Customs excluded from version folders\n"); //musichax_core_init took care of it
