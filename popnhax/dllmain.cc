@@ -5012,6 +5012,7 @@ static bool patch_fps_uncap(uint16_t fps) {
     return true;
 }
 
+uint32_t g_autopin_offset = 0;
 uint32_t g_pincode;
 uint32_t g_last_enter_pincode;
 void (*real_pincode)(void);
@@ -5039,6 +5040,16 @@ void hook_pincode()
     __asm("add esi, 0x30\n");
     __asm("mov [esi], eax\n");
     __asm("sub esi, 0x30\n");
+
+    __asm("cmp dword ptr [_g_autopin_offset], 0\n");
+    __asm("je skip_2_crash\n");
+    __asm("mov eax, dword ptr [_g_autopin_offset]\n");
+    __asm("add eax, edi\n");
+    __asm("mov byte ptr [eax], 2\n");
+    __asm("add eax, 4\n");
+    __asm("mov byte ptr [eax], 4\n");
+
+    __asm("skip_2_crash:\n");
     __asm("pop eax\n");
     __asm("call_real_pincode_handling:\n");
     real_pincode();
@@ -5067,6 +5078,17 @@ static bool patch_autopin()
 
     memcpy(&g_pincode, line, 4);
 
+    /* retrieve offset where to put values to prevent a crash */
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\x1C\x10\xC7\x87", 4, 0);
+        if (pattern_offset == -1) {
+            LOG("WARNING: autopin: cannot find pincode special offset, might crash\n");
+        }
+
+        g_autopin_offset = *(uint32_t *)((int64_t)data + pattern_offset + 4);
+    }
+
+    /* auto enter pincode */
     {
         int64_t pattern_offset = _search(data, dllSize, "\x33\xC4\x89\x44\x24\x14\xA1", 7, 0);
         if (pattern_offset == -1) {
