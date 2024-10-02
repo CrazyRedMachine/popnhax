@@ -1124,15 +1124,17 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
         }
 
         {
-            int64_t pattern_offset = _search(data, dllSize, "\x33\xC0\x89\x87\x18\x02\x00\x00\x89", 9, 0);
+            int64_t pattern_offset = _search(data, dllSize, "\x10\x6A\x09\x8D\x44\x24\x0C\x50", 8, 0);
+            int32_t delta = 25;
             if (pattern_offset == -1) {
+                delta = 0;
                 pattern_offset = _search(data, dllSize, "\x33\xC0\x89\x86\x18\x02\x00\x00\x89", 9, 0); // usaneko/peace
                 if (pattern_offset == -1) {
                     LOG("popnhax: tachi rivals: cannot find end of credit check if logged function\n");
                     return false;
                 }
             }
-            uint64_t patch_addr = (int64_t)data + pattern_offset;
+            uint64_t patch_addr = (int64_t)data + pattern_offset - delta;
             _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_end_of_credit,
                          (void **)&real_end_of_credit);
         }
@@ -1221,8 +1223,10 @@ bool patch_tachi_scorehook(const char *dllFilename, bool pfree, bool hidden_is_o
     }
     /* hook credit end to reset "need to load conf" marker */
     {
-        int64_t pattern_offset = _search(data, dllSize, "\x33\xC0\x89\x87\x18\x02\x00\x00\x89", 9, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x10\x6A\x09\x8D\x44\x24\x0C\x50", 8, 0);
+        int32_t delta = 25;
         if (pattern_offset == -1) {
+            delta = 0;
             pattern_offset = _search(data, dllSize, "\x33\xC0\x89\x86\x18\x02\x00\x00\x89", 9, 0); // usaneko/peace
             if (pattern_offset == -1) {
             LOG("popnhax: tachi scorehook: cannot find end of credit check if logged function\n");
@@ -1230,7 +1234,7 @@ bool patch_tachi_scorehook(const char *dllFilename, bool pfree, bool hidden_is_o
             }
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        uint64_t patch_addr = (int64_t)data + pattern_offset - delta;
 
         _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_end_of_credit,
                      (void **)&real_end_of_credit);
