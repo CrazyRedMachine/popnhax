@@ -397,7 +397,7 @@ bool find_weird_update_patches(char *buf, uint32_t buf_size, uint32_t music_limi
 
     uint32_t* ea;
     if ( new_popn )
-        ea = find_binary(buf, buf_size, "\x83\xC4\x04\x89\x44\x24\x14\xC7", 8, 0, 0);
+        ea = find_binary(buf, buf_size, "\x83\xC4\x04\x89\x44\x24\x14\xC7\x44\x24", 10, 0, 0);
     else
         ea = find_binary(buf, buf_size, "\x83\xC4\x04\x3B\xC5\x74\x09", 7, 0, 0);
 
