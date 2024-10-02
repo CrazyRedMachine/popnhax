@@ -3531,6 +3531,20 @@ static bool patch_quick_retire(bool pfree)
 
     }
 
+    {
+        /* retrieve current stage score addr for cleanup (also used to fix quick retire medal) */
+        int64_t pattern_offset = _search(data, dllSize, "\xF3\xA5\x5F\x5E\x5B\xC2\x04\x00", 8, 0);
+
+        if (pattern_offset == -1) {
+            LOG("popnhax: quick retire: cannot retrieve score addr\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 5;
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickretry_retrieve_score,
+                      (void **)&real_retrieve_score);
+    }
+
     LOG("popnhax: quick retire enabled\n");
 
     /* retrieve songstart function pointer for quick retry */
@@ -3552,19 +3566,6 @@ static bool patch_quick_retire(bool pfree)
     }
 
     /* instant retry (go back to option select) with numpad 8 */
-    {
-        /* retrieve current stage score addr for cleanup (also used to fix quick retire medal) */
-        int64_t pattern_offset = _search(data, dllSize, "\xF3\xA5\x5F\x5E\x5B\xC2\x04\x00", 8, 0);
-
-        if (pattern_offset == -1) {
-            LOG("popnhax: quick retry: cannot retrieve score addr\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset - 5;
-        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)quickretry_retrieve_score,
-                      (void **)&real_retrieve_score);
-    }
     {
         /* hook quick retire transition to go back to option select instead */
         int64_t pattern_offset = _search(data, dllSize, "\x8B\xE8\x8B\x47\x30\x83\xF8\x17", 8, 0);
