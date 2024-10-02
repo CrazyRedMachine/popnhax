@@ -3694,11 +3694,17 @@ static bool patch_quick_retire(bool pfree)
 
         /* go back to song select with numpad 9 on song option screen (before pressing yellow) */
         {
-            int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0); //unilab
-            uint8_t adjust = 3;
-            if (pattern_offset == -1) {
-                /* fallback */
+            int64_t pattern_offset = -1;
+            uint8_t adjust = 0;
+
+            if (config.game_version < 27) {
                 pattern_offset = search(data, dllSize, "\x8B\x85\x0C\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
+                adjust = 0;
+            } else if (config.game_version == 27) {
+                pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\x78\x34\x00\x75\x3D\xB8", 10, 0);
+                adjust = 3;
+            } else { // let's hope for the future
+                pattern_offset = search(data, dllSize, "\x8B\x85\x10\x0A\x00\x00\x83\x78\x34\x00\x75", 11, 0);
                 adjust = 0;
             }
 
@@ -3713,14 +3719,22 @@ static bool patch_quick_retire(bool pfree)
         }
         /* automatically leave option screen after numpad 9 press */
         {
-            int64_t pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00\xE8", 12, 0);
+            int64_t pattern_offset = -1;
+            uint8_t adjust = 0;
+            if ( config.game_version <= 27 ) {
+                pattern_offset = search(data, dllSize, "\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00\xE8", 12, 0);
+                adjust = 7;
+            } else {
+                pattern_offset = search(data, dllSize, "\x84\xC0\x0F\x85\x91\x00\x00\x00\x8B", 9, 0);
+                adjust = 0;
+            }
 
             if (pattern_offset == -1) {
                 LOG("popnhax: back to song select: cannot retrieve option screen loop function\n");
                 return false;
             }
 
-            uint64_t patch_addr = (int64_t)data + pattern_offset - 0x07;
+            uint64_t patch_addr = (int64_t)data + pattern_offset - adjust;
             MH_CreateHook((LPVOID)patch_addr, (LPVOID)backtosongselect_option_screen_auto_leave,
                           (void **)&real_backtosongselect_option_screen_auto_leave);
         }
