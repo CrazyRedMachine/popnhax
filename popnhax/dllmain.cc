@@ -816,6 +816,7 @@ bool patch_hispeed_auto(uint8_t mode)
 
     /* set g_soflan_retry back to false when leaving options */
     {
+        int8_t delta = 0;
         int64_t first_loc = _search(data, dllSize, "\x0A\x00\x00\x83\xC0\x04\xBF\x0C\x00\x00\x00\xE8", 12, 0);
         if (first_loc == -1) {
             LOG("popnhax: auto hi-speed: cannot retrieve option screen loop function\n");
@@ -824,11 +825,16 @@ bool patch_hispeed_auto(uint8_t mode)
 
         int64_t pattern_offset = _search(data, 1000, "\x33\xC9\x51\x50\x8B", 5, first_loc);
         if (pattern_offset == -1) {
-            LOG("popnhax: auto hi-speed: cannot retrieve option screen leave\n");
-            return false;
+            pattern_offset = _search(data, 1000, "\x74\x1A\x8B\x85\x14\x0A\x00\x00\x53\x6A", 10, first_loc); // popn28
+            delta = 0x23;
+            if (pattern_offset == -1)
+            {
+                LOG("popnhax: auto hi-speed: cannot retrieve option screen leave\n");
+                return false;
+            }
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        uint64_t patch_addr = (int64_t)data + pattern_offset + delta;
         _MH_CreateHook((LPVOID)patch_addr, (LPVOID)retry_soflan_reset,
                       (void **)&real_leave_options);
     }
