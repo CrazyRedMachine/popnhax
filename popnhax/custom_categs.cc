@@ -27,7 +27,8 @@ typedef struct songlist_s {
 } songlist_t;
 
 uint8_t g_game_version;
-uint32_t g_playerdata_ptr_addr; //pointer to the playerdata memory zone (offset 0x08 is popn friend ID as ascii (12 char long), offset 0x1A5 is "is logged in" flag)
+uint32_t g_playerdata_ptr_addr; //pointer to the playerdata memory zone (offset 0x08 is popn friend ID as ascii (12 char long), offset g_loggedin_offset is "is logged in" flag)
+uint32_t g_loggedin_offset;
 char *g_current_friendid;
 uint32_t g_current_songid;
 
@@ -212,12 +213,13 @@ void categ_inject_favorites()
 
     __asm("mov ecx, dword ptr [_g_playerdata_ptr_addr]\n");
     __asm("mov edx, [ecx]\n");
-    __asm("add edx, 0x1A5\n"); //offset where result screen is checking to decide if the favorite option should be displayed/handled
+    __asm("add edx, [_g_loggedin_offset]\n"); //offset where result screen is checking to decide if the favorite option should be displayed/handled
     __asm("mov ecx, [edx]\n");
     __asm("cmp ecx, 0\n");
     __asm("jne skip_fake_login\n");
     __asm("mov dword ptr [edx], 0xFF000001\n");
-    __asm("sub edx, 0x19D\n"); //back to popn friendid offset
+    __asm("sub edx, [_g_loggedin_offset]\n");
+    __asm("add edx, 8\n");                    //back to popn friendid offset
     __asm("mov dword ptr [edx], 0x61666564\n"); // "defa"
     __asm("add edx, 0x04\n");
     __asm("mov dword ptr [edx], 0x00746C75\n"); // "ult"
@@ -728,7 +730,10 @@ void hook_remove_fake_login()
     __asm("jne skip_remove_login\n");
 
     //fake login detected, cleanup
-    __asm("lea ecx, [eax+0x1A5]\n"); //login status offset
+    __asm("push ebx\n");
+    __asm("mov ebx, [_g_loggedin_offset]\n");
+    __asm("lea ecx, [eax+ebx]\n"); //login status offset
+    __asm("pop ebx\n");
     __asm("mov dword ptr [ecx], 0x00000000\n");
 
     __asm("skip_remove_login:\n");
@@ -751,6 +756,20 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
 
         //I need to call this subfunction from my hook
         add_song_in_list = (void (*)())(data + pattern_offset - 0x12);
+    }
+
+    //retrieve logged in status offset from playerdata
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\xBF\x07\x00\x00\x00\xC6\x85", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: local_favorites: cannot find result screen function\n");
+            return false;
+        }
+            uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x1D);
+            uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
+            uint64_t function_addr = function_call_addr+5+function_offset;
+            g_loggedin_offset = *(uint32_t*)(function_addr+2);
+            //LOG("LOGGED IN OFFSET IS %x\n",g_loggedin_offset); // 0x1A5 for popn27-, 0x22D for popn28
     }
 
     // patch category handling jumptable to add our processing

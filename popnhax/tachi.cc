@@ -204,7 +204,8 @@ struct MemoryStruct g_curl_data;
 score_info_t *g_score_info;
 song_info_t *g_song_info;
 uint32_t *g_song_info_zone;
-uint32_t g_playerdata_zone_addr; //pointer to the playerdata memory zone (offset 0x08 is popn friend ID as ascii (12 char long), offset 0x44 is rival count, offset 0x1A5 is "is logged in" flag)
+uint32_t g_playerdata_zone_addr; //pointer to the playerdata memory zone (offset 0x08 is popn friend ID as ascii (12 char long), offset 0x44 is rival count, g_tachi_loggedin_offset is "is logged in" flag)
+uint32_t g_tachi_loggedin_offset;
 uint16_t g_stage_offset = 0x504; // 0x508 in later games, overwritten when setting up the patches
 uint32_t g_need_conf_load = 1;
 uint32_t g_hidden_is_offset = 0; // mask "hidden" value behavior in score send
@@ -925,12 +926,13 @@ void hook_mode_select_rival_inject()
     /* fake login to prevent rival handling bypass */
     __asm("mov ecx, dword ptr [_g_playerdata_zone_addr]\n");
     __asm("mov edx, [ecx]\n");
-    __asm("add edx, 0x1A5\n"); //offset where result screen is checking to decide if the favorite option should be displayed/handled
+    __asm("add edx, [_g_tachi_loggedin_offset]\n"); //offset where result screen is checking to decide if the favorite option should be displayed/handled
     __asm("mov ecx, [edx]\n");
     __asm("cmp ecx, 0\n");
     __asm("jne skip_fake_login_tachi\n");
     __asm("mov dword ptr [edx], 0xFF000001\n");
-    __asm("sub edx, 0x19D\n"); //back to popn friendid offset
+    __asm("sub edx, [_g_tachi_loggedin_offset]\n");
+    __asm("add edx, 8\n"); //back to popn friendid offset
     __asm("mov dword ptr [edx], 0x61666564\n"); // "defa"
     __asm("add edx, 0x04\n");
     __asm("mov dword ptr [edx], 0x00746C75\n"); // "ult"
@@ -1138,6 +1140,20 @@ bool patch_tachi_rivals(const char *dllFilename, bool scorehook)
     }
 
     /* hook after mode select logged in check */
+
+    //retrieve logged in status offset from playerdata
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\xBF\x07\x00\x00\x00\xC6\x85", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: tachi rivals: cannot find result screen function\n");
+            return false;
+        }
+            uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x1D);
+            uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
+            uint64_t function_addr = function_call_addr+5+function_offset;
+            g_tachi_loggedin_offset = *(uint32_t*)(function_addr+2);
+            //LOG("LOGGED IN OFFSET IS %x\n",g_tachi_loggedin_offset); // 0x1A5 for popn27-, 0x22D for popn28
+    }
     {
         int64_t pattern_offset = _search(data, dllSize, "\x8B\xE5\x5D\xC3\x8B\xC6\xE8", 7, 0);
 

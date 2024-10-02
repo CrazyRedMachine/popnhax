@@ -4744,7 +4744,8 @@ void score_challenge_retrieve_addr()
 
 void (*score_challenge_prep_songdata)();
 void (*score_challenge_song_inject)();
-void (*score_challenge_test_if_logged1)();
+void (*score_challenge_retrieve_player_data)();
+void (*score_challenge_is_logged_in)();
 void (*score_challenge_test_if_normal_mode)();
 
 void (*real_make_score_challenge_category)();
@@ -4756,8 +4757,8 @@ void make_score_challenge_category()
 
     if (g_course_id_ptr && *g_course_id_ptr != 0)
     {
-        score_challenge_test_if_logged1();
-        __asm("mov al, byte ptr ds:[eax+0x1A5]\n"); /* or look for this function 8A 80 A5 01 00 00 C3 CC */
+        score_challenge_retrieve_player_data();
+        score_challenge_is_logged_in();
         __asm("test al, al\n");
         __asm("je leave_score_challenge\n");
 
@@ -4837,7 +4838,18 @@ static bool patch_score_challenge()
 
         uint64_t patch_addr = (int64_t)data + pattern_offset + 0x24;
 
-        score_challenge_test_if_logged1 = (void(*)())patch_addr;
+        score_challenge_retrieve_player_data = (void(*)())patch_addr;
+    }
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\xE8\xDB\xFF\xFF\xFF\x33\xC9\x84\xC0\x0F\x94", 11, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: score challenge: cannot find check if logged function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset - 0x20;
+
+        score_challenge_is_logged_in = (void(*)())patch_addr;
     }
     {
         int64_t pattern_offset = _search(data, dllSize, "\xF7\xD8\x1B\xC0\x40\xC3\xE8", 7, 0);
