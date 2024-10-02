@@ -8019,11 +8019,29 @@ static bool option_full()
 static bool option_guide_se_off(){
     /* set guide SE OFF by default in all modes */
     {
-        if (!find_and_patch_hex(g_game_dll_fn, "\xC6\x40\x24\x01\x88\x48\x25", 7, 3, "\x00", 1)   /* unilab */
-         && !find_and_patch_hex(g_game_dll_fn, "\x89\x48\x20\x88\x48\x24\xC3\xCC", 8, 3, "\xC6\x40\x24\x01\xC3", 5) ) /* usaneko-kaimei */
+        if ( config.game_version < 27 )
         {
-            LOG("popnhax: guidese_off: cannot set guide SE off by default\n");
-            return false;
+            if (!find_and_patch_hex(g_game_dll_fn, "\x89\x48\x20\x88\x48\x24\xC3\xCC", 8, 3, "\xC6\x40\x24\x01\xC3", 5))
+            {
+                LOG("popnhax: guidese_off: cannot set guide SE off by default\n");
+                return false;
+            }
+        }
+        else if ( config.game_version == 27 )
+        {
+            if (!find_and_patch_hex(g_game_dll_fn, "\xC6\x40\x24\x01\x88\x48\x25", 7, 3, "\x00", 1))
+            {
+                LOG("popnhax: guidese_off: cannot set guide SE off by default\n");
+                return false;
+            }
+        }
+        else
+        {
+            if (!find_and_patch_hex(g_game_dll_fn, "\xC6\x40\x24\x01\xC6\x40\x25\x03", 8, 3, "\x00", 1))
+            {
+                LOG("popnhax: guidese_off: cannot set guide SE off by default\n");
+                return false;
+            }
         }
     }
     LOG("popnhax: guidese_off: Guide SE OFF by default\n");
