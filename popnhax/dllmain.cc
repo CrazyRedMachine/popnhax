@@ -2828,6 +2828,40 @@ static bool get_addr_hd_timing(uint32_t *res)
     return true;
 }
 
+void (*real_commit_options_new)();
+void hidden_is_offset_commit_options_new()
+{
+    /* game goes through this hook twice per commit, so we need to be careful */
+    __asm("add eax, 0x2D\n"); //hidden value offset
+    __asm("push ebx\n");
+    __asm("movzx ebx, byte ptr [eax]\n");
+    __asm("or [_g_masked_hidden], ebx\n"); /* save to restore display when using result_screen_show_offset patch */
+    __asm("pop ebx\n");
+    __asm("cmp byte ptr [eax], 1\n");
+    __asm("jne call_real_commit_new\n");
+
+    /* disable hidden ingame */
+    __asm("mov byte ptr [eax], 0\n");
+
+    /* flag timing for update */
+    __asm("mov dword ptr [_g_timing_require_update], 1\n");
+
+    /* write into timing offset */
+    __asm("push ebx\n");
+    __asm("push eax\n");
+    __asm("movsx eax, word ptr [eax+1]\n");
+    __asm("neg eax\n");
+    __asm("mov ebx, %0\n"::"m"(g_timing_addr));
+    __asm("mov [ebx], eax\n");
+    __asm("pop eax\n");
+    __asm("pop ebx\n");
+
+    /* quit */
+    __asm("call_real_commit_new:\n");
+    __asm("sub eax, 0x2D\n");
+    real_commit_options_new();
+}
+
 void (*real_commit_options)();
 void hidden_is_offset_commit_options()
 {
@@ -2874,26 +2908,42 @@ static bool patch_hidden_is_offset()
 
     /* patch option commit to store hidden value directly as offset */
     {
-        /* find option commit function (unilab) */
-        uint8_t shift = 6;
-        int64_t pattern_offset = _search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
-        if (pattern_offset == -1) {
-            /* wasn't found, look for older function */
+        uint8_t shift;
+        int64_t pattern_offset;
+        uint64_t patch_addr;
+
+        if (config.game_version == 27)
+        {
+            shift = 6;
+            pattern_offset = _search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
+        }
+        else if (config.game_version < 27)
+        {
             pattern_offset = _search(data, dllSize, "\x0F\xB6\xC3\x03\xCF\x8D", 6, 0);
             shift = 14;
+        }
+        else
+        {
+            shift = 25;
+            pattern_offset = _search(data, dllSize, "\x6B\xC9\x1A\x03\xC6\x8B\x74\x24\x10", 9, 0);
+            patch_addr = (int64_t)data + pattern_offset + shift;
 
-            if (pattern_offset == -1) {
-                LOG("popnhax: hidden is offset: cannot find address\n");
-                return false;
-            }
-        #if DEBUG == 1
-            LOG("popnhax: hidden is offset: appears to be kaimei or less\n");
-        #endif
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hidden_is_offset_commit_options_new,
+                          (void **)&real_commit_options_new);
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset + shift;
-        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hidden_is_offset_commit_options,
-                      (void **)&real_commit_options);
+        if (pattern_offset == -1) {
+            LOG("popnhax: hidden is offset: cannot find address\n");
+            return false;
+        }
+
+        patch_addr = (int64_t)data + pattern_offset + shift;
+
+        if ( config.game_version <= 27 )
+        {
+            _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hidden_is_offset_commit_options,
+                        (void **)&real_commit_options);
+        }
     }
 
     /* turn "set offset" into an elaborate "sometimes add to offset" to use our hidden+ value as adjust */
