@@ -32,7 +32,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "2.3"
+#define PROGRAM_VERSION "2.4.dev"
 
 const char *g_game_dll_fn = NULL;
 char *g_config_fn   = NULL;
@@ -2567,13 +2567,13 @@ bool force_unlock_songs() {
 
     {
         // 0xac here is the size of music_entry. May change in the future
-        int64_t pattern_offset = _search(data, dllSize, "\x69\xC0\xAC\x00\x00\x00\x8B\x80", 8, 0);
+        int64_t pattern_offset = _search(data, dllSize, "\x75\x0E\x98\x69\xC0\xAC\x00\x00\x00\x8B\x80", 11, 0);
         if (pattern_offset == -1) {
             LOG("popnhax: couldn't unlock songs and charts\n");
             return false;
         }
 
-        uint32_t buffer_offset = *(uint32_t*)((int64_t)data + pattern_offset + 8);
+        uint32_t buffer_offset = *(uint32_t*)((int64_t)data + pattern_offset + 11);
         buffer_offset -= 0x1c; // The difference between music_entry.mask and music_entry.fw_genre_ptr to put it at the beginning of the entry
         music_entry *entry = (music_entry*)buffer_offset;
 
