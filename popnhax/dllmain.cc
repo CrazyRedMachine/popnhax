@@ -343,6 +343,9 @@ void asm_patch_datecode_libavs() {
 }
 
 /* ----------- r2nk226 ----------- */
+bool hide_menu = false;
+char *g_error_str = NULL;
+
 struct REC {
     uint32_t timestamp;
     uint8_t judge;
@@ -354,18 +357,10 @@ struct REC {
 } ;
 static REC *recbinArray_loaded = NULL;
 static REC *recbinArray_writing = NULL;
-//struct SRAN {
-//    uint32_t chart_addr;
-//    uint8_t button;
-//    uint8_t pad[3];
-//} ;
-//static SRAN *s_list = NULL;
-//static uint16_t s_count;
 uint32_t player_option_offset = 0;
 uint32_t **player_options_addr = 0;
 uint32_t *button_addr = 0;
 uint32_t **usbpad_addr = 0;
-int16_t p_version = 0;
 uint8_t speed = 5;
 uint32_t new_speed = 100;
 uint32_t rec_musicid = 0;
@@ -375,14 +370,15 @@ uint8_t rec_hispeed = 10;
 uint8_t spec = 0;
 uint32_t judge_bar_func = 0;
 uint32_t playsramsound_func = 0;
+uint32_t demoflag_func = 0;
 uint32_t date_func = 0;
-//uint32_t noteque_func = 0;
 uint32_t *p_note = 0;
 uint32_t j_win_addr = 0;
-uint32_t g_auto_flag = 0;
 uint32_t *input_func = 0;
 uint32_t *ran_func = 0;
 uint32_t chartbase_addr = 0;
+double mul_2dx = 1.;
+bool demo_flag = false;
 bool r_ran = false;
 bool regul_flag = false;
 bool is_resultscreen_flag = false;
@@ -976,15 +972,8 @@ void quickexit_option_screen()
     /* r2nk226
         for record reloading */
     if (rec_reload) {
-        __asm("push eax\n");
-        rec_reload = false;
-        g_return_to_options = false;
-        stop_recchange = true;
-        **usbpad_addr = 0;
-        __asm("pop eax\n");
         goto reload;
     }
-    /* --------------------------------- */
 
     quickexit_option_screen_cleanup();
 
@@ -1233,17 +1222,20 @@ void save_recSPflags() {
     uint32_t *g_goodbad_addr;
     uint32_t val = 0;
     uint8_t stage_no = 0;
+    uint8_t shift = 0;
     uint32_t option_offset = 0;
     uint32_t size = LOWORD(recbinArray_writing[0].timestamp);
 
+    if (config.game_version == 24) {
+        rec_options ^= 0x01000000; // guidese_flag reverse
+    } else if (config.game_version == 28) {
+        shift = 8;
+    }
+
     stage_no = *(uint8_t*)(**player_options_addr +0x0E);
     option_offset = player_option_offset * stage_no;
-    g_coolgreat_addr = (uint32_t*)(**player_options_addr +0x64 +option_offset);
-    g_goodbad_addr = (uint32_t*)(**player_options_addr +0x68 +option_offset);
-
-    if (p_version == 4) {
-        rec_options ^= 0x01000000; // guidese_flag reverse
-    }
+    g_coolgreat_addr = (uint32_t*)(**player_options_addr +0x64 +option_offset +shift);
+    g_goodbad_addr = (uint32_t*)(**player_options_addr +0x68 +option_offset +shift);
 
     recbinArray_writing[0].timestamp |= ((uint32_t)rec_SPflags << 16);
     uint32_t count_check = *g_coolgreat_addr + *g_goodbad_addr;
@@ -1289,7 +1281,7 @@ void save_recSPflags() {
     uint8_t bt00 = *button_no;
     uint32_t bt14 = 0;
     uint32_t bt58 = 0;
-    uint32_t i = 0;
+    int8_t i = 0;
     do
     {
         button_no++;
@@ -1310,16 +1302,38 @@ void save_recSPflags() {
     recbinArray_writing[1].timing = bt14;
     recbinArray_writing[1].recid = bt58;
     /* .rec file format
-        random,timing,gauge,guide_se,speed,(00),(00),bt_0-bt_8
-                                    */
-    stop_input = false;
+        random,timing,gauge,guide_se,speed,(00),(00),bt_0-bt_8 */
+    // after saving, restore original options if r_ran = true
+    if (r_ran) {
+        uint8_t *g_options_addr;
+        g_options_addr = (uint8_t*)(**player_options_addr +0x34 +option_offset);
+        *g_options_addr = (uint8_t)rec_options;
+    }
+}
+
+bool sp_reset = false;
+void practice_scoremedal_reset() {
+    /* clear scores and medals when use_sp_flag = true */
+    if (use_sp_flag) {
+        __asm("push ecx\n");
+        __asm("push esi\n");
+        __asm("push edi\n");
+        __asm("mov edi, %0\n": :"D"(g_score_addr));
+        __asm("mov esi, edi\n");
+        __asm("add esi, 0x560\n");
+        __asm("mov ecx, 0x98\n");
+        __asm("rep movsd\n");
+        __asm("pop edi\n");
+        __asm("pop esi\n");
+        __asm("pop ecx\n");
+    }
+    sp_reset = true;
 }
 
 void (*real_option_screen_simple)();
 void quickexit_option_screen_simple() {
     /* for record reloading */
     if (rec_reload) {
-        rec_reload = false;
         g_return_to_options = false;
     /* rewrite transition pointer */
         //__asm("pop edi\n");
@@ -1334,40 +1348,6 @@ void quickexit_option_screen_simple() {
     real_option_screen_simple();
 }
 
-void (*restore_op)();
-void restore_playoptions() {
-    **usbpad_addr = 1;
-    if (!p_record) {
-        uint32_t *restore_addr;
-
-        uint8_t stage_no = *(uint8_t*)(**player_options_addr +0x0E);
-        uint32_t option_offset = player_option_offset * stage_no;
-
-        restore_addr = (uint32_t*)(**player_options_addr +0x34 +option_offset);
-        *restore_addr = rec_options;
-
-        #if DEBUG == 1
-            LOG("popnhax: restore_addr is 0x%X\n", **player_options_addr);
-        #endif
-        /*
-        __asm("push ebx\n");
-        __asm("mov eax, [%0]\n"::"a"(*g_plop_addr));
-        __asm("mov ebx, %0\n"::"b"(rec_options));
-        __asm("mov byte ptr [eax+0x34], bl\n");
-        __asm("pop ebx\n");
-        */
-        /*
-        if (s_list != NULL) {
-            free(s_list);
-            s_list = NULL;
-            LOG("popnhax: S-Random_list memory free.\n");
-        }
-        */
-        //stop_recchange = true;
-    //    if (!p_record) save_recSPflags();
-    }
-    restore_op();
-}
 /* --------------------------------- */
 
 
@@ -1387,10 +1367,6 @@ numpad values:
 void (*real_game_loop)();
 void quickexit_game_loop()
 {
-    /* ----------- r2nk226 ----------- */
-    stop_input = false;
-    /* --------------------------------- */
-
     __asm("push ebx\n");
 
     __asm("push ecx\n");
@@ -1410,7 +1386,6 @@ void quickexit_game_loop()
     __asm("jne call_real\n");
 
     /* numpad 8 is pressed: quick retry if pfree is active */
-    use_sp_flag = false;
 
     __asm("push eax");
     __asm("call %0"::"a"(popn22_is_normal_mode));
@@ -1441,13 +1416,6 @@ void quickexit_game_loop()
     __asm("call_real:\n");
     __asm("pop ebx\n");
 
-/* ----------- r2nk226 ----------- */
-    if (regul_flag || r_ran || p_record) {
-        use_sp_flag = true;
-    }
-    is_resultscreen_flag = false;
-    disp = true;
-/* --------------------------------- */
     real_game_loop();
 
 }
@@ -1563,16 +1531,12 @@ void quickexit_result_loop()
     __asm("pop ecx\n");
     __asm("pop eax\n");
 
-    /* ----------- r2nk226 ----------- */
-    disp = false; // 8.9 message off
-    speed = 5;
-    new_speed = 100;
-    stop_input = true;
-    stop_recchange = true;
-
     __asm("call_real_result:\n");
-
+    
+    /* ----------- r2nk226 ----------- */
+    disp = true; // 8.9 message off later
     is_resultscreen_flag = true;
+    hide_menu = false;
     /* --------------------------------- */
     real_result_loop();
 }
@@ -5188,83 +5152,42 @@ void patch_numpad0_options() {
 /* ----------- r2nk226 ----------- */
 /* popn23 or less Check */
 static bool version_check() {
-    bool old_db = false;
+    /* get_version() is available, so use it */
+    uint32_t *g_chartbase_addr;
     int32_t shift = -9;
-    int64_t pre_gchartaddr = 0;
-
     DWORD dllSize = 0;
     char *data = getDllData(g_game_dll_fn, &dllSize);
 
-    /* check Part 1: (21-23 , 24-27) */
-    {
-        int64_t pattern_offset = _search(data, dllSize,
-            "\x70\x64\x61\x74\x61\x5F\x66\x69\x6C\x65\x6E\x61\x6D\x65", 14, 0); // "pdata_filename"
-        if (pattern_offset == -1) {
-            old_db = true;
-            shift = -4;
-            #if DEBUG == 1
-                LOG("popnhax: 'pdata_filename' was not found. popn23 or less\n");
-            #endif
-        }
-    }
-
-    /* check Part 2: prepare for g_chartbase_addr */
-    {
-        pre_gchartaddr = _search(data, dllSize, "\x8A\xC8\xBA", 3, 0);
-        if (pre_gchartaddr == -1) {
-            #if DEBUG == 1
-                LOG("popnhax: chart_baseaddr was not found\n");
-            #endif
-            return false;
-        }
-    }
-
-    /* check Part 3: po21-po23 */
-    if (old_db) {
-        {
-            uint32_t* check_E8 = (uint32_t *)((int64_t)data + pre_gchartaddr -5);
-            uint8_t val = *check_E8;
-
-            if (val == 0xE8) {
-                LOG("popnhax: pop'n 21 sunny park\n");
-                p_version = 1;
-                shift = -9;
-            }
-        }
-
-        {
-            if (p_version == 0) {
-                int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x03\x77\x6B", 5, 0);
-                if (pattern_offset == -1) {
-                    LOG("popnhax: pop'n 23 eclale\n");
-                    p_version = 3;
-                } else {
-                    LOG("popnhax: pop'n 22 lapistoria\n");
-                    p_version = 2;
-                }
-            }
-        }
-    } else {
-        //old_db = false;
-        int64_t pattern_offset = _search(data, dllSize, "\x03\xC7\x8D\x44\x01\x2A\x89\x10", 8, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: pop'n 24 - pop'n 26 (not Unilabo) \n");
-            p_version = 4;
-        } else {
-            LOG("popnhax: pop'n 27 Unilabo\n");
-            p_version = 7;
-        }
-    }
-
-    uint32_t *g_chartbase_addr;
-    g_chartbase_addr = (uint32_t *)((int64_t)data + pre_gchartaddr + shift);
-    chartbase_addr = *g_chartbase_addr;
-
-    if (p_version == 0) {
-        LOG("popnhax: Unknown pop'n version.\n");
+    /* prepare for g_chartbase_addr */
+    int64_t pre_gchartaddr = _search(data, dllSize, "\x8A\xC8\xBA", 3, 0);
+    if (pre_gchartaddr == -1) {
+        LOG("popnhax: chart_baseaddr was not found\n");
         return false;
     }
 
+    /* po21-po23 */
+    if (config.game_version == 0) {
+        uint32_t* check_E8 = (uint32_t *)((int64_t)data + pre_gchartaddr -5);
+        uint8_t val = *check_E8;
+
+        if (val == 0xE8) {
+            LOG("popnhax: pop'n 21 sunny park\n");
+            config.game_version = 21;
+            shift = -9;
+        } else {
+            int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x03\x77\x6B", 5, 0);
+            if (pattern_offset == -1) {
+                LOG("popnhax: pop'n 23 eclale\n");
+                config.game_version = 23;
+            } else {
+                LOG("popnhax: pop'n 22 lapistoria\n");
+                config.game_version = 22;
+            }
+        }
+    }
+
+    g_chartbase_addr = (uint32_t *)((int64_t)data + pre_gchartaddr + shift);
+    chartbase_addr = *g_chartbase_addr;
     #if DEBUG == 1
         LOG("debug : chartbase_addr is 0x%X\n", chartbase_addr);
     #endif
@@ -5300,12 +5223,58 @@ void get_elapsed_time() {
     get_elapsed_time_hook();
 }
 
-bool check_recdatafile(uint32_t check_notes) {
+void flag_reset() {
+    hide_menu = true;
+    sp_reset = false;
+
+    **usbpad_addr = 1;
+    speed = 5;
+    new_speed = 100;
+    mul_2dx = 1.;
+    r_ran = false;
+    regul_flag = false;
+    is_resultscreen_flag = false;
+    disp = false;
+    use_sp_flag = false;
+    stop_input = false;
+    stop_recchange = true;
+    p_record = false;
+    find_recdata = false;
+    rec_reload = false;
+    recsavefile = false;
+
+    if (recbinArray_loaded != NULL) {
+        free(recbinArray_loaded);
+        recbinArray_loaded = NULL;
+        #if DEBUG == 1
+            LOG("popnhax: load data memory free\n");
+        #endif
+    }
+
+    if (recbinArray_writing != NULL) {
+        free(recbinArray_writing);
+        recbinArray_writing = NULL;
+        #if DEBUG == 1
+            LOG("popnhax: recording data memory free\n");
+        #endif
+    }
+}
+
+void check_recdatafile(uint32_t rec_elements) {
+    uint32_t check_notes = LOWORD(recbinArray_loaded[0].timestamp);
     uint32_t check_cool = 0;
     uint32_t check_great = 0;
     uint32_t check_good = 0;
     uint32_t check_bad = 0;
     uint32_t val = 0;
+    uint16_t c_err = 0;
+
+    /* first check : file size */
+    if (rec_elements -2 != check_notes) {
+        c_err |= 20;
+        LOG("popnhax: record: File size is different\n");
+    }
+    /* second check : judge count */
     for (uint32_t i=0; i < check_notes; i++) {
         if (recbinArray_loaded[i+2].judge == 2) {
             check_cool++;
@@ -5317,17 +5286,51 @@ bool check_recdatafile(uint32_t check_notes) {
             check_bad++;
         }
     }
+
     uint32_t cg = (check_great << 16) | check_cool;
     uint32_t gb = (check_bad << 16) | check_good;
+    
     val = recbinArray_loaded[0].judge | (recbinArray_loaded[0].button >> 8) | (recbinArray_loaded[0].flag >> 16) | (recbinArray_loaded[0].pad[0] >> 24);
-
     val = val ^ cg ^ gb ^ 0x672DE ^ recbinArray_loaded[0].timestamp;
 
-    #if DEBUG == 1
-        LOG("popnhax: recbin: cool(%d), great(%d), good(%d), bad(%d)\n",
-                 check_cool, check_great, check_good, check_bad);
-        LOG("popnhax: recbin:cg is %08X. gb is %08X. val is %08X.\n", cg, gb, val);
+    if (recbinArray_loaded[0].recid != cg) {
+        c_err |= 1;
+    }
+    if ((uint32_t)recbinArray_loaded[0].timing != gb) {
+        c_err |= 2;
+    }
+    if (recbinArray_loaded[1].button != (uint8_t)~recbinArray_loaded[0].button) {
+        c_err |= 4;
+    }
+    if (recbinArray_loaded[1].flag != (uint8_t)~recbinArray_loaded[0].flag) {
+        c_err |= 8;
+    }
+    if (val == 0) {
+        c_err |= 0x10;
+    }
 
+    #if DEBUG == 0
+        if (c_err == 0) {
+            //find_recdata = true;
+            stop_recchange = false; // recmode_select enabled
+            /* ok chime */
+            __asm("mov eax, 0x20\n");
+            __asm("push 0\n");
+            __asm("call %0\n"::"D"(playsramsound_func));
+            __asm("add esp, 4\n");
+            /* Initialize header */
+            uint32_t start_addr = (uint32_t)&recbinArray_loaded[2].timestamp;
+            uint32_t *play_ptr = (uint32_t*)&recbinArray_loaded[0].judge;
+            *play_ptr = start_addr;
+            recbinArray_loaded[0].recid = chartbase_addr;
+            recbinArray_loaded[0].timing = 0;
+        } else {
+            find_recdata = false;
+            stop_recchange = true;
+            LOG("popnhax: This file has been modified (%X)\n", c_err);
+        }
+    #else
+        /* debug : force rec_select enabled */
         uint32_t judge_1 = 0;
         uint32_t judge_7 = 0;
         uint32_t judge_8 = 0;
@@ -5349,37 +5352,27 @@ bool check_recdatafile(uint32_t check_notes) {
                 judge_C++;
             }
         }
-        LOG("popnhax: recbin: judge_1(%d), judge_7(%d), judge_8(%d), judge_9(%d), judge_B(%d), judge_C(%d)\n",
-                 judge_1, judge_7, judge_8, judge_9, judge_B, judge_C);
-
+        printf("popnhax: recbin: cool(%d), great(%d), good(%d), bad(%d)\n",
+                check_cool, check_great, check_good, check_bad);
+        printf("popnhax: recbin: cg is %08X. gb is %08X. val is %08X.\n", cg, gb, val);
+        printf("popnhax: recbin: c_err val is (%X)\n", c_err);
+        printf("popnhax: recbin: judge_1(%d), judge_7(%d), judge_8(%d), judge_9(%d), judge_B(%d), judge_C(%d)\n",
+                judge_1, judge_7, judge_8, judge_9, judge_B, judge_C);
+        printf("popnhax: recbinArray_loaded addr is 0x%p\n", recbinArray_loaded);
+        //find_recdata = true;
+        stop_recchange = false;
+        /* ok chime */
+        __asm("mov eax, 0x20\n");
+        __asm("push 0\n");
+        __asm("call %0\n"::"D"(playsramsound_func));
+        __asm("add esp, 4\n");
+        /* Initialize header */
+        uint32_t start_addr = (uint32_t)&recbinArray_loaded[2].timestamp;
+        uint32_t *play_ptr = (uint32_t*)&recbinArray_loaded[0].judge;
+        *play_ptr = start_addr;
+        recbinArray_loaded[0].recid = chartbase_addr;
+        recbinArray_loaded[0].timing = 0;
     #endif
-
-    uint16_t c_err = 0;
-    if (recbinArray_loaded[0].recid != cg) {
-        c_err |= 1;
-    }
-    if ((uint32_t)recbinArray_loaded[0].timing != gb) {
-        c_err |= 2;
-    }
-    if (recbinArray_loaded[1].button != (uint8_t)~recbinArray_loaded[0].button) {
-        c_err |= 4;
-    }
-    if (recbinArray_loaded[1].flag != (uint8_t)~recbinArray_loaded[0].flag) {
-        c_err |= 8;
-    }
-    if (val == 0) {
-        c_err |= 0x10;
-    }
-    if (c_err != 0) {
-        LOG("popnhax: This file has been modified. (%X)\n", c_err);
-        return false;
-    } else {
-        #if DEBUG == 1
-            LOG("popnhax: recbin: check ok!\n");
-        #endif
-    }
-
-    return true;
 }
 
 bool recording_memoryset() {
@@ -5389,16 +5382,22 @@ bool recording_memoryset() {
         if (recbinArray_writing == NULL) {
             return false;
         }
-
-    #if DEBUG == 1
-        LOG("popnhax: record: default size set.\n");
-        LOG("popnhax: recbinArray_writing addr is 0x%p\n", recbinArray_writing);
-    #endif
-
     }
 
     memset(recbinArray_writing, 0, size);
+
+    /* Initialize header */
+    uint32_t start_addr = (uint32_t)&recbinArray_writing[2].timestamp;
+    uint32_t *play_ptr = (uint32_t*)&recbinArray_writing[0].judge;
+	*play_ptr = start_addr;
     recbinArray_writing[0].recid = chartbase_addr;
+    recbinArray_writing[0].timing = 0;
+
+    #if DEBUG == 1
+        LOG("popnhax: record: 50 kilobytes reserved for recording\n");
+        LOG("popnhax: recbinArray_writing addr is 0x%p\n", recbinArray_writing);
+    #endif
+
     return true;
 }
 
@@ -5435,12 +5434,10 @@ void recid2str(char* mrecid) {
 }
 
 static bool record_playdata_start() {
-    const char *filename = NULL;
+        const char *filename = NULL;
+        SearchFile s;
+        char recid[10];
 
-    SearchFile s;
-    char recid[10];
-
-    if (recbinArray_loaded == NULL && recbinArray_writing == NULL) {
         find_recdata = false;
 
         get_recPlayoptions();
@@ -5448,7 +5445,7 @@ static bool record_playdata_start() {
 
         char currentDirectory[FILENAME_MAX];
         if (_getcwd(currentDirectory, sizeof(currentDirectory)) == NULL) {
-            LOG("popnhax: currentDirectory not found.\n");
+            LOG("popnhax: currentDirectory not found\n");
             return false;
         }
 
@@ -5458,15 +5455,14 @@ static bool record_playdata_start() {
         struct stat st;
         if (stat(folderPath, &st) != 0) {
             mkdir(folderPath);
-            LOG("popnhax: make dir. (rec)\n");
+            LOG("popnhax: make dir (rec)\n");
         }
 
         s.search("rec", "bin", false);
         auto result = s.getResult();
-    //    LOG("popnhax: record start : found %d bin files in rec\n", result.size());
+
         for (uint16_t i = 0; i < result.size(); i++) {
             filename = result[i].c_str() +4;
-            //LOG("%d : %s\n", i, filename);
             if (strstr(result[i].c_str(), (char*)recid) != NULL) {
                 LOG("popnhax: record: found matching recmusicid, end search\n");
                 LOG("popnhax: record: filename = %s\n", filename);
@@ -5474,16 +5470,14 @@ static bool record_playdata_start() {
                 break;
             }
         }
-
-        FILE *recbin;
-        uint32_t size;
-        uint32_t rec_elements;
-
-        // recorddata.bin load -> recbinArray_loaded
+        /* Data is found and loaded into recbinArray_loaded */
         if (find_recdata) {
+            FILE *recbin;
+            uint32_t size;
+            uint32_t rec_elements;
             char filePath[FILENAME_MAX];
-            snprintf(filePath, sizeof(filePath), "%s\\rec\\%s", currentDirectory, filename);
 
+            snprintf(filePath, sizeof(filePath), "%s\\rec\\%s", currentDirectory, filename);
             recbin = fopen(filePath, "rb");
             if (recbin == NULL) {
                 LOG("popnhax: record: filePath is %s\n", filePath);
@@ -5496,10 +5490,9 @@ static bool record_playdata_start() {
             fseek(recbin, 0, SEEK_SET);
 
             rec_elements = size / sizeof(struct REC);
-
             recbinArray_loaded = (struct REC*)malloc(size);
             if (recbinArray_loaded == NULL) {
-                LOG("popnhax: record: memory allocation failure.\n");
+                LOG("popnhax: record: memory allocation failure\n");
                 return false;
             }
 
@@ -5507,40 +5500,14 @@ static bool record_playdata_start() {
             fread(recbinArray_loaded, sizeof(struct REC), rec_elements, recbin);
             fclose(recbin);
 
-            #if DEBUG == 1
-                LOG("popnhax: recbinArray_loaded addr is 0x%p\n", recbinArray_loaded);
-            #endif
+            /* Checking loaded file */
+            check_recdatafile(rec_elements);
 
-            // check notes.
-            uint32_t check_notes = LOWORD(recbinArray_loaded[0].timestamp);
-            if (rec_elements -2 != check_notes) {
-                LOG("popnhax: record: error in notes. recnotes(%02X)\n", rec_elements);
-                find_recdata = false;
-                stop_recchange = true;
-            }
-            if (check_recdatafile(check_notes)) {
-                recbinArray_loaded[0].recid = chartbase_addr;
-                recbinArray_loaded[0].timing = 0;
-                //find_recdata = true;
-                stop_recchange = false; // recmode_select enabled.
-                __asm("mov eax, 0x20\n");
-                __asm("push 0\n");
-                __asm("call %0\n"::"D"(playsramsound_func));
-                __asm("add esp, 4\n");
-            } else {
-                find_recdata = false;
-                stop_recchange = true;
-            }
         } else {
             // find_recdata = false
-            LOG("popnhax: record: matching recmusicid not found.\n");
+            LOG("popnhax: record: matching recmusicid not found\n");
         }
 
-        // next step: for recbinArray_writing
-        if(!recording_memoryset()) {
-            LOG("popnhax: record: memory allocation failure.\n");
-        }
-    }
     return true;
 }
 
@@ -5548,37 +5515,9 @@ void (*real_musicselect)();
 void hook_musicselect() {
     uint32_t ecxsafe;
     __asm("mov %0, ecx\n":"=c"(ecxsafe): :);
-    // flag reset
-    disp = false;
-    find_recdata = false;
-    p_record = false;
-    recsavefile = false;
-    is_resultscreen_flag = false;
-    stop_input = false;
-    stop_recchange = true;
-//    speed = 5;
-//    new_speed = 100;
-//    regul_flag = false;
-//    r_ran = false;
-    use_sp_flag = false;
-    **usbpad_addr = 1;
 
-    if (recbinArray_loaded != NULL) {
-        free(recbinArray_loaded);
-        recbinArray_loaded = NULL;
-
-        #if DEBUG == 1
-            LOG("popnhax: load data memory free.\n");
-        #endif
-    }
-    if (recbinArray_writing != NULL) {
-        free(recbinArray_writing);
-        recbinArray_writing = NULL;
-
-        #if DEBUG == 1
-            LOG("popnhax: recording data memory free.\n");
-        #endif
-    }
+    flag_reset();
+    
     __asm("mov ecx, %0\n"::"c"(ecxsafe));
 
     real_musicselect();
@@ -5598,12 +5537,12 @@ void rec_id_check() {
     __asm("cmp word ptr [ebp+0x0C], cx\n");
     __asm("jne rec_id_nomatch\n");
 
-    // redID matched.
-    __asm("movzx ecx, byte ptr [ebp+0x04]\n"); // judge
+    // redID matched
+    __asm("movzx ecx, byte ptr [ebp+0x04]\n");      // judge
     __asm("cmp dword ptr [esp+0x08+0x04], 0x01\n"); // bad_check flag
-    __asm("jne long_check\n");
-    __asm("cmp ecx, 0x07\n"); // bad_check 7 - B
-    __asm("jl long_check\n");
+    __asm("jne long_check\n");                      // Go long check without BAD check
+    __asm("cmp ecx, 0x07\n");                       // bad_check 7 - B
+    __asm("jl long_check\n");                       // Not BAD, so go to long check (al=1)
     __asm("xor ebx, ebx\n");
     __asm("or word ptr [esi+0x18], 0x02\n");
     __asm("cmp ecx, 0x09\n");
@@ -5613,17 +5552,17 @@ void rec_id_check() {
 
     __asm("long_check:\n");
     __asm("mov eax, dword ptr [esi+0x04]\n");
-    __asm("cmp dword ptr [eax+0x08], 0\n"); // long check
+    __asm("cmp dword ptr [eax+0x08], 0\n");         // long check
     __asm("jbe id_match_end\n");
 
     __asm("long_start:\n");
-    __asm("cmp ecx, 0x07\n"); // bad_check 7 - B
-    __asm("ja id_match_end\n");
-    __asm("mov byte ptr [esi+0x60], cl\n");   // save long_judge
-
+    __asm("cmp ecx, 0x07\n");                       // bad_check 7 - B
+    __asm("ja id_match_end\n"); 
+    __asm("mov byte ptr [esi+0x60], cl\n");         // save long_judge
+	    
     __asm("id_match_end:\n");
-    __asm("cmp cl, 0\n");
-    __asm("setne al\n");
+	__asm("cmp cl, 0\n");
+    __asm("setne al\n");                            // Finish with al=0 only when slow BAD
 
     __asm("rec_id_nomatch:\n");
     __asm("pop ebp\n");
@@ -5641,11 +5580,11 @@ void call_guidese() {
     __asm("movzx ecx, %0\n"::"a"(*g_guidese_addr));
     __asm("cmp cl, 0\n");
     __asm("je call_end\n");
-    __asm("mov eax, dword ptr [esp+0x08]\n"); // judge+button
-    __asm("and eax, 0x00FF\n"); // judge only
+    __asm("mov eax, dword ptr [esp+0x08]\n");   // judge+button
+    __asm("and eax, 0x00FF\n");                 // judge only
     __asm("cmp al, 0x02\n");
     __asm("jne se_continue\n");
-    //COOL
+    // COOL
     __asm("push 0\n");
     __asm("jmp se_call\n");
     __asm("se_continue:\n");
@@ -5665,7 +5604,7 @@ void call_guidese() {
     __asm("GOOD:\n");
     __asm("push 0x0EA60\n");
     __asm("se_call:\n");
-    if (p_version == 7) {
+    if (config.game_version >= 27) {
         __asm("dec ecx\n");
     }
     __asm("mov eax, 0x21\n");
@@ -5677,92 +5616,93 @@ void call_guidese() {
 
 void (*hook_playfirst)();
 void play_firststep() {
-    __asm("push eax\n");
-    if (g_auto_flag == 0 && p_record) {
-        __asm("push ebp\n");
-        __asm("push ecx\n");
+    if (!demo_flag && p_record) {
+        __asm("push eax\n");
         __asm("push ebx\n");
+        __asm("push ecx\n");
+
         __asm("mov eax, [%0]\n"::"a"(&recbinArray_loaded));
-        __asm("mov ebp, eax\n");
-        __asm("movzx ecx, word ptr [ebp+0x08]\n");      // play_counter
+        __asm("mov ebx, dword ptr [eax+0x04]\n");       // play_ptr
         __asm("cmp edi, 0\n");                          // edi = elapsed time
         __asm("jne p1_start\n");
-        __asm("mov word ptr [ebp+0x08], 0\n");         // play_counter reset
 
         __asm("p1_end:\n");
         __asm("xor eax, eax\n");
         __asm("jmp p1_endmerge\n");
 
         __asm("p1_start:\n");
-        __asm("cmp word ptr [ebp], cx\n");              // [ebp] = rec_counter
+        __asm("movzx ecx, word ptr [eax+0x08]\n");      // play counter
+        __asm("cmp word ptr [eax], cx\n");              // [eax] = record counter
         __asm("jle p1_end\n");
-        __asm("add ecx, ecx\n");
-        __asm("lea eax, dword ptr [ebp+ecx*8+0x20]\n");
-        __asm("mov dword ptr [ebp+0x04], eax\n");
 
-        __asm("debug_skip:\n");   // test_skip
-        __asm("cmp word ptr [eax+0x06], 0x0101\n");
-        __asm("je countup\n");
+        #if DEBUG == 1
+            /* debug: skip test */
+            __asm("cmp word ptr [ebx+0x06], 0x0101\n");
+            __asm("je countup\n");
+        #endif
 
-        __asm("cmp byte ptr [eax+0x06], 0xE2\n");
+        /* E2flag can sometimes produce fastGOOD after the long disappears (perhaps a bug?).
+           It's hard to reproduce, so we do a temporary process.
+           If it is not played by normal processing, call judge_bar_func */
+        __asm("cmp byte ptr [ebx+0x06], 0xE2\n");
         __asm("jne skip_check\n");
         __asm("cmp edi, dword ptr [eax]\n");
-        __asm("jl p1_end\n");                  // elapsed time < Timing -> return
+        __asm("jl p1_end\n");                           // elapsed time < Timing -> return
 
-        // E2ÇÕÉçÉìÉOè¡Ç¶ÇΩÇ†Ç∆ÇÃÉoÉOÅHëÅGOODÇæÇØì¸ÇÈÇ±Ç∆Ç™Ç†ÇÈÇÃÇçƒåªÅc
-        __asm("movzx ecx, word ptr [eax+0x04]\n");
-        __asm("push edx\n");
+        __asm("movzx ecx, word ptr [ebx+0x04]\n");      // Judgment should only be 5 (need to check?)
+        __asm("push eax\n");
         __asm("push ecx\n");
         call_guidese();
         __asm("add esp, 4\n");
-        __asm("pop edx\n");
-        __asm("mov eax, dword ptr [ebp+0x04]\n");
+        __asm("pop eax\n");
+        __asm("mov ebx, dword ptr [eax+0x04]\n");
+        __asm("movzx eax, word ptr [ebx+0x04]\n");      // judge+button
+        __asm("push eax\n");                            // send judge
+        __asm("call %0\n"::"a"(judge_bar_func));        // eax, ecx, edx used
+        __asm("pop eax\n");
 
         __asm("countup:\n");
-        __asm("inc word ptr [ebp+0x08]\n");
-        __asm("add dword ptr [ebp+0x04], 0x10\n");
+        __asm("inc word ptr [eax+0x08]\n");             // play counter
+        __asm("add dword ptr [eax+0x04], 0x10\n");      // next_ptr
         __asm("jmp p1_end\n");
 
-        __asm("skip_check:\n"); // judge=1 (poor)
-        __asm("movzx ecx, byte ptr [eax+0x04]\n");
-        __asm("cmp cl, 0x01\n");
-        __asm("jle countup\n");     // 0.1 -> skip
-        __asm("cmp cl, 0x0A\n");    // A.B~ -> skip_test
+        __asm("skip_check:\n");                         
+        __asm("movzx ecx, byte ptr [ebx+0x04]\n");
+        __asm("cmp cl, 0x01\n");                        // judge=1 (poor)
+        __asm("jle countup\n");                         // 0.1 -> skip
+        __asm("cmp cl, 0x0A\n");                        // A.B~ -> skip_test 
         __asm("jge countup\n");
 
-        __asm("p1_idcheck:\n");
-        __asm("push 0\n");      // id-checkOnly
+        __asm("p1_idcheck:\n");                         // judge 2 - 9
+        __asm("mov ecx, eax\n");
+        __asm("push 0\n");                              // id-checkOnly
         rec_id_check();
         __asm("add esp, 4\n");
         __asm("test al, al\n");
         __asm("je p1_end\n");
         // id matched
-        __asm("mov eax, dword ptr [ebp+0x04]\n");
-
-        __asm("input_continue:\n");
-        __asm("mov eax, dword ptr [eax+0x08]\n");   // inputTiming
+        __asm("mov eax, dword ptr [ecx+0x04]\n");
+        __asm("mov eax, dword ptr [eax+0x08]\n");       // inputTiming
         __asm("neg eax\n");
         __asm("p1_endmerge:\n");
-        __asm("pop ebx\n");
         __asm("pop ecx\n");
-        __asm("pop ebp\n");
+        __asm("pop ebx\n");
         __asm("add ecx, eax\n");
+        __asm("pop eax\n");
     }
-    __asm("pop eax\n");
     hook_playfirst();
 }
 
 void (*last_auto_flag_check)();
 void play_secondstep() {
-    if (g_auto_flag == 1) {
+    if (demo_flag) {
         __asm("mov al, 0x01\n");
-    } else if (g_auto_flag == 0) {
+    } else if (!demo_flag) {
         if (p_record) {
-            __asm("push edi\n");
+            __asm("push edx\n");
             __asm("cmp ebx, 0x02\n");                   // long_end_flag
             __asm("jne p2_start\n");
-
-            //__asm("p2_long_end_flow:\n");
+            /* long_end flow */
             __asm("movzx eax, byte ptr [esi+0x12]\n");  // button
             __asm("movzx ecx, byte ptr [esi+0x60]\n");  // saved_judge
             __asm("shl ax, 8\n");
@@ -5774,16 +5714,15 @@ void play_secondstep() {
             __asm("jmp p2_end\n");                      // no call guideSE
 
             __asm("p2_start:\n");
-            __asm("mov edi, [%0]\n"::"D"(&recbinArray_loaded));
-            __asm("mov eax, dword ptr [edi+0x04]\n");
-
-            __asm("p2_continue:\n");
+            __asm("mov edx, [%0]\n"::"d"(&recbinArray_loaded));
+            __asm("mov eax, dword ptr [edx+0x04]\n");
+            __asm("inc word ptr [edx+0x08]\n");         // play counter
+            __asm("add dword ptr [edx+0x04], 0x10\n");  // next_ptr
             __asm("movzx eax, word ptr [eax+0x04]\n");  // judge+button
             __asm("push eax\n");                        // send judge
-            __asm("call %0\n"::"a"(judge_bar_func));
+            __asm("call %0\n"::"a"(judge_bar_func));    // eax,ecx,edx used
             __asm("pop eax\n");
-            __asm("inc word ptr [edi+0x08]\n");         // play_count
-            __asm("add dword ptr [edi+0x04], 0x10\n");
+
             __asm("push eax\n");                        // send judge
             call_guidese();
             __asm("add esp, 4\n");
@@ -5791,8 +5730,8 @@ void play_secondstep() {
             __asm("p2_end:\n");
             __asm("mov eax, [%0]\n"::"a"(p_note));
             __asm("mov esi, [eax]\n");
-            __asm("mov ecx, esi\n"); // p_note
-            __asm("pop edi\n");
+            __asm("mov ecx, esi\n");                    // p_note
+            __asm("pop edx\n");
             __asm("xor al, al\n");
         }
     }
@@ -5802,35 +5741,33 @@ void play_secondstep() {
 void (*first_auto_flag_check)();
 void play_thirdstep() {
     __asm("push edx\n");
-    __asm("movzx eax, al\n");
-    __asm("mov %0, eax\n":"=a"(g_auto_flag): :);
-    if (g_auto_flag == 1) {
-        __asm("mov al, 1\n"); // for DEMO play
-    } else if (g_auto_flag == 0) {
+    if (demo_flag) {
+        __asm("mov al, 1\n");                           // for DEMO play
+    } else if (!demo_flag) {
         if (p_record) {
-         // playback record
+            /* playback record */
             __asm("mov edx, [%0]\n"::"d"(&recbinArray_loaded));
-            __asm("mov ebx, [esi+0x04]\n");
-            __asm("cmp dword ptr [ebx+0x08], 0\n"); // long check
+            __asm("mov ebx, [esi+0x04]\n");             // real chart_addr
+            __asm("cmp dword ptr [ebx+0x08], 0\n");     // long check
             __asm("mov ebx, 0x01\n");
             __asm("jbe id_check\n");
 
-            __asm("movzx eax, word ptr [esi+0x18]\n"); // flag
-            __asm("test al, 0x80\n"); // long_end check
+            __asm("movzx eax, word ptr [esi+0x18]\n");  // flag
+            __asm("test al, 0x80\n");                   // long_end check
             __asm("jne p3_long_end\n");
 
             __asm("id_check:\n");
-            __asm("push 1\n"); // recID & bad_check
+            __asm("push 1\n");                          // recID & bad_check
             rec_id_check();
             __asm("add esp, 4\n");
-            __asm("cmp ebx, 0x02\n");
+            __asm("cmp ebx, 2\n");
             __asm("jne p3_return\n");
 
+            __asm("or word ptr [esi+0x18], 0x02\n");    // bad_flag
+            __asm("mov ebx, dword ptr [edx+0x04]\n");   // play_ptr
             __asm("inc word ptr [edx+0x08]\n");
-            __asm("or word ptr [esi+0x18], 2\n");
-            __asm("mov ebx, dword ptr [edx+0x04]\n");
-            __asm("add dword ptr [edx+0x04], 0x10\n");
-            __asm("movzx ebx, word ptr [ebx+0x04]\n");  // button&judge
+            __asm("add dword ptr [edx+0x04], 0x10\n");  // next_ptr
+            __asm("movzx ebx, word ptr [ebx+0x04]\n");  // judge+button
             __asm("push ebx\n");
             __asm("call %0\n"::"a"(judge_bar_func));
             __asm("add esp, 4\n");
@@ -5844,13 +5781,13 @@ void play_thirdstep() {
             __asm("add esp, 4\n");
             __asm("cmp al, bl\n");
             __asm("jne p3_end\n");
-            __asm("inc word ptr [edx+0x08]\n"); // play_counter
-            __asm("add dword ptr [edx+0x04], 0x10\n");
+            __asm("inc word ptr [edx+0x08]\n");         // play counter
+            __asm("add dword ptr [edx+0x04], 0x10\n");  // next_ptr
 
             __asm("p3_end:\n");
             __asm("mov eax, ebx\n");
         } else if (!p_record) {
-            __asm("xor al, al\n"); // recording
+            __asm("xor al, al\n");                      // recording
         }
     }
     __asm("p3_return:\n");
@@ -5867,7 +5804,7 @@ void play_fourthstep() {
     __asm("xor ecx, ecx\n");             // saved judge clear
 
     __asm("p4_continue:\n");
-    if (g_auto_flag == 1) {
+    if (demo_flag) {
         __asm("dec ebx\n");
     }
     long_end_flow();
@@ -5876,167 +5813,74 @@ void play_fourthstep() {
 void (*get_judge)();
 void record_playdata() {
     if (!p_record && stop_recchange) {
-        // ax = ebp = judge+button
-        if (elapsed_time > 0) {
-            __asm("push ecx\n");
-            __asm("mov ecx, ebp\n"); // judge+button
-            __asm("push ebp\n");
-            __asm("push ebx\n");
+        // AX = judge+button
+        __asm("mov ebx, %0\n"::"b"(elapsed_time)); 
+        __asm("test ebx, ebx\n");
+        __asm("je rec1_skip\n");
+        __asm("push ecx\n");
+        __asm("push edx\n");
+        __asm("mov ecx, dword ptr [%0]\n"::"c"(&recbinArray_writing));
+        __asm("mov edx, dword ptr [ecx+0x04]\n");               // rec_ptr
+        __asm("cmp al, 0x0B\n");
+        __asm("je rec1_end\n");
+        // __asm("cmp esi, 0\n");
+        // __asm("jne rec1_end\n");
+        __asm("rec1_countup:\n");
+        __asm("inc word ptr [ecx]\n");                          // rec_counter
+        __asm("add dword ptr [ecx+0x04], 0x10");                // next_ptr
+        __asm("mov dword ptr [edx], ebx\n");                    // elapsed time
+        __asm("mov word ptr [edx+0x04], ax\n");                 // judge+button
+        __asm("mov ebx, dword ptr [%0]\n"::"b"(j_win_addr));
+        __asm("shr eax, 8\n");                                  // button
+        __asm("mov ebx, dword ptr [ebx+eax*8+0x04]\n");
+        __asm("mov dword ptr [edx+0x08], ebx\n");               // input timing
+        __asm("test esi, esi\n");                               // [esi]=p_note
+        __asm("jne rec1_recid\n");
+        __asm("mov dword ptr [edx+0x08], esi\n");               // p_note    »Ç ^ C ~   O  
+        __asm("mov dword ptr [edx+0x0C], esi\n");               // recid   0  …Ç   
+        __asm("jmp rec1_end\n");
 
-            __asm("mov eax, dword ptr [%0]\n"::"a"(&recbinArray_writing));
-            __asm("mov ebp, eax\n");
-            __asm("mov ebx, %0\n"::"b"(elapsed_time));
+        __asm("rec1_recid:\n");
+        __asm("mov eax, dword ptr [esi+0x04]\n");               // [p_note + 4] -> chart_addr
+        __asm("sub eax, dword ptr [ecx+0x0C]\n");               // chart_addr - baseaddr -> recID
+        __asm("mov dword ptr [edx+0x0C], eax\n");               // recID
+        __asm("movzx eax, byte ptr [esi+0x18]\n");              // flags
+        __asm("mov byte ptr [edx+0x06], al\n");
+        __asm("test al, 0x80\n");                               // long_flag
+        __asm("je rec1_end\n");
+        __asm("test al, 0x02\n");
+        __asm("je rec1_end\n");
+        __asm("mov byte ptr [edx+0x07], 0xFF\n");               // long&Bad flag
 
-            __asm("rec1_start:\n");
-            __asm("cmp cl, 0x0B\n");        // ãÛë≈Çø
-            __asm("jne rec1_calc_addr\n");  // ãÛÇ∂Ç·Ç»Ç¢Ç»ÇÁÇªÇÃÇ‹Ç‹ãLò^Ç∑ÇÈ
-            __asm("cmp esi, 0\n");          // [esi]=p_note
-            __asm("jmp rec1_end\n");        // ãÛë≈ÇøÇ≈p_noteÇ™ì¸Ç¡ÇƒÇÈèÍçáÉçÉìÉOãÛë≈ÇøÇæÇ©ÇÁîÚÇŒÇ∑
-
-            __asm("rec1_calc_addr:\n");
-            __asm("mov eax, ecx\n");        // judge+button -> eax
-            __asm("movzx ecx, word ptr [ebp]\n");  // rec_counter
-            __asm("add ecx, ecx\n");
-            __asm("lea ecx, dword ptr [ebp+ecx*8+0x20]\n");
-            __asm("mov dword ptr [ebp+0x04], ecx\n");
-            __asm("mov dword ptr [ecx], ebx\n");        // elapsed time
-            __asm("mov dword ptr [ecx+0x04], eax\n");   // judge+button
-
-            __asm("rec1_continue:\n");  // [ebx]==edi==buttonNo.
-            __asm("mov eax, dword ptr [%0]\n"::"a"(j_win_addr));
-            __asm("mov eax, dword ptr [eax+edi*8+4]\n");
-            __asm("mov dword ptr [ecx+0x08], eax\n");     // input timing
-            __asm("test esi, esi\n");   // [esi]=p_note
-            __asm("jne rec1_recid\n"); //
-            __asm("mov dword ptr [ecx+0x08], esi\n");
-            __asm("mov dword ptr [ecx+0x0C], esi\n");
-            __asm("jmp rec1_countup\n");
-
-            __asm("rec1_recid:\n");
-            __asm("mov eax, dword ptr [esi+0x04]\n");     // [p_note + 4] -> chart_addr
-            __asm("sub eax, dword ptr [ebp+0x0C]\n");     // chart_addr - baseaddr -> recID
-            __asm("mov dword ptr [ecx+0x0C], eax\n");     // recID
-
-            __asm("rec1_testcheck:\n");
-            __asm("mov eax, dword ptr [esi+0x18]\n");  // flags
-            __asm("mov byte ptr [ecx+0x06], al\n");
-
-            // long bad
-            __asm("test al, 0x80\n");
-            __asm("je rec1_countup\n");
-            __asm("test al, 0x02\n");
-            __asm("je rec1_countup\n");
-            __asm("mov byte ptr [ecx+0x07], 0xFF\n");
-
-            __asm("rec1_countup:\n");
-            __asm("inc word ptr [ebp]\n");
-
-            __asm("rec1_end:\n");
-            __asm("pop ebx\n");
-            __asm("pop ebp\n");
-            __asm("pop ecx\n");
-            __asm("mov eax, ebp\n"); // judge+button
-        }
+        __asm("rec1_end:\n");
+        __asm("movzx eax, word ptr [edx+0x04]\n");              // judge+button -> AX
+        __asm("pop edx\n");
+        __asm("pop ecx\n");
+        __asm("rec1_skip:\n");
     }
     get_judge();
 }
 
 void (*get_poor)();
 void record_playdata_poor() {
-    if (!p_record && stop_recchange && !g_auto_flag) {
-        // (g_auto_flag = true) -> demo screen
-        __asm("push ecx\n");
-        __asm("push ebx\n");
+    // dx = (poor)judge+button
+    if (!p_record && stop_recchange && !demo_flag) {
+        // (demo_flag = true) -> demo screen
         __asm("push edx\n");
-        __asm("push edi\n");
-     //__asm("rec2_start:\n");
-        __asm("mov edi, %0\n"::"D"(elapsed_time));
-        __asm("mov ebx, dword ptr [%0]\n"::"b"(&recbinArray_writing));
-        __asm("movzx ecx, word ptr [ebx]\n");           // rec_counter
-        __asm("add ecx, ecx\n");
-        __asm("lea eax, dword ptr [ebx+ecx*8+0x20]\n");
-        __asm("mov dword ptr [ebx+0x04], eax\n");       // rec_addr
-        __asm("inc word ptr [ebx]\n");                  // rec_counter
-        __asm("mov word ptr [eax+0x04], dx\n");         // poor_judge+button
-        __asm("mov word ptr [eax+0x06], 0x0101\n");     // skip_test flag
-        __asm("mov dword ptr [eax], edi\n");            // elapsed time
-        __asm("mov edx, dword ptr [esi+0x04]\n");       // p_note+4 -> chart_addr
-        __asm("mov ecx, dword ptr [ebx+0x0C]\n");       // chartbase_addr
-        __asm("sub edx, ecx\n");
-        __asm("mov dword ptr [eax+0x0C], edx\n");       // recID
-        __asm("pop edi\n");
+        __asm("mov eax, dword ptr [%0]\n"::"a"(&recbinArray_writing));
+        __asm("mov ecx, dword ptr [eax+0x04]\n");               // rec_ptr
+        __asm("mov word ptr [ecx+0x04], dx\n");                 // poor_judge+button
+        __asm("mov word ptr [ecx+0x06], 0x0101\n");             // skip_test flag
+        __asm("mov edx, dword ptr [esi+0x04]\n");               // p_note+4 -> chart_addr
+        __asm("sub edx, dword ptr [eax+0x0C]\n");               // chart_addr - baseaddr -> recID
+        __asm("mov dword ptr [ecx+0x0C], edx\n");               // recID
+        __asm("inc word ptr [eax]\n");                          // rec counter
+        __asm("add dword ptr [eax+0x04], 0x10\n");              // next_ptr
+        __asm("mov dword ptr [ecx], %0\n"::"a"(elapsed_time));  // elapsed time
         __asm("pop edx\n");
-        __asm("pop ebx\n");
-        __asm("pop ecx\n");
     }
     get_poor();
 }
-
-/*
-int compare_sran(const void* a, const void* b) {
-    return ((struct SRAN*)a)->chart_addr - ((struct SRAN*)b)->chart_addr;
-}
-*/
-/*
-uint16_t s_countmax;
-bool srandom_set() {
-    s_countmax = HIWORD(recbinArray_loaded[0].timing);
-    uint32_t size = s_countmax * sizeof(struct SRAN);
-
-    s_list = (struct SRAN*)malloc(size);
-    if (s_list == NULL) {
-        LOG("popnhax: s_list malloc error\n");
-        return false;
-    }
-    memset(s_list, 0, size);
-
-    uint32_t i,j = 0;
-    uint16_t binsize = LOWORD(recbinArray_loaded[0].timestamp) +1;
-
-    for (i = 1; i < binsize; i++) {
-        if (recbinArray_loaded[i].flag == 1) {
-            s_list[j].chart_addr = recbinArray_loaded[i].recid + chartbase_addr;
-            s_list[j].button = recbinArray_loaded[i].button;
-            j++;
-        }
-        //if (j > s_countmax) break;
-    }
-    qsort(s_list, s_countmax, sizeof(struct SRAN), compare_sran);
-
-    LOG("popnhax: s_list_addr is 0x%p. s_countmax is %d\n", s_list, s_countmax);
-
-    return true;
-}
-*/
-/*
-void (*real_noteque_addr)();
-void noteque_rewrite() {
-    if (p_record && s_list != NULL) {
-        __asm("push edx\n");
-        __asm("push ebx\n");
-        __asm("push ecx\n");
-        __asm("mov eax, %0\n": :"a"(&s_count));
-        __asm("movzx ecx, word ptr [eax]\n");
-        __asm("mov ebx, dword ptr [%0]\n"::"b"(&s_list));
-        __asm("lea ebx, dword ptr [ebx+ecx*8]\n");
-        __asm("cmp ebp, [ebx]\n");
-        __asm("je s_continue\n");
-            LOG("popnhax: s_list noteque_hook error!\n");
-            p_record = false;
-            __asm("jmp que_end\n");
-        __asm("s_continue:\n");
-            __asm("movzx ecx, byte ptr [ebx+0x04]\n");
-            __asm("inc word ptr [eax]\n");
-        __asm("que_end:\n");
-            __asm("movzx eax, cl\n");
-            __asm("pop ecx\n");
-            __asm("pop ebx\n");
-            __asm("pop edx\n");
-    }
-    __asm("movzx eax, cl\n");
-    real_noteque_addr();
-}
-*/
 
 int compare(const void* a, const void* b) {
     struct REC* elementA = (struct REC*)a;
@@ -6049,32 +5893,39 @@ int compare(const void* a, const void* b) {
     }
 }
 
+void (*pre_judge_time)();
+void record_timing_override() {
+    __asm("mov dword ptr [eax+4], esi\n");
+    pre_judge_time();
+}
+
+void (*flag_status)();
+void reset_2dx_magnification_setting() {
+    mul_2dx = 1.;
+    __asm("xor eax, eax\n");
+    flag_status();
+}
+
 void load_recPlayoptions() {
-    uint32_t temp = 0;
-    uint32_t rec_cmp = 0;
-
-    rec_reload = false;
-
-    temp = recbinArray_loaded[0].timestamp +1;
-    rec_cmp = (temp >> 24); // HIBYTE(temp)
-    if (new_speed != rec_cmp) {
-    //    LOG("popnhax: new_speed(%d) , rec_cmp(%d)\n", new_speed, rec_cmp);
+    uint16_t temp = (uint16_t)(recbinArray_loaded[0].timestamp >> 16);
+    uint8_t rec_cmp = temp & 0x0F;
+    if (speed != rec_cmp) {
         rec_reload = true;
         stop_recchange = true;
         g_return_to_options = true;
+        speed = rec_cmp;
+        new_speed = 150 - (speed * 10);
     }
-    new_speed = rec_cmp;
 
-    temp = temp >> 16;
-    speed = temp & 0xF;
-    rec_cmp = (temp & 0xF0) >> 4;
+    rec_cmp = (temp >> 4) & 0x0F;
     if (regul_flag != (uint8_t)rec_cmp) {
-    //    LOG("popnhax: regul_flag(%d) , rec_cmp(%d)\n", regul_flag, rec_cmp);
         rec_reload = true;
         stop_recchange = true;
         g_return_to_options = true;
+        regul_flag = (uint8_t)rec_cmp;
     }
-    regul_flag = rec_cmp;
+
+    mul_2dx = (double)(((double)new_speed)/100.);
 
     uint32_t *g_options_addr;
     uint8_t *g_rechispeed_addr;
@@ -6086,26 +5937,28 @@ void load_recPlayoptions() {
 
     g_options_addr = (uint32_t*)(**player_options_addr +0x34 +option_offset);
     *g_options_addr = (uint32_t)recbinArray_loaded[1].timestamp;
-
     rec_options = *g_options_addr;
-    if (p_version == 4) {
-        rec_options ^= 0x01000000; // guidese_flag reverse
+
+    if (config.game_version == 24) {
+        if (HIBYTE(rec_options) != 0) {
+            rec_options &= 0x00FFFFFF; // GuideSEon 01~03 -> 00 (usaneko on)
+        } else {
+            rec_options |= 0x01000000; // GuideSEoff 00 -> 01 (usaneko off)
+        }
     }
+
     g_rechispeed_addr = (uint8_t*)(**player_options_addr +0x2A +option_offset);
     *g_rechispeed_addr = recbinArray_loaded[1].judge;
 
 }
 
 bool recdata_save() {
-    const char *filename = NULL;
-    SearchFile s;
-
-    char recid[10];
-    char recdate[15];
-
     if (!p_record) {
         // (p_record) 0,record 1,playback
-        save_recSPflags();
+        const char *filename = NULL;
+        SearchFile s;
+        char recid[10];
+        char recdate[15];
 
         uint32_t size = LOWORD(recbinArray_writing[0].timestamp);
         qsort(recbinArray_writing +2, size, sizeof(struct REC), compare);
@@ -6114,7 +5967,7 @@ bool recdata_save() {
 
         char currentDirectory[FILENAME_MAX];
         if (_getcwd(currentDirectory, sizeof(currentDirectory)) == NULL) {
-            LOG("popnhax: currentDirectory not found.\n");
+            LOG("popnhax: currentDirectory not found\n");
             return false;
         }
 
@@ -6124,7 +5977,7 @@ bool recdata_save() {
         struct stat st;
         if (stat(folderPath, &st) != 0) {
             mkdir(folderPath);
-            LOG("popnhax: make dir. (rec)\n");
+            LOG("popnhax: make directory (rec)\n");
         }
 
         __asm("mov esi, %0\n"::"S"(recdate));
@@ -6137,13 +5990,20 @@ bool recdata_save() {
                              currentDirectory, filename, recdate, ifsname_ptr);
         FILE* output_file = fopen(filePath, "wb");
         if (output_file == NULL) {
-            LOG("popnhax: output_file create error.\n");
+            LOG("popnhax: output_file create error\n");
             return false;
         }
         fwrite(recbinArray_writing, sizeof(struct REC), size +2 , output_file);
         fclose(output_file);
-        LOG("popnhax: recording data save done.\n");
+        LOG("popnhax: recording data save done\n");
         LOG("popnhax: savefilePath is %s\n", filePath);
+
+        recsavefile = true;
+        /* ok voice */
+        __asm("mov eax, 0x16\n");
+        __asm("push 0\n");
+        __asm("call %0\n"::"D"(playsramsound_func));
+        __asm("add esp, 4\n");
 
         #if DEBUG == 1
             LOG("popnhax: recid =%s\n", recid);
@@ -6157,32 +6017,30 @@ bool recdata_save() {
 
 void prepare_for_play_record() {
     stop_recchange = true;
+
     get_recPlayoptions();
 
     if (p_record) {
         if (recbinArray_loaded == NULL) {
-            LOG("popnhax: record: recbin load error. (2)\n");
+            LOG("popnhax: record: recbin load error (2)\n");
             p_record = false;
         } else {
             r_ran = false;
+            use_sp_flag = true;
             load_recPlayoptions();
             **usbpad_addr = 0;
         }
-    /*    if ((uint8_t)rec_options == 3) {
-            // S-Random ÇÃèÄîı
-            s_count = 0;
-            if(!srandom_set()) {
-                LOG("popnhax: error! S-random set.\n");
-            }
-        }
-    } else
-    */
     } else if (!p_record) {
         if(!recording_memoryset()) {
-            LOG("popnhax: record: memory allocation failure. (2)\n");
+            LOG("popnhax: record: memory allocation failure\n");
         }
     }
 
+    if (regul_flag || r_ran || p_record) {
+        use_sp_flag = true;
+    }
+    disp = true;
+    hide_menu = true;
 }
 
 void (*real_optionloop_after_pressing_red)();
@@ -6212,17 +6070,11 @@ void hook_optionloop_after_pressing_yellow() {
 /* R-RANDOM hook */
 void (*real_get_random)();
 void r_random() {
-    uint8_t orig_plop = (uint8_t)rec_options; // & 0xFF;
-    uint16_t *bt_0;
-    uint16_t *v6;
-    uint16_t v7;
-    uint16_t v9;
-
     if (p_record) {
         // load lanes from rec.bin
         uint8_t *load_button = &recbinArray_loaded[1].pad[0];
         uint32_t bt = *(uint32_t *)button_addr;
-        uint32_t i = 0;
+        uint8_t i = 0;
         do
         {
             *(uint16_t *)(bt + 2*i) = *load_button;
@@ -6230,16 +6082,15 @@ void r_random() {
             load_button++;
         } while (i < 9);
 
-    } else if (!p_record && r_ran) {
+    } else if (!p_record && r_ran && ((uint8_t)rec_options <2)) {
         uint8_t *g_options_addr;
         uint8_t stage_no = 0;
+        uint16_t *bt_0;
+        uint16_t *v6;
+        uint16_t v7;
+        uint16_t v9;
         uint32_t option_offset = 0;
 
-        stage_no = *(uint8_t*)(**player_options_addr +0x0E);
-        option_offset = player_option_offset * stage_no;
-
-        g_options_addr = (uint8_t*)(**player_options_addr +0x34 +option_offset);
-        *g_options_addr = 1;
 
         __asm("push 0\n");
         __asm("mov ebx, %0\n"::"b"(*button_addr));
@@ -6250,10 +6101,16 @@ void r_random() {
         if (*bt_0 == 0) bt_0++;
         v9 = *bt_0; // start No.
 
+        uint8_t orig_plop = (uint8_t)rec_options;
+        stage_no = *(uint8_t*)(**player_options_addr +0x0E);
+        option_offset = player_option_offset * stage_no;
+        g_options_addr = (uint8_t*)(**player_options_addr +0x34 +option_offset);
+        *g_options_addr = 1;
+
         // 0:regular 1:mirror 2:random 3:S-random
         if (orig_plop == 0) {
             uint32_t bt = *(uint32_t *)button_addr;
-            uint32_t i = 0;
+            uint8_t i = 0;
             do
             {
                 *(uint16_t *)(bt + 2*i) = i;
@@ -6261,7 +6118,7 @@ void r_random() {
             } while (i < 9);
         } else if (orig_plop == 1) {
             uint32_t bt = *(uint32_t *)button_addr;
-            uint32_t i = 0;
+            uint8_t i = 0;
             do
             {
                 *(uint16_t *)(bt + 2*i) = 8 - i;
@@ -6270,7 +6127,7 @@ void r_random() {
         }
         // startNo + BaseNo -> R-ran
         uint32_t bt = *(uint32_t *)button_addr;
-        uint32_t i = 0;
+        uint8_t i = 0;
         do
         {
             v6 = (uint16_t *)(bt + 2*i);
@@ -6324,9 +6181,7 @@ static bool get_rendaddr()
 
 /* 2dx speed change */
 uint32_t *g_2dx_buffer = 0;
-char *g_2dx_str = NULL;
-const char *sdsystem = "/data/sd/system";
-void wavheader_rewrite () {
+void wavheader_rewrite() {
     /* [edi] = xx.2dx
     0x00 - 0x17 : 2dx header /x32/x44/x58/x39...
     0x18 (4byte) : Chunk ID (RIFFheader) /x52/x49/x46/x46
@@ -6339,45 +6194,26 @@ void wavheader_rewrite () {
     0x30 (4byte) : Sample Rate , 0x0000AC44=44100Hz
     0x34 (4byte) : byte/sec
     */
-    disp = false;
     uint32_t temp = 0;
-    double mul = 0;
-    if(strncmp(g_2dx_str, sdsystem, 15) != 0) {
-        if(strncmp(g_2dx_str, sdsystem, 9) == 0) {
-            if (g_2dx_buffer == NULL) {
-                LOG("popnhax: g_2dx_buffer is NULL\n");
-                new_speed = 100;
-                speed = 5;
-                use_sp_flag = true;
-                //goto speed_end;
-            } else {
-                mul = (double)(((double)new_speed)/100);
-                temp = *(g_2dx_buffer + 0x0C);  //0x0C*4=0x30 SampleRate
-                temp = (uint32_t)((double)temp*mul);
-                *(g_2dx_buffer + 0x0C) = temp;
-                // next step
-                temp = *(g_2dx_buffer + 0x0D);  //0x0D*4=0x34 byte per sec.
-                temp = (uint32_t)((double)temp*mul);
-                *(g_2dx_buffer + 0x0D) = temp;
-
-                use_sp_flag = true;
-            }
-        }
-    }
-//speed_end:
-//    LOG("popnhax : 2dx speed change done.\n");
+    temp = *(g_2dx_buffer + 0x0C);  //0x0C*4=0x30 SampleRate
+    temp = (uint32_t)((double)temp*mul_2dx);
+    *(g_2dx_buffer + 0x0C) = temp;
+    // next step
+    temp = *(g_2dx_buffer + 0x0D);  //0x0D*4=0x34 byte per sec.
+    temp = (uint32_t)((double)temp*mul_2dx);
+    *(g_2dx_buffer + 0x0D) = temp;
 }
 
 void (*real_2dx_addr)();
 void ex_2dx_speed() {
     __asm("mov eax, ebp\n");
-    __asm("mov %0, dword ptr [eax]\n":"=a"(g_2dx_str): :);
     __asm("mov %0, edi\n":"=D"(g_2dx_buffer): :);
 
-    if(new_speed !=100) {
+    if(mul_2dx !=1) {
+        /* Is error avoidance necessary? */
+        // if(g_2dx_buffer == NULL) mul_2dx = 1;
         wavheader_rewrite();
     }
-
     real_2dx_addr();
 }
 
@@ -6391,58 +6227,38 @@ void chart_rewrite() {
         uint32_t duration;
     } ;
 
-    double mul = 0;
-    double mul_2dx =0;
-    uint32_t i, size;
-    struct CHART* chart_temp;
+    uint16_t i;
+    struct CHART* real_chart;
+    double mul_chart = 1.;
 
-    size = sizeof(struct CHART) * chart_rows_count;
-    chart_temp = (struct CHART*)malloc(size);
-    if (chart_temp == NULL || new_speed == 0) {
-        LOG("popnhax: chart rewrite error(%d).\n", new_speed);
-        new_speed = 100;
-        speed = 5;
-        regul_flag = false;
-        goto chart_speed_end;
-    }
+    real_chart = (CHART*)chartbase_addr;
 
-    memcpy(chart_temp, (uint32_t*)chartbase_addr, size);
-
-    mul = (double)(100/((double)new_speed));
-    mul_2dx = (double)(((double)new_speed)/100);
+    mul_chart = (double)(100./((double)new_speed));
+    mul_2dx = (double)(((double)new_speed)/100.);
 
     for (i = 0; i < chart_rows_count; i++) {
-        chart_temp[i].timestamp = (uint32_t)((double)chart_temp[i].timestamp*mul);
-        if (chart_temp[i].duration > 0) {
-            chart_temp[i].duration = (uint32_t)((double)chart_temp[i].duration*mul);
+        real_chart[i].timestamp = (uint32_t)((double)real_chart[i].timestamp*mul_chart);
+        if (real_chart[i].duration > 0) {
+            real_chart[i].duration = (uint32_t)((double)real_chart[i].duration*mul_chart);
         }
-        if (chart_temp[i].operation == 0x0445) {
+        if (real_chart[i].operation == 0x0445) {
             uint16_t bpm_orig = 0;
-            bpm_orig = chart_temp[i].data;
+            bpm_orig = real_chart[i].data;
             if (regul_flag) {
-                chart_temp[i].data = 0x64; // BPM set to 100
+                real_chart[i].data = 0x64; // BPM set to 100
             } else {
-                chart_temp[i].data = (uint16_t)((double)chart_temp[i].data*mul_2dx);
+                real_chart[i].data = (uint16_t)((double)real_chart[i].data*mul_2dx);
             }
-            LOG("popnhax: BPM change %d -> %d \n", bpm_orig, chart_temp[i].data);
+            LOG("popnhax: BPM change %d -> %d \n", bpm_orig, real_chart[i].data);
         }
     }
-
-    memcpy((uint32_t*)chartbase_addr, chart_temp, size);
+    use_sp_flag = true;
+    LOG("popnhax: chart speed change done\n");
 
     #if DEBUG == 1
         LOG("popnhax: chartbase_addr is 0x%X\n", chartbase_addr);
-        LOG("popnhax: chart_temp_addr is 0x%p\n", chart_temp);
-    #endif
-
-    free(chart_temp);
-
-chart_speed_end:
-    use_sp_flag = true;
-    LOG("popnhax: chart speed change done.\n");
-
-    #if DEBUG == 1
-        LOG("popnhax: chart mul is %f\n", mul);
+        LOG("popnhax: real_chart_addr is 0x%p\n", real_chart);
+        LOG("popnhax: chart mul_chart is %f\n", mul_chart);
         LOG("popnhax: 2dx mul is %f\n", mul_2dx);
     #endif
 }
@@ -6450,25 +6266,49 @@ chart_speed_end:
 void (*real_chart_addr)();
 void ex_chart_speed() {
     __asm("mov %0, ebx\n":"=b"(chart_rows_count): :); // rows * 0x0C = chart_size
-    disp = false;
     is_resultscreen_flag = false;
     stop_input = true; // Because the timing of loading charts and 2dx is different
     recsavefile = false;
+    sp_reset =false;
 
-    if (find_recdata) {
-        // When find_recdata is true, record preparation is skipped.
-        stop_recchange = false;
-        recbinArray_loaded[0].timing = 0;
-        if(!recording_memoryset()) {
-            LOG("popnhax: record: memory allocation failure.\n");
-        }
+    __asm("call %0\n"::"a"(demoflag_func));
+    __asm("cmp al, 1\n");
+    demo_flag = true;
+    __asm("je demoplay\n");
+    demo_flag = false;
+
+    if (rec_reload) {
+        **usbpad_addr = 0;
+        rec_reload = false;
+        g_return_to_options = false;
+        disp = true;
+        hide_menu = true;
+        stop_recchange = true;
     } else {
-        record_playdata_start();
+        **usbpad_addr = 1;
+        hide_menu = false;
+        disp = false;
+        if (find_recdata) {
+            /* We need to be able to choose whether to play or record again
+            if we come back to the option with a quick retry instead of reloading */
+            stop_recchange = false;
+            /* rec.bin header initialize */
+            uint32_t start_addr = (uint32_t)&recbinArray_loaded[2].timestamp;
+            uint32_t *play_ptr = (uint32_t*)&recbinArray_loaded[0].judge;
+            *play_ptr = start_addr;
+            recbinArray_loaded[0].recid = chartbase_addr;
+            recbinArray_loaded[0].timing = 0;
+        } else {
+            /* Search for record files only when loading a chart for the first time */
+            record_playdata_start();
+        }
     }
-
+    
     if (new_speed !=100 || regul_flag) {
         chart_rewrite();
     }
+
+    __asm("demoplay:\n");
 
     real_chart_addr();
 }
@@ -6485,198 +6325,184 @@ void ex_chart_speed() {
 #define COLOR_ORANGE       0xC0
 
 /* ----------- r2nk226 ----------- */
-void flag_reset() {
-    r_ran = false;
-    regul_flag = false;
-    is_resultscreen_flag = false;
-    disp = false;
-    use_sp_flag = false;
-    stop_input = true;
-    stop_recchange = true;
-    p_record = false;
-    find_recdata = false;
-    rec_reload = false;
-    speed = 5;
-    new_speed = 100;
+#if DEBUG == 1
+    const char dmenu_1[] = "is_resultscreen_flag >> %d";
+    const char dmenu_2[] = "disp >> %d";
+    const char dmenu_3[] = "use_sp_flag >> %d";
+    const char dmenu_17[] = "hide_menu >> %d";
+    const char dmenu_4[] = "stop_input >> %d";
+    const char dmenu_5[] = "stop_recchange >> %d";
+    const char dmenu_6[] = "p_record >> %d";
+    const char dmenu_7[] = "find_recdata >> %d";
+    const char dmenu_8[] = "speed >> %d";
+    const char dmenu_9[] = "rec_reload >> %d";
+    const char dmenu_10[] = "recsavefile >> %d";
+    const char dmenu_11[] = "rec_SPflags >> %02X";
+    const char dmenu_12[] = "rec_options >> %04X";
+    const char dmenu_13[] = "rec_hispeed >> %d";
+    void r2nk_debug() {
+        __asm("push ebp\n");
 
-    if (recbinArray_loaded != NULL) {
-        free(recbinArray_loaded);
-        recbinArray_loaded = NULL;
-        LOG("popnhax: reset: load data memory free.\n");
+        __asm("mov ebp, 0xD0\n");
+        __asm("movzx ecx, %0\n"::"c"(spec));
+        __asm("cmp ecx, 0x42\n");
+        __asm("je shift_x\n");
+
+        __asm("sub ebp, 0x40\n");
+        __asm("shift_x:\n");
+
+        __asm("call_dmenu9:\n");
+        __asm("movzx eax, %0\n"::"a"(rec_reload));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_9));
+        __asm("push 0x110\n");
+        __asm("push ebp\n");
+        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu1:\n");
+        __asm("movzx eax, %0\n"::"a"(is_resultscreen_flag));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_1));
+        __asm("push 0x120\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu2:\n");
+        __asm("movzx eax, %0\n"::"a"(disp));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_2));
+        __asm("push 0x130\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu3:\n");
+        __asm("movzx eax, %0\n"::"a"(use_sp_flag));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_3));
+        __asm("push 0x140\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu4:\n");
+        __asm("movzx eax, %0\n"::"a"(stop_input));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_4));
+        __asm("push 0x150\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu5:\n");
+        __asm("movzx eax, %0\n"::"a"(stop_recchange));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_5));
+        __asm("push 0x160\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu6:\n");
+        __asm("movzx eax, %0\n"::"a"(p_record));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_6));
+        __asm("push 0x170\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu7:\n");
+        __asm("movzx eax, %0\n"::"a"(find_recdata));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_7));
+        __asm("push 0x180\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu8:\n");
+        __asm("movzx eax, %0\n"::"a"(speed));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_8));
+        __asm("push 0x190\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu10:\n");
+        __asm("movzx eax, %0\n"::"a"(recsavefile));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_10));
+        __asm("push 0x1A0\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu11:\n");
+        __asm("movzx eax, %0\n"::"a"(rec_SPflags));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_11));
+        __asm("push 0x1B0\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu12:\n");
+        __asm("push %0\n"::"a"(rec_options));
+        __asm("push %0\n"::"D"(dmenu_12));
+        __asm("push 0x1C0\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu13:\n");
+        __asm("movzx eax, %0\n"::"a"(rec_hispeed));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_13));
+        __asm("push 0x1D0\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("call_dmenu17:\n");
+        __asm("movzx eax, %0\n"::"a"(hide_menu));
+        __asm("push eax\n");
+        __asm("push %0\n"::"D"(dmenu_17));
+        __asm("push 0x100\n");
+        __asm("push ebp\n");
+        //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+
+        __asm("pop ebp\n");
     }
-    if (recbinArray_writing != NULL) {
-        free(recbinArray_writing);
-        recbinArray_writing = NULL;
-        LOG("popnhax: reset: recording data memory free.\n");
-    }
-
-}
-
-const char dmenu_1[] = "is_resultscreen_flag >> %d";
-const char dmenu_2[] = "disp >> %d";
-const char dmenu_3[] = "use_sp_flag >> %d";
-const char dmenu_4[] = "stop_input >> %d";
-const char dmenu_5[] = "stop_recchange >> %d";
-const char dmenu_6[] = "p_record >> %d";
-const char dmenu_7[] = "find_recdata >> %d";
-const char dmenu_8[] = "speed >> %d";
-const char dmenu_9[] = "rec_reload >> %d";
-const char dmenu_10[] = "recsavefile >> %d";
-const char dmenu_11[] = "rec_SPflags >> %02X";
-const char dmenu_12[] = "rec_options >> %04X";
-const char dmenu_13[] = "rec_hispeed >> %d";
-void r2nk_debug() {
-    __asm("push ebp\n");
-
-    __asm("mov ebp, 0xD0\n");
-    __asm("movzx ecx, %0\n"::"c"(spec));
-    __asm("cmp ecx, 0x42\n");
-    __asm("je shift_x\n");
-
-    __asm("sub ebp, 0x40\n");
-    __asm("shift_x:\n");
-
-    __asm("call_dmenu9:\n");
-    __asm("movzx eax, %0\n"::"a"(rec_reload));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_9));
-    __asm("push 0x110\n");
-    __asm("push ebp\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu1:\n");
-    __asm("movzx eax, %0\n"::"a"(is_resultscreen_flag));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_1));
-    __asm("push 0x120\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu2:\n");
-    __asm("movzx eax, %0\n"::"a"(disp));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_2));
-    __asm("push 0x130\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu3:\n");
-    __asm("movzx eax, %0\n"::"a"(use_sp_flag));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_3));
-    __asm("push 0x140\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu4:\n");
-    __asm("movzx eax, %0\n"::"a"(stop_input));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_4));
-    __asm("push 0x150\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu5:\n");
-    __asm("movzx eax, %0\n"::"a"(stop_recchange));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_5));
-    __asm("push 0x160\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu6:\n");
-    __asm("movzx eax, %0\n"::"a"(p_record));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_6));
-    __asm("push 0x170\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu7:\n");
-    __asm("movzx eax, %0\n"::"a"(find_recdata));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_7));
-    __asm("push 0x180\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu8:\n");
-    __asm("movzx eax, %0\n"::"a"(speed));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_8));
-    __asm("push 0x190\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu10:\n");
-    __asm("movzx eax, %0\n"::"a"(recsavefile));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_10));
-    __asm("push 0x1A0\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu11:\n");
-    __asm("movzx eax, %0\n"::"a"(rec_SPflags));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_11));
-    __asm("push 0x1B0\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu12:\n");
-    __asm("push %0\n"::"a"(rec_options));
-    __asm("push %0\n"::"D"(dmenu_12));
-    __asm("push 0x1C0\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("call_dmenu13:\n");
-    __asm("movzx eax, %0\n"::"a"(rec_hispeed));
-    __asm("push eax\n");
-    __asm("push %0\n"::"D"(dmenu_13));
-    __asm("push 0x1D0\n");
-    __asm("push ebp\n");
-    //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-    __asm("pop ebp\n");
-}
+#endif
 void enhanced_polling_stats_disp_sub();
-const char menu_1[] = "--- Practice Mode ---";
-const char menu_2[] = "Scores are not recorded."; //NO CONTEST
-const char menu_3[] = "REGUL SPEED (pad4) >> %s";
+const char menu_1[] = "-- PracticeMode(pad7) --";
+const char menu_2[] = "NO CONTEST";
+const char menu_3[] = "CONSTANT (pad4) >> %s";
 const char menu_4[] = "R-RANDOM (pad6) >> %s";
-//const char menu_5[] = "SPEED (pad5) >> %s";
 const char *menu_6_str[2] = {"quick retire (pad9)", "quit pfree mode (pad9)"};
 const char menu_7[] = "quick retry (pad8)";
 const char *menu_9_str[2] = {"RECORD (pad00) >> %s", "SAVE FILE (pad00)%s"};
-const char *menu_10_str[3] = {"No data.", "Record Available.", "OK"};
+const char *menu_10_str[3] = {"No data", "Record Available", "OK"};
+const char *menu_11_str[2] = { "Ready to Save", "Replay Results",};
 const char menu_12[] = "SPEED (pad5) >> %d%%";
 const char *onoff_str[2] = {"OFF", "ON"};
 const char *recplay_str[3] = {"rec", "play", " "};
@@ -6685,7 +6511,10 @@ void new_menu() {
     __asm("mov eax, [%0]\n"::"a"(*g_rend_addr));
     __asm("cmp eax, 0\n");
     __asm("je call_menu\n");
-    __asm("mov dword ptr [eax], 1\n");
+    __asm("mov dword ptr [eax], 2\n");
+    if (is_resultscreen_flag) {
+        __asm("mov dword ptr [eax], 1\n");
+    }
     __asm("mov dword ptr [eax+4], 1\n");
     __asm("mov dword ptr [eax+8], 0\n");
     __asm("mov dword ptr [eax+0x34], 1\n");
@@ -6699,60 +6528,12 @@ void new_menu() {
     __asm("mov ecx, dword ptr [ecx]\n");
     __asm("mov ecx, dword ptr [ecx]\n");
     __asm("cmp ecx, 0\n");
-    __asm("je menu_continue\n");
+    __asm("je call_menu\n");
     __asm("cmp dword ptr [ecx+0x80], 5\n");
-    __asm("je menu_continue\n");
-    flag_reset();
-    __asm("menu_continue:\n");
-    if (!stop_recchange) {
-        if (find_recdata) {
-            __asm("mov ecx, 0x0B\n");
-            __asm("call %0\n"::"a"(input_func));
-            __asm("test al, al\n");
-            __asm("je SW_00\n");
-            p_record ^= 1;
-            __asm("SW_00:\n");
-        }
-    } else if (stop_recchange && is_resultscreen_flag && !recsavefile) {
-        __asm("mov ecx, 0x0B\n");
-        __asm("call %0\n"::"a"(input_func));
-        __asm("test al, al\n");
-        __asm("je notsave\n");
-            if(recdata_save()) {
-                recsavefile = true;
-            }
-        __asm("notsave:\n");
-    }
+    __asm("je call_menu\n");
+    flag_reset();           // title screen
 
-    if (!stop_input) {
-        __asm("mov ecx, 4\n");
-        __asm("call %0\n"::"a"(input_func));
-        __asm("test al, al\n");
-        __asm("je SW_4\n");
-        regul_flag ^= 1;
-        __asm("SW_4:\n");
-
-        __asm("mov ecx, 6\n");
-        __asm("call %0\n"::"a"(input_func));
-        __asm("test al, al\n");
-        __asm("je SW_6\n");
-        r_ran ^= 1;
-        __asm("SW_6:\n");
-
-        __asm("mov ecx, 5\n");
-        __asm("call %0\n"::"a"(input_func));
-        __asm("test al, al\n");
-        __asm("je SW_5\n");
-        speed++;
-        if (speed > 10) {
-            speed = 0;
-            new_speed = 150;
-        }
-        new_speed = 150 - (speed * 10);
-        __asm("SW_5:\n");
-    }
-
-//Practice Mode--
+    /* Practice mode MENU */
     __asm("call_menu:\n");
     __asm("push %0\n"::"a"(menu_1));
     __asm("push 0x150\n");
@@ -6761,141 +6542,240 @@ void new_menu() {
     __asm("call %0\n"::"a"(font_rend_func));
     __asm("add esp, 0x0C\n");
 
-//NO CONTEST
-if (use_sp_flag) {
-    __asm("push %0\n"::"a"(menu_2));
-    __asm("push 0x160\n");
-    __asm("push 0x2E0\n");
-    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_YELLOW));
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x0C\n");
-}
-
-//Record playdata
-    if (is_resultscreen_flag && !p_record) {
-        __asm("push %0\n"::"a"(recplay_str[2]));
-        __asm("push %0\n"::"a"(menu_9_str[1]));
-        __asm("push 0x170\n");
-        __asm("push 0x2E0\n");
-        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_YELLOW));
-        __asm("call %0\n"::"a"(font_rend_func));
-        __asm("add esp, 0x10\n");
-    } else {
-        __asm("push %0\n"::"a"(recplay_str[p_record]));
-        __asm("push %0\n"::"a"(menu_9_str[0]));
-        __asm("push 0x170\n");
-        __asm("push 0x2E0\n");
-        if (stop_recchange) {
-            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
-        } else {
-            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED)); // rec_mode
-            if (p_record) {
-            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN)); // play_mode
+    /* NO CONTEST part1 */
+    if (is_resultscreen_flag) {
+        // Erase scores and medals after results screen is displayed
+        **usbpad_addr = 1;
+        if (!sp_reset) {
+            if (!p_record) {
+                save_recSPflags();
             }
+            practice_scoremedal_reset();
         }
-        __asm("call %0\n"::"a"(font_rend_func));
-        __asm("add esp, 0x10\n");
+        // initialize rec.bin header when using instant launch song (hold 8 quick retry)
+        if (p_record && g_return_to_options) {
+            uint32_t start_addr = (uint32_t)&recbinArray_loaded[2].timestamp;
+            uint32_t *play_ptr = (uint32_t*)&recbinArray_loaded[0].judge;
+            *play_ptr = start_addr;
+            recbinArray_loaded[0].recid = chartbase_addr;
+            recbinArray_loaded[0].timing = 0;
+        }
     }
 
-    if (recsavefile) {
-        __asm("push %0\n"::"a"(menu_10_str[2]));
-        __asm("push 0x180\n");
-        __asm("push 0x2E0\n");
-        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-        __asm("call %0\n"::"a"(font_rend_func));
-        __asm("add esp, 0x0C\n");
-    } else {
-        __asm("push %0\n"::"a"(menu_10_str[find_recdata]));
-        __asm("push 0x180\n");
+    /* NO CONTEST part2 */
+    if (use_sp_flag) {
+        __asm("push %0\n"::"a"(menu_2));
+        __asm("push 0x160\n");
         __asm("push 0x2E0\n");
         __asm("mov esi, %0\n"::"a"(*font_color+COLOR_YELLOW));
-        if (find_recdata) {
-            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
-        }
         __asm("call %0\n"::"a"(font_rend_func));
         __asm("add esp, 0x0C\n");
     }
-
-//REGUL SPEED no-soflan
-    __asm("push %0\n"::"D"(onoff_str[regul_flag]));
-    __asm("push %0\n"::"a"(menu_3));
-    __asm("push 0x190\n");
-    __asm("push 0x2E0\n");
-    if (stop_input) {
-        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
-    } else {
-        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_WHITE));
-        if (regul_flag) {
-            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-        }
-    }
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-//R-RANDOM
-    __asm("push %0\n"::"D"(onoff_str[r_ran]));
-    __asm("push %0\n"::"a"(menu_4));
-    __asm("push 0x1A0\n");
-    __asm("push 0x2E0\n");
-    if (stop_input) {
-        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
-    } else {
-        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_WHITE));
-        if (r_ran) {
-            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-        }
-    }
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-//SPEED
-    __asm("push %0\n"::"D"(new_speed));
-    __asm("push %0\n"::"a"(menu_12));
-    __asm("push 0x1B0\n");
-    __asm("push 0x2E0\n");
-    if (stop_input) {
-        __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
-    } else {
-        if (new_speed == 100) {
-            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_WHITE));
-        } else if (new_speed < 100) {
-            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_YELLOW));
-        } else {
-            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
-        }
-    }
-    __asm("call %0\n"::"a"(font_rend_func));
-    __asm("add esp, 0x10\n");
-
-/* quick menu on/off */
+    /* quick menu on/off */
     if (disp) {
-
-//quick retry
+        /* quick retry */
         __asm("push %0\n"::"a"(menu_7));
         __asm("push 0x1C0\n");
         __asm("push 0x2E0\n");
         __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
         __asm("call %0\n"::"a"(font_rend_func));
         __asm("add esp, 0x0C\n");
-
-//quick retire & exit
+        /* quick retire & exit */
         __asm("push %0\n"::"a"(menu_6_str[is_resultscreen_flag]));
         __asm("push 0x1D0\n");
         __asm("push 0x2E0\n");
         //__asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
         __asm("call %0\n"::"a"(font_rend_func));
         __asm("add esp, 0x0C\n");
-
     }
+
+    /* hide_menu */
+    if (!is_resultscreen_flag && disp) {
+        hide_menu = true;                   // Menu off while playing
+    } else {
+        __asm("mov ecx, 7\n");
+        __asm("call %0\n"::"a"(input_func));
+        __asm("test al, al\n");
+        __asm("je SW_nodisp\n");
+        __asm("push edx\n");
+        __asm("mov eax, 0x09\n");
+        if (!hide_menu) {
+            __asm("add eax, 0x16\n");
+        }
+        __asm("push 0\n");
+        __asm("call %0\n"::"D"(playsramsound_func));
+        __asm("add esp, 4\n");
+        __asm("pop edx\n");
+        hide_menu ^= 1;
+        __asm("SW_nodisp:\n");
+    }
+    if (!hide_menu) {
+        /* Record savefile */
+        if (stop_input) {
+            if (is_resultscreen_flag) {
+                if (recsavefile) {
+                    __asm("push %0\n"::"a"(menu_10_str[2]));    // OK
+                } else {
+                    // (rec) 11_0 FReady2Save (play) 11_1 FRecResult
+                    __asm("push %0\n"::"a"(menu_11_str[p_record]));
+                }
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+            } else if (!is_resultscreen_flag) {
+                // (find_recdata) 10_1 FRecAva (!find) 10_0 FNo data
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));   // No Data
+                if (find_recdata) {
+                    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));     // Record Available
+                }
+                __asm("push %0\n"::"a"(menu_10_str[find_recdata]));
+            }
+            __asm("push 0x180\n");
+            __asm("push 0x2E0\n");
+            __asm("call %0\n"::"a"(font_rend_func));
+            __asm("add esp, 0x0C\n");
+        }
+        if (!stop_recchange) {
+            if (find_recdata) {
+                __asm("mov ecx, 0x0B\n");
+                __asm("call %0\n"::"a"(input_func));
+                __asm("test al, al\n");
+                __asm("je SW_00\n");
+                p_record ^= 1;
+                __asm("SW_00:\n");
+            }
+        } else if (stop_recchange && is_resultscreen_flag && !recsavefile) {
+            __asm("mov ecx, 0x0B\n");
+            __asm("call %0\n"::"a"(input_func));
+            __asm("test al, al\n");
+            __asm("je notsave\n");
+                if(!recdata_save()) {
+                    LOG("popnhax: file save failure\n");
+                }
+            __asm("notsave:\n");
+        }
+        /* Accept input only when music is selected */
+        if (!stop_input) {
+            __asm("mov ecx, 4\n");
+            __asm("call %0\n"::"a"(input_func));
+            __asm("test al, al\n");
+            __asm("je SW_4\n");
+            regul_flag ^= 1;
+            __asm("SW_4:\n");
+
+            __asm("mov ecx, 6\n");
+            __asm("call %0\n"::"a"(input_func));
+            __asm("test al, al\n");
+            __asm("je SW_6\n");
+            r_ran ^= 1;
+            __asm("SW_6:\n");
+
+            __asm("mov ecx, 5\n");
+            __asm("call %0\n"::"a"(input_func));
+            __asm("test al, al\n");
+            __asm("je SW_5\n");
+            speed++;
+            if (speed > 10) {
+                speed = 0;
+                new_speed = 150;
+            }
+            new_speed = 150 - (speed * 10);
+            __asm("SW_5:\n");
+        }
+        /* Record mode */
+        if (is_resultscreen_flag) {
+            if (!recsavefile) {
+                int8_t m9_no = 2-p_record;
+                __asm("push %0\n"::"a"(recplay_str[m9_no]));
+                __asm("push %0\n"::"a"(menu_9_str[!p_record]));
+                __asm("push 0x170\n");
+                __asm("push 0x2E0\n");
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+                __asm("call %0\n"::"a"(font_rend_func));
+                __asm("add esp, 0x10\n");
+            }
+        } else if (!is_resultscreen_flag) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
+            if (find_recdata) {
+                __asm("push %0\n"::"a"(recplay_str[p_record]));     // rec or play
+                __asm("push %0\n"::"a"(menu_9_str[0]));
+                __asm("push 0x170\n");
+                __asm("push 0x2E0\n");
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+                if (p_record) {
+                    __asm("mov esi, %0\n"::"a"(*font_color+COLOR_GREEN));
+                }
+                __asm("call %0\n"::"a"(font_rend_func));
+                __asm("add esp, 0x10\n");
+            }
+        }
+        /* CONSTANT SPEED no-soflan */
+        __asm("push %0\n"::"D"(onoff_str[regul_flag]));
+        __asm("push %0\n"::"a"(menu_3));
+        __asm("push 0x190\n");
+        __asm("push 0x2E0\n");
+        if (stop_input) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
+            if (is_resultscreen_flag) {
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+            }
+        } else {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_WHITE));
+            if (regul_flag) {
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+            }
+        }
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+        /* R-RANDOM */
+        __asm("push %0\n"::"D"(onoff_str[r_ran]));
+        __asm("push %0\n"::"a"(menu_4));
+        __asm("push 0x1A0\n");
+        __asm("push 0x2E0\n");
+        if (stop_input) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
+            if (is_resultscreen_flag) {
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+            }
+        } else {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_WHITE));
+            if (r_ran) {
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+            }
+        }
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+        /* SPEED */
+        __asm("push %0\n"::"D"(new_speed));
+        __asm("push %0\n"::"a"(menu_12));
+        __asm("push 0x1B0\n");
+        __asm("push 0x2E0\n");
+        if (stop_input) {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_DARK_GREY));
+            if (is_resultscreen_flag) {
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+            }
+        } else {
+            __asm("mov esi, %0\n"::"a"(*font_color+COLOR_WHITE));
+            if (new_speed != 100) {
+                __asm("mov esi, %0\n"::"a"(*font_color+COLOR_RED));
+            }
+        }
+        __asm("call %0\n"::"a"(font_rend_func));
+        __asm("add esp, 0x10\n");
+    }
+
     __asm("mov eax, [%0]\n"::"a"(*g_rend_addr));
     __asm("mov dword ptr [eax], 2\n");
     __asm("mov dword ptr [eax+4], 1\n");
     __asm("mov dword ptr [eax+8], 0\n");
     __asm("mov dword ptr [eax+0x34], 1\n");
 
-#if DEBUG == 1
-    r2nk_debug();
-#endif
+    #if DEBUG == 1
+        if (g_error_str != NULL) {
+            printf("%s\n", g_error_str);
+            g_error_str = NULL;
+        }
+        r2nk_debug();
+    #endif
 
     if (config.enhanced_polling && config.enhanced_polling_stats)
         enhanced_polling_stats_disp_sub();
@@ -7025,7 +6905,7 @@ static bool patch_practice_mode()
         int64_t pattern_offset = _search(data, dllSize,
                  "\x83\xC4\x04\xB9\x02\x00\x00\x00", 8, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: Cannot find address for r-ran hook addr\n");
+            LOG("popnhax: Cannot find r-ran hook addr\n");
             return false;
         }
 
@@ -7033,20 +6913,6 @@ static bool patch_practice_mode()
 
         _MH_CreateHook((LPVOID)patch_addr, (LPVOID)r_random,
                     (void **)&real_get_random);
-    }
-    {
-        // restore player options
-        int64_t pattern_offset = _search(data, dllSize,
-                     "\x5E\x8B\xE5\x5D\xC2\x04\x00\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\xCC\x55\x8B\xEC\x83\xE4\xF8\x51\x56\x8B\xF1\x8B", 32, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: Cannot find address for restore addr\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset -11;
-
-        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)restore_playoptions,
-                    (void **)&restore_op);
     }
 
     #if DEBUG == 1
@@ -7075,7 +6941,7 @@ static bool patch_record_mode(bool quickretire)
                      "\x8B\xE8\x8B\x47\x30\x83\xF8\x17", 8, 0);
 
             if (pattern_offset == -1) {
-                LOG("popnhax: quick retry: cannot retrieve screen transition function\n");
+                LOG("popnhax: record: cannot retrieve screen transition function\n");
                 return false;
             }
 
@@ -7094,7 +6960,7 @@ static bool patch_record_mode(bool quickretire)
                 pattern_offset = _search(data, dllSize,
                      "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, 0);
                 if (pattern_offset == -1) {
-                    LOG("popnhax: record reload: cannot retrieve song start function\n");
+                    LOG("popnhax: record: cannot retrieve song start function\n");
                     return false;
                 }
             }
@@ -7108,7 +6974,7 @@ static bool patch_record_mode(bool quickretire)
                      "\x8B\xF0\x83\x7E\x0C\x00\x0F\x84", 8, 0);
 
             if (pattern_offset == -1) {
-                LOG("popnhax: quick retry: cannot retrieve option screen loop\n");
+                LOG("popnhax: record: cannot retrieve option screen loop\n");
                 return false;
             }
 
@@ -7117,7 +6983,7 @@ static bool patch_record_mode(bool quickretire)
                         (void **)&real_option_screen_simple);
         }
 
-        LOG("popnhax: record reload: reloading enabled.\n");
+        LOG("popnhax: record: reloading enabled\n");
 
     }
     /* record_mode hook */
@@ -7126,7 +6992,7 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset = _search(data, dllSize,
                  "\x8B\x44\x24\x04\x56\x57\x50\x8B\xF9", 9, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: MusicSelectScene_addr was not found.\n");
+            LOG("popnhax: record: MusicSelectScene_addr was not found\n");
             return false;
         }
 
@@ -7140,7 +7006,7 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset = _search(data, dllSize,
                  "\x02\x8B\xF0\x7C", 4, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: elapsed_time_addr was not found.\n");
+            LOG("popnhax: record: elapsed_time_addr was not found\n");
             return false;
         }
 
@@ -7149,28 +7015,12 @@ static bool patch_record_mode(bool quickretire)
         _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)get_elapsed_time,
                       (void **)&get_elapsed_time_hook);
     }
-    /*
-    {
-        // NoteQue_func
-        int64_t pattern_offset = _search(data, dllSize,
-                 "\x0F\xB6\xC1\x88\x4F\x11\x88\x4F\x12", 9, 0);
-        if (pattern_offset == -1) {
-            LOG("popnhax: noteque_func_addr was not found.\n");
-            return false;
-        }
-
-        uint64_t patch_addr = (int64_t)data + pattern_offset +3;
-
-        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)noteque_rewrite,
-                      (void **)&real_noteque_addr);
-    }
-    */
     {
         // ifs_name
         int64_t pattern_offset = _search(data, dllSize,
                  "\x83\xC4\x04\x50\x8B\xC7\x85\xDB", 8, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: ifs_name_ptr was not found.\n");
+            LOG("popnhax: record: ifs_name_ptr was not found\n");
             return false;
         }
 
@@ -7183,12 +7033,19 @@ static bool patch_record_mode(bool quickretire)
         // for reload
         int64_t pattern_offset = _search(data, dllSize,
                  "\xE9\x0C\x01\x00\x00\x8B\x85", 7, 0);
+        int delta = -8;
+        
         if (pattern_offset == -1) {
-            LOG("popnhax: record reload: cannot retrieve song start function\n");
-            return false;
+            delta = 12;
+                pattern_offset = _search(data, dllSize,
+                     "\x6A\x00\xB8\x17\x00\x00\x00\xE8", 8, 0);
+                if (pattern_offset == -1) {
+                    LOG("popnhax: record: cannot retrieve song start function (2)\n");
+                    return false;
+                }
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset -0x14;
+        uint64_t patch_addr = (int64_t)data + pattern_offset + delta;
 
         _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hook_optionloop_after_pressing_red,
                       (void **)&real_optionloop_after_pressing_red);
@@ -7198,7 +7055,7 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset = _search(data, dllSize,
              "\x8B\x55\x00\x8B\x82\x9C\x00\x00\x00\x6A\x01\x8B\xCD\xFF\xD0\x80\xBD", 17, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: record reload: cannot retrieve option screen yellow leave addr\n");
+            LOG("popnhax: record: cannot retrieve option screen yellow leave addr\n");
             return false;
         }
 
@@ -7212,7 +7069,7 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset = _search(data, dllSize,
                  "\xC1\xE8\x07\x24\x01\x8A\xD8", 7, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: recmode_forplay1_addr was not found.\n");
+            LOG("popnhax: record: play1_addr was not found\n");
             return false;
         }
 
@@ -7226,11 +7083,18 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset = _search(data, dllSize,
                  "\x84\xC0\x0F\x84\x08\x01\x00\x00", 8, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: recmode_forplay3_addr was not found.\n");
+            LOG("popnhax: record: play3_addr was not found\n");
             return false;
         }
 
         uint64_t patch_addr = (int64_t)data + pattern_offset;
+        uint32_t g_calladdr_offset = *(uint32_t*)((int64_t)data + pattern_offset -4);
+        demoflag_func = (int64_t)data + pattern_offset +g_calladdr_offset;
+
+        #if DEBUG == 1
+            LOG("debug: g_calladdr_offset is 0x%d\n", g_calladdr_offset);
+            LOG("debug: demoflag_func is 0x%X\n", demoflag_func);
+        #endif
 
         _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)play_thirdstep,
                       (void **)&first_auto_flag_check);
@@ -7239,7 +7103,7 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset_p2 = _search(data, dllSize,
                  "\x84\xC0\x74\x53", 4, pattern_offset);
         if (pattern_offset_p2 == -1) {
-            LOG("popnhax: recmode_forplay2_addr was not found.\n");
+            LOG("popnhax: record: play2_addr was not found\n");
             return false;
         }
 
@@ -7254,7 +7118,7 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset = _search(data, dllSize,
              "\x83\xC4\x04\xEB\x2E\xBA\x80\x00\x00\x00", 10, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: recmode_forplay4_addr was not found.\n");
+            LOG("popnhax: record: play4_addr was not found\n");
             return false;
         }
 
@@ -7267,12 +7131,17 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset = _search(data, dllSize,
                  "\xE3\x00\x00\x83\xC4\x0C\x80\x7C\x24", 9, 0);
         if (pattern_offset == -1) {
-            //next _search
+            //next search
             pattern_offset = _search(data, dllSize,
                  "\xE4\x00\x00\x83\xC4\x0C\x80\x7C\x24", 9, 0);
             if (pattern_offset == -1) {
-                LOG("popnhax: recmode_addr was not found.\n");
-                return false;
+                //next search for 28
+                pattern_offset = _search(data, dllSize,
+                    "\xE6\x00\x00\x83\xC4\x0C\x80\x7C\x24", 9, 0);
+                if (pattern_offset == -1) {
+                    LOG("popnhax: record: rec1_addr was not found\n");
+                    return false;
+                }
             }
         }
 
@@ -7288,7 +7157,7 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset = _search(data, dllSize,
                  "\x24\x0F\x66\x0F\xB6\xC8\x66\xC1", 8, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: recmode_addr2 was not found.\n");
+            LOG("popnhax: record: rec2_addr was not found\n");
             return false;
         }
 
@@ -7297,13 +7166,26 @@ static bool patch_record_mode(bool quickretire)
         _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)record_playdata_poor,
                       (void **)&get_poor);
     }
+    {
+        // rec1 enhanced_poll fix
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x38\xBB\x07\x00\x00\x00", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: record: cannot find rec1 fix address\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)record_timing_override,
+                      (void **)&pre_judge_time);
+    }
     /* other functions */
     {
         // PlaySramSound func
         int64_t pattern_offset = _search(data, dllSize,
                  "\x51\x56\x8B\xF0\x85\xF6\x74\x6C\x6B\xC0\x2C", 11, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: PlaySramSound_addr was not found.\n");
+            LOG("popnhax: record: PlaySramSound_addr was not found\n");
             return false;
         }
         playsramsound_func = (uint32_t)((int64_t)data + pattern_offset);
@@ -7311,18 +7193,19 @@ static bool patch_record_mode(bool quickretire)
     {
         // j_win_addr
         int64_t pattern_offset = _search(data, dllSize,
-                     "\x84\xC0\x74\x18\x8B\x04\xFD", 7, 0);
+                     "\x84\xC0\x74\x18\x8B\x04", 6, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: j_win_addr was not found.\n");
+            LOG("popnhax: record: j_win_addr was not found\n");
             return false;
         }
         j_win_addr = (uint32_t)((int64_t)data + pattern_offset +7);
     }
     {
         // for rec_date
-        int64_t pattern_offset = _search(data, dllSize, "\x83\xEC\x2C\x6A\x00", 5, 0);
+        int64_t pattern_offset = _search(data, dllSize,
+                         "\x83\xEC\x2C\x6A\x00", 5, 0);
         if (pattern_offset == -1) {
-                LOG("popnhax: date_func was not found.\n");
+                LOG("popnhax: record: date_func was not found\n");
                 return false;
         }
         date_func = (uint32_t)((int64_t)data + pattern_offset);
@@ -7332,11 +7215,10 @@ static bool patch_record_mode(bool quickretire)
         int64_t pattern_offset = _search(data, dllSize,
              "\x83\xF8\x04\x0F\xB6\xC1\x75\x13\x69\xC0", 10, 0);
         if (pattern_offset == -1) {
-            LOG("popnhax: record: player-option offset: not found.\n");
+            LOG("popnhax: record: cannot find player-option offset\n");
             return false;
         }
-        uint32_t *temp_addr = (uint32_t *)((int64_t)data + pattern_offset +0x0A);
-        player_option_offset = *temp_addr;
+        player_option_offset = *(uint32_t *)((int64_t)data + pattern_offset +0x0A);
     }
     {
         // usbPadReadLast
@@ -7362,7 +7244,7 @@ static bool patch_record_mode(bool quickretire)
             int64_t pattern_offset = _search(data, dllSize,
                  "\x5E\x83\xC4\x10\xC3\x51\xE8", 7, 0);
             if (pattern_offset == -1) {
-                LOG("popnhax: record: ifs load address not found.\n");
+                LOG("popnhax: record: ifs load address not found\n");
                 return false;
             }
 
@@ -7372,7 +7254,7 @@ static bool patch_record_mode(bool quickretire)
                           (void **)&gm_ifs_load);
 
             #if DEBUG == 1
-                LOG("popnhax: record: loadtexhook_addr is 0x%llX\n", patch_addr);
+                LOG("debug: loadtexhook_addr is 0x%llX\n", patch_addr);
             #endif
         }
         else
@@ -7380,20 +7262,131 @@ static bool patch_record_mode(bool quickretire)
             LOG("popnhax: record: custom popkun assets not found. Using regular ones\n");
         }
     }
+    {
+        // Reset 2dx magnification setting
+        int64_t pattern_offset = _search(data, dllSize,
+                "\x83\xC8\xFF\x33\xC9\x33\xD2\x66\x89", 9, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: record: cannot find load status addr\n");
+            return false;
+        }
 
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)reset_2dx_magnification_setting,
+                        (void **)&flag_status);
+
+        #if DEBUG == 1
+            LOG("debug: 2dx_reset_addr is 0x%llX\n", patch_addr);
+        #endif
+    }
     #if DEBUG == 1
-        LOG("popnhax: record: p_note is 0x%p, value is 0x%X\n", p_note, *p_note);
-        LOG("popnhax: record: usbpad_addr is 0x%p, value is 0x%X\n", usbpad_addr, **usbpad_addr);
-        LOG("popnhax: record: player_option_offset value is 0x%X\n", player_option_offset);
-        LOG("popnhax: record: j_win_addr is 0x%X\n", j_win_addr);
-        LOG("popnhax: record: judge_bar_func is 0x%X\n", judge_bar_func);
-        LOG("popnhax: record: playsramsound_func is 0x%X\n", playsramsound_func);
-        LOG("popnhax: record: date_func_addr is 0x%X\n", date_func);
-        // LOG("popnhax: record: noteque_func_addr is 0x%X\n", noteque_func);
+        LOG("debug: p_note is 0x%p, value is 0x%X\n", p_note, *p_note);
+        LOG("debug: usbpad_addr is 0x%p, value is 0x%X\n", usbpad_addr, **usbpad_addr);
+        LOG("debug: player_option_offset value is 0x%X\n", player_option_offset);
+        LOG("debug: j_win_addr is 0x%X\n", j_win_addr);
+        LOG("debug: judge_bar_func is 0x%X\n", judge_bar_func);
+        LOG("debug: playsramsound_func is 0x%X\n", playsramsound_func);
+        LOG("debug: date_func_addr is 0x%X\n", date_func);
+        LOG("debug: recreload is 0x%p\n", (void*)&rec_reload);
+        
+
     #endif
 
-    LOG("popnhax: record: rec_mode enabled.\n");
+    LOG("popnhax: record: rec_mode enabled\n");
 
+    return true;
+}
+
+static bool patch_silent_mode() {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    int64_t pattern_offset = _search(data, dllSize, "\x3B\xC1\x1B\xC0\x23\xC1\xA3", 7, 0);
+    if (pattern_offset == -1) {
+        LOG("popnhax: silent patch error\n");
+        return false;
+    }
+
+    uint32_t **default_volume_pre = (uint32_t **)((int64_t)data + pattern_offset +7);
+    uint32_t *default_volume = *default_volume_pre;
+    DWORD old_prot;
+    VirtualProtect((LPVOID)default_volume, 4, PAGE_EXECUTE_READWRITE, &old_prot);
+    *default_volume = 0;
+    VirtualProtect((LPVOID)default_volume, 4, old_prot, &old_prot);
+
+    uint64_t patch_addr = (int64_t)data + pattern_offset;
+    patch_memory(patch_addr, (char *)"\x90\x90\x90\x90\x90\x90", 6);
+
+    for (int i=0; i<3; i++) {
+        if (!find_and_patch_hex(g_game_dll_fn, "\x33\xC0\x4B\x3B\xC1\x1B", 6, 3, "\xEB\x0E", 2)) {
+            LOG("popnhax: silent patch error (%d)\n", i);
+            return false;
+        }
+    }
+
+    if (!find_and_patch_hex(g_game_dll_fn, "\x83\xEC\x08\x89\x4C\x24\x08", 7, 7, "\x33\xC0\x90\x90\x90", 5)) {
+        LOG("popnhax: silent patch error (3)\n");
+        return false;
+    }
+    if (!find_and_patch_hex(g_game_dll_fn, "\x8B\xD6\x6B\xD2\x2C\x89\x82", 7, -0x22, "\x33\xD2\x90\x90\x90", 5)) {
+        LOG("popnhax: silent patch error (5)\n");
+        return false;
+    }
+    if (!find_and_patch_hex(g_game_dll_fn, "\x8B\xD6\x6B\xD2\x2C\x89\x82", 7, 5, "\x33\xC0\x90\x90\x90\x90", 6)) {
+        LOG("popnhax: silent patch error (4)\n");
+        return false;
+    }
+    return true;
+}
+
+void (*real_hariai_error)();
+void hariai_error_skip() {
+    __asm("test esi, esi\n");
+    __asm("jne ha_return\n");
+    __asm("lea ecx, dword ptr [esp - 0x308]\n");
+    __asm("ha_return:\n");
+    real_hariai_error();
+}
+
+void (*real_errormessage)();
+void errormessage_hook() {
+    __asm("mov byte ptr [ecx+0x11c], 0\n");
+    __asm("add ecx, 0x128\n");
+    __asm("mov %0, ecx\n":"=c"(g_error_str): :);
+    __asm("sub ecx, 0x128\n");
+    real_errormessage();
+}
+
+static bool patch_hakc_errorskip() {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\xF3\x83\xC4\x0C\x8B\xDF", 7, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: cannnot find hariai_error_hook_addr (1)\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x12;
+
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)hariai_error_skip,
+                    (void **)&real_hariai_error);
+    }
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\x8B\x44\x24\x14\x8B\x7C\x24\x10", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: cannnot find hariai_error_hook_addr (2)\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0F;
+    
+        _MH_CreateHook((LPVOID)(patch_addr), (LPVOID)errormessage_hook,
+                  (void **)&real_errormessage);
+
+    }
     return true;
 }
 
@@ -8569,9 +8562,18 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             version_check();
             patch_practice_mode();
             // record_mode must be usaneko or later
-            if (p_version >= 4) {
+            if (config.game_version >= 24) {
                 patch_record_mode(config.quick_retire);
             }
+
+            #if DEBUG == 1
+                patch_hakc_errorskip();
+            #endif
+            /*
+                if(patch_silent_mode()) {
+                    LOG("popnhax: silent mode patch enabled\n");
+                }
+            */
         }
 /* --------------------------------- */
 
