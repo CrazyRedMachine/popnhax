@@ -8761,7 +8761,7 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                     LOG("popnhax: local_favorites: failed to retrieve datecode.\n");
                 }
 
-                patch_local_favorites(g_game_dll_fn, config.game_version, config.local_favorites_path, ( datecode != NULL && strcmp((char*)datecode,"2023101700") >= 0 ) );
+                patch_local_favorites(g_game_dll_fn, config.game_version, config.local_favorites_path, ( config.game_version == 27 && datecode != NULL && strcmp((char*)datecode,"2023101700") >= 0 ) );
                 free(datecode);
 
             }
