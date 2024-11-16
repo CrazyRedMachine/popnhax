@@ -2549,6 +2549,10 @@ bool force_unlock_songs() {
                 break;
             }
 
+            if ((entry->mask & 0x00020000) != 0) {
+                LOG("[%04d][JF] Unlocking %s\n", i, entry->title_ptr);
+            }
+
             if ((entry->mask & 0x08000000) != 0) {
                 LOG("[%04d] Unlocking %s\n", i, entry->title_ptr);
                 music_unlocks++;
@@ -2559,8 +2563,8 @@ bool force_unlock_songs() {
                 chart_unlocks++;
             }
 
-            if ((entry->mask & 0x08000080) != 0) {
-                uint32_t new_mask = entry->mask & ~0x08000080;
+            if ((entry->mask & 0x08020080) != 0) {
+                uint32_t new_mask = entry->mask & ~0x08020080;
                 patch_memory((uint64_t)&entry->mask, (char *)&new_mask, 4);
             }
 

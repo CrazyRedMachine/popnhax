@@ -1362,7 +1362,7 @@ void musichax_core_init(struct popnhax_config *config,
     if (force_unlocks) {
         music_entry *m = (music_entry *)*new_music_table;
         for (uint64_t i = 0; i < *new_music_size; i++) {
-            uint32_t new_mask = m[i].mask & ~0x8000080;
+            uint32_t new_mask = m[i].mask & ~0x8020080;
 
             if (m[i].title_ptr != NULL && new_mask != m[i].mask) {
                 printf("Unlocking [%04lld] %s... %08x -> %08x\n", i, m[i].title_ptr, m[i].mask,
