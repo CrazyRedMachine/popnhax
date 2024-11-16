@@ -32,7 +32,7 @@
 
 #include "SearchFile.h"
 
-#define PROGRAM_VERSION "2.4.dev"
+#define PROGRAM_VERSION "2.4"
 
 const char *g_game_dll_fn = NULL;
 char *g_config_fn   = NULL;
