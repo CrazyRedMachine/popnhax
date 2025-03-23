@@ -31,9 +31,25 @@ bst_t *g_bad_offset_bst = NULL;
 
 // These offsets are known bads, you can add new offsets either in there or in data_mods\patches_blacklist.dat
 uint32_t g_offset_blacklist[] = {
+    0x1004f7ad,
+    0x1004f85b,
+    0x1005749d,
+    0x1005752f,
+    0x100575e6,
+    0x100576cc,
+    0x100577ba,
+    0x10057e06,
+    0x10058c61,
+    0x10058d23,
+    0x10058de0,
+    0x10058e97,
+    0x10058f67,
+    0x10059028,
+    0x1005921a,
     0x100be154,
     0x100be346,
     0x100bed91,
+    0x100c48b4,
     0x100e56ec,
     0x100e56f5,
     0x100e5a55,
@@ -136,6 +152,34 @@ uint32_t *find_binary_xref(char *data, DWORD dllSize, const char *search_pattern
     ea = find_binary(data, dllSize, as_hex, 4, 0, xref_search_idx);
 
     return ea;
+}
+
+uint32_t get_table_size_by_string_xref(char *data, DWORD dllSize, const char *str, int offset, int adjust)
+{
+    PIMAGE_NT_HEADERS headers = (PIMAGE_NT_HEADERS)((int64_t)data + ((PIMAGE_DOS_HEADER)data)->e_lfanew);
+    DWORD_PTR reloc_delta = (DWORD_PTR)((int64_t)data - headers->OptionalHeader.ImageBase);
+
+    {
+        int64_t string_loc = _search(data, dllSize, str, strlen(str), 0);
+        if (string_loc == -1) {
+            LOG("popnhax: could not find \"%s\" string in dll\n", str);
+            return 0;
+        }
+
+        string_loc += reloc_delta; //reloc delta just in case
+        string_loc += 0x10000000; //entrypoint
+        char *as_hex = (char *) &string_loc;
+
+        int64_t pattern_offset = _search(data, dllSize, as_hex, 4, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: could not retrieve limit with \"%s\" string\n", str);
+            return 0;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + offset;
+        uint32_t limit = (*(uint32_t*)patch_addr)+adjust;
+        return limit;
+    }
 }
 
 uint32_t get_table_size_by_xref(uint32_t *ea, uint32_t entry_size)
@@ -332,8 +376,12 @@ static uint32_t get_previous_push(char *buf, uint32_t buf_size, uint32_t offset,
         int size = x86_disasm((unsigned char*)buf, buf_size, 0, offset-delta, &insn);
         if ( size != 0 && insn.type == insn_push )
         {
-            /* FOUND! */
-            break;
+            x86_op_t *op = x86_operand_1st(&insn);
+            if ( op != NULL && op->type == op_immediate )
+            {
+                /* FOUND! */
+                break;
+            }
         }
         x86_oplist_free(&insn);
         delta++;
@@ -356,8 +404,8 @@ static uint32_t get_previous_push(char *buf, uint32_t buf_size, uint32_t offset,
 static uint32_t get_next_call(char *buf, uint32_t buf_size, uint32_t offset, uint32_t* func_ea)
 {
     x86_insn_t insn;
-    int delta = 0;
-    while(true)
+    uint32_t delta = 0;
+    while(delta < buf_size)
     {
         int size = x86_disasm((unsigned char*)buf, buf_size, 0, offset+delta, &insn);
         if (insn.type == insn_call)
@@ -386,7 +434,33 @@ static uint32_t get_next_call(char *buf, uint32_t buf_size, uint32_t offset, uin
     return (uint32_t)buf+offset+delta;
 }
 
-bool find_weird_update_patches(char *buf, uint32_t buf_size, uint32_t music_limit, update_patches_t *out)
+static uint32_t get_next_lea(char *buf, uint32_t buf_size, uint32_t offset, uint32_t* value)
+{
+    x86_insn_t insn;
+    uint32_t delta = 0;
+    while(delta < buf_size)
+    {
+        int size = x86_disasm((unsigned char*)buf, buf_size, 0, offset+delta, &insn);
+        if (delta > 0 && insn.type == insn_mov && strcmp(insn.mnemonic, "lea")==0)
+        {
+            x86_op_t *op = x86_operand_2nd(&insn);
+            if ( op != NULL && op->type == op_expression )
+            {
+                /* FOUND! */
+                x86_ea_t exp = op->data.expression;
+                *value = exp.disp;
+                break;
+            }
+        }
+        x86_oplist_free(&insn);
+        delta+=size;
+    }
+
+    x86_oplist_free(&insn);
+    return (uint32_t)buf+offset+delta;
+}
+
+bool find_weird_update_patches(char *buf, uint32_t buf_size, uint32_t music_limit, update_patches_t *out, bool legacy_lea_patches)
 {
     /* There are 4 patches to find with this routine, we assume "out" has room to store them */
 
@@ -406,22 +480,46 @@ bool find_weird_update_patches(char *buf, uint32_t buf_size, uint32_t music_limi
 
     out[3] = { .idx = MUSIC_IDX, .patch_method = 11, .value = push_value, .offset = push_ea};
 
-    uint32_t func_ea = 0;
-    (void)get_next_call(buf, buf_size, (uint32_t)ea-(uint32_t)buf, &func_ea);
-
-    /* seek end of func_ea */
-    uint32_t *func_ea_end = find_binary((char *)func_ea, 0x10000, "\xCC\xCC\xCC\xCC\xCC", 5, 0, 0);
-
-    /* part2: now we need to find 3 "lea ?, [ebx+?????]" instructions at the end of func_ea */
-    uint32_t lea_value = 0;
-    uint32_t lea_ea = (uint32_t)func_ea_end;
-    for (uint8_t i = 0; i < 3; i++)
+    if (legacy_lea_patches)
     {
-        if ( new_popn ) //in newer games we have to skip every other match
-            lea_ea = get_previous_lea_ebx(buf, buf_size, (uint32_t)lea_ea-(uint32_t)buf, &lea_value);
+        uint32_t func_ea = 0;
+        (void)get_next_call(buf, buf_size, (uint32_t)ea-(uint32_t)buf, &func_ea);
 
-        lea_ea = get_previous_lea_ebx(buf, buf_size, (uint32_t)lea_ea-(uint32_t)buf, &lea_value);
-        out[2-i] = { .idx = MUSIC_IDX, .patch_method = (uint8_t)(11-i), .value = lea_value, .offset = lea_ea};
+        /* seek end of func_ea */
+        uint32_t *func_ea_end = find_binary((char *)func_ea, 0x10000, "\xCC\xCC\xCC\xCC\xCC", 5, 0, 0);
+
+        /* part2: now we need to find 3 "lea ?, [ebx+?????]" instructions at the end of func_ea */
+        uint32_t lea_value = 0;
+        uint32_t lea_ea = (uint32_t)func_ea_end;
+        for (uint8_t i = 0; i < 3; i++)
+        {
+            if ( new_popn ) //in newer games we have to skip every other match
+                lea_ea = get_previous_lea_ebx(buf, buf_size, (uint32_t)lea_ea-(uint32_t)buf, &lea_value);
+
+            lea_ea = get_previous_lea_ebx(buf, buf_size, (uint32_t)lea_ea-(uint32_t)buf, &lea_value);
+            out[2-i] = { .idx = MUSIC_IDX, .patch_method = (uint8_t)(11-i), .value = lea_value, .offset = lea_ea};
+        }
+    }
+    else
+    {
+        uint32_t* func_ea_part = find_binary(buf, buf_size, "\x81\xC6\xD0\x03\x00\x00\x83", 7, 0, 0);
+
+        /* part2: now we need to find 3 lea instructions which are following this pattern, skipping every other match */
+        uint32_t lea_value = 0;
+        bool skip_lea = new_popn; //new popn starts with a skip
+        uint32_t lea_ea = (uint32_t)func_ea_part;
+
+        uint8_t matches = 0;
+        while (matches < 3)
+        {
+            lea_ea = get_next_lea(buf, buf_size, (uint32_t)lea_ea-(uint32_t)buf, &lea_value);
+            if ( !skip_lea )
+            {
+                out[matches] = { .idx = MUSIC_IDX, .patch_method = (uint8_t)(9+matches), .value = lea_value, .offset = lea_ea};
+                matches++;
+            }
+            skip_lea = !skip_lea;
+        }
     }
 
     return true;
@@ -553,14 +651,24 @@ bool make_omnimix_patch(const char *dllFilename, membuf_t *membuf, char *datecod
     g_tables[FLAVOR_IDX].size = 0x60;
     g_tables[CHARA_IDX].size = 0x4C;
 
-    LOG("popnhax: patch_db_gen:     limits... ");
+    LOG("popnhax: patch_db_gen:     limits... \n");
     // buffer_addr + (buffer_entry_size * limit) should give you the very end of the array (after the last entry)
-    g_tables[MUSIC_IDX].limit = get_table_size_by_xref(g_tables[MUSIC_IDX].addr, g_tables[MUSIC_IDX].size);
+    g_tables[MUSIC_IDX].limit = get_table_size_by_string_xref(buf, dllSize, "Illegal music no", -0x1F, 0);
+    LOG("popnhax: patch_db_gen:         music : %u\n", g_tables[MUSIC_IDX].limit);
+
     g_tables[CHART_IDX].limit = get_table_size_by_xref(g_tables[CHART_IDX].addr, g_tables[CHART_IDX].size);
+    LOG("popnhax: patch_db_gen:         chart : %u\n", g_tables[CHART_IDX].limit);
+
     g_tables[STYLE_IDX].limit = get_table_size_by_xref(g_tables[STYLE_IDX].addr, g_tables[STYLE_IDX].size);
+    LOG("popnhax: patch_db_gen:         style : %u\n", g_tables[STYLE_IDX].limit);
+
     g_tables[FLAVOR_IDX].limit = get_table_size_by_xref(g_tables[FLAVOR_IDX].addr, g_tables[FLAVOR_IDX].size);
-    g_tables[CHARA_IDX].limit = get_table_size_by_xref(g_tables[CHARA_IDX].addr, g_tables[CHARA_IDX].size);
-    LOG("done\n");
+    LOG("popnhax: patch_db_gen:         flavor: %u\n", g_tables[FLAVOR_IDX].limit);
+
+    g_tables[CHARA_IDX].limit = get_table_size_by_string_xref(buf, dllSize, "Illegal Chara No", -0x0C, -6);
+    LOG("popnhax: patch_db_gen:         chara : %u\n", g_tables[CHARA_IDX].limit);
+
+    LOG("popnhax: patch_db_gen:     done\n");
 
     membuf_printf(membuf, "\t<limits>\n");
 
@@ -645,7 +753,7 @@ bool make_omnimix_patch(const char *dllFilename, membuf_t *membuf, char *datecod
         { .idx = FLAVOR_IDX, .patch_method = 0, .value = g_tables[FLAVOR_IDX].limit - 1 },
         { .idx = FLAVOR_IDX, .patch_method = 0, .value = g_tables[FLAVOR_IDX].limit },
 
-    /* These values may change in a future patch, but they worked for usaneko/peace/kaimei/unilab for now.
+    /* These values may change in a future patch, but they worked for now.
      * These could possibly be done using something similar to the find_weird_update_patches code. */
         { .idx = MUSIC_IDX, .patch_method = 1, .value = 0x1BD0 - (1780 - g_tables[MUSIC_IDX].limit) * 4 },
         { .idx = MUSIC_IDX, .patch_method = 1, .value = 0x1Bcf - (1780 - g_tables[MUSIC_IDX].limit) * 4 },
@@ -691,7 +799,7 @@ bool make_omnimix_patch(const char *dllFilename, membuf_t *membuf, char *datecod
     }
 
     update_patches_t weird_update_patches[4];
-    find_weird_update_patches(buf, dllSize, g_tables[MUSIC_IDX].limit, weird_update_patches);
+    find_weird_update_patches(buf, dllSize, g_tables[MUSIC_IDX].limit, weird_update_patches, false);
     for (int i = 0; i < 4; i++)
     {
         char line[LINE_SIZE];
