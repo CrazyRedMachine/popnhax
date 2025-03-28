@@ -782,16 +782,13 @@ static bool patch_favorite_categ(const char *game_dll_fn, bool with_numpad9_patc
 
     // patch category handling jumptable to add our processing
     {
-        int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
+        int64_t pattern_offset = _wildcard_search(data, dllSize, "\x14\x83\xF8?\x77?\xFF\x24\x85", 9, 0);
         if (pattern_offset == -1) {
-            pattern_offset = _search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
-            if (pattern_offset == -1) {
-                LOG("popnhax: local_favorites: cannot find category jump table\n");
-                return false;
-            }
+            LOG("ERROR: local_favorites: cannot find category jump table\n");
+            return false;
         }
 
-            uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x05 + 0x5A);
+            uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x06 + 0x5A);
             uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
             uint64_t function_addr = function_call_addr+5+function_offset;
 
@@ -949,25 +946,21 @@ static bool patch_custom_categ(const char *game_dll_fn, uint16_t min_id) {
 
     // patch category handling jumptable to add our processing
     {
-        int64_t pattern_offset = _search(data, dllSize, "\x83\xF8\x10\x77\x75\xFF\x24\x85", 8, 0);
-        uint8_t jump_size = 0x75; //as seen in pattern
+        int64_t pattern_offset = _wildcard_search(data, dllSize, "\x14\x83\xF8?\x77?\xFF\x24\x85", 9, 0);
         if (pattern_offset == -1) {
-            jump_size = 0x7C;  //as seen in pattern
-            pattern_offset = _search(data, dllSize, "\x83\xF8\x11\x77\x7C\xFF\x24\x85", 8, 0); // jam&fizz
-            if (pattern_offset == -1) {
-                LOG("popnhax: custom_categ: cannot find category jump table\n");
-                return false;
-            }
+            LOG("ERROR: custom_categ: cannot find category jump table\n");
+            return false;
         }
 
-        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05 + jump_size; //hook at the end of jump table
+        uint8_t jump_size = *((uint8_t*)((int64_t)(data + pattern_offset+0x05)));
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x06 + jump_size; //hook at the end of jump table
 
         _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_categ_listing,
                      (void **)&real_categ_listing);
 
         if (g_subcategmode)
         {
-            uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x05 + 69);
+            uint64_t function_call_addr = (int64_t)(data + pattern_offset + 0x06 + 69);
             uint32_t function_offset = *((uint32_t*)(function_call_addr +0x01));
             uint64_t function_addr = function_call_addr+5+function_offset;
 
