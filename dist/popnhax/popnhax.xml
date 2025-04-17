@@ -145,6 +145,8 @@
     <keysound_offset __type="s8">0</keysound_offset>
     <!-- Adjust pop-kun and beam brightness (won't affect long popkuns) -->
     <beam_brightness __type="s8">0</beam_brightness>
+    <!-- Adjust judgement text display height (positive is higher, lane is in the [-200;450] range) -->
+    <judgement_display_offset __type="s16">0</judgement_display_offset>
     <!-- 1000Hz polling thread priority (for enhanced_polling only, might cause crashes on some systems if set too high)
          values THREAD_PRIORITY_LOWEST        -2
                 THREAD_PRIORITY_BELOW_NORMAL  -1

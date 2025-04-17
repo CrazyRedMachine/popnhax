@@ -217,11 +217,11 @@ void find_and_patch_string(const char *dllFilename, const char *input_string, co
     }
 }
 
-int64_t find_and_patch_hex(const char *dllFilename, const char *find, uint8_t find_size, int64_t shift, const char *replace, uint8_t replace_size) {
+int64_t find_and_patch_hex_ex(const char *dllFilename, const char *find, uint8_t find_size, int64_t shift, const char *replace, uint8_t replace_size, bool wildcards) {
     DWORD dllSize = 0;
     char *data = getDllData(dllFilename, &dllSize);
 
-    int64_t pattern_offset = _search(data, dllSize, find, find_size, 0);
+    int64_t pattern_offset = wildcards? _wildcard_search(data, dllSize, find, find_size, 0) : _search(data, dllSize, find, find_size, 0);
     if (pattern_offset == -1) {
         return 0;
     }
@@ -255,6 +255,14 @@ int64_t find_and_patch_hex(const char *dllFilename, const char *find, uint8_t fi
 
     return pattern_offset;
 
+}
+
+int64_t wildcard_find_and_patch_hex(const char *dllFilename, const char *find, uint8_t find_size, int64_t shift, const char *replace, uint8_t replace_size) {
+    return find_and_patch_hex_ex(dllFilename, find, find_size, shift, replace, replace_size, true);
+}
+
+int64_t find_and_patch_hex(const char *dllFilename, const char *find, uint8_t find_size, int64_t shift, const char *replace, uint8_t replace_size) {
+    return find_and_patch_hex_ex(dllFilename, find, find_size, shift, replace, replace_size, false);
 }
 
 void log_cb(x86_insn_t *insn, void *arg)

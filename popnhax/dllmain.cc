@@ -229,6 +229,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, attract_lights
                  "/popnhax/attract_lights")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_slow_timer,
                  "/popnhax/force_slow_timer")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S16, struct popnhax_config, judgement_display_offset,
+                 "/popnhax/judgement_display_offset")
 /* removed options are now hidden as optional */
 PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, survival_gauge,
                  "/popnhax/survival_gauge", 0)
@@ -8066,6 +8068,43 @@ bool patch_db_power_points()
     return true;
 }
 
+static bool patch_judgement_display_offset(int value)
+{
+    bool include_battlemode = true;
+    uint32_t patched_val = 100 + value;
+    char replace[] = "\xB8\x00\x00\x00\x00\x90";
+    memcpy(&(replace[1]), &patched_val, 4);
+
+    if (!wildcard_find_and_patch_hex(g_game_dll_fn, "\xA1????\x8B\xC8\xC1\xE1\x05\x2B\xC8\x03\xC9\xB8\x1F\x85\xEB\x51\xF7\xE9\xC1\xFA\x05", 24, 0, replace, 5))
+    {
+            LOG("popnhax: cannot change judgement display offset (1)\n");
+            return false;
+    }
+
+    if (!wildcard_find_and_patch_hex(g_game_dll_fn, "\xA1????\x0F\xBF\x1D????\x8B\xC8\xC1\xE1\x05\x2B\xC8\x03\xC9\xB8\x1F\x85\xEB\x51", 26, 0, replace, 5))
+    {
+            LOG("popnhax: cannot change judgement display offset (2)\n");
+            return false;
+    }
+
+    if ( include_battlemode )
+    {
+        if (!wildcard_find_and_patch_hex(g_game_dll_fn, "\x8B\x80????\x0F\xBF\x34\xB5????\x8B\xC8\xC1\xE1\x05\x2B\xC8\x03\xC9\xB8\x1F\x85\xEB\x51", 28, 0, replace, 6))
+        {
+            LOG("popnhax: cannot change judgement display offset for battle mode (1)\n");
+            return false;
+        }
+        if (!wildcard_find_and_patch_hex(g_game_dll_fn, "\x8B\x81????\x0F\xBF\x1C\xBD????\x8B\xC8\xC1\xE1\x05\x2B\xC8\x03\xC9\xB8\x1F\x85\xEB\x51", 28, 0, replace, 6))
+        {
+            LOG("popnhax: cannot change judgement display offset for battle mode (2)\n");
+            return false;
+        }
+    }
+
+    LOG("popnhax: judgement display offset by %d\n", value);
+    return true;
+}
+
 static bool option_full()
 {
     /* patch default values in memory init function */
@@ -8883,6 +8922,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (config.quick_boot)
         {
             patch_quick_boot();
+        }
+
+        if (config.judgement_display_offset)
+        {
+            patch_judgement_display_offset(config.judgement_display_offset);
         }
 
         if (config.time_rate)

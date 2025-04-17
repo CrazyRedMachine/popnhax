@@ -73,6 +73,7 @@ struct popnhax_config {
     bool high_framerate;
     bool high_framerate_limiter;
     uint16_t high_framerate_fps;
+    int16_t judgement_display_offset;
 
     /* removed/hidden */
     bool disable_expansions;
