@@ -72,6 +72,9 @@
     <!-- Note: target is still updated when manually changing hi-speed (except soflan and "?" charts) -->
     <hispeed_default_bpm __type="u16">0</hispeed_default_bpm>
 
+    <!-- Make lift option hide the area below the judgement bar -->
+    <hide_lift __type="bool">0</hide_lift>
+
     <!-- IIDX-like hard gauge (start with full gauge, instant fail if gauge drops to 0) -->
     <!-- Gauge details: increment: +0.1% for each cool/great/good (like spicy gauge), decrement: -9% for each bad, or -4.5% if gauge <=30% (like IIDX) -->
     <iidx_hard_gauge __type="bool">0</iidx_hard_gauge>

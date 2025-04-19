@@ -231,6 +231,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_slow_tim
                  "/popnhax/force_slow_timer")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_S16, struct popnhax_config, judgement_display_offset,
                  "/popnhax/judgement_display_offset")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, hide_lift,
+                 "/popnhax/hide_lift")
 /* removed options are now hidden as optional */
 PSMAP_MEMBER_OPT(PSMAP_PROPERTY_TYPE_U8, struct popnhax_config, survival_gauge,
                  "/popnhax/survival_gauge", 0)
@@ -8328,6 +8330,160 @@ static bool patch_half_timer_speed()
     return true;
 }
 
+// check whether we'll need to fake a hidden value (if lift is active but hidden isn't), when exiting option screen
+// beware we're going through this code twice, with one value in the stack indicating if it's the first pass
+bool g_fake_hidden = 0;
+void (*real_hide_lift_option)(void);
+void hook_hide_lift_option()
+{
+    __asm("cmp byte ptr [esp+0x1C], 0\n");
+    __asm("jne exit_hml_hook\n"); // not first pass, already handled
+
+    __asm("mov byte ptr [_g_fake_hidden], 0\n"); // rearm
+    __asm("cmp byte ptr [eax+0x13], 1\n");
+    __asm("jne exit_hml_hook\n"); // lift is not active, nothing to do
+
+    __asm("cmp byte ptr [eax+0x03], 1\n");
+    __asm("je exit_hml_hook\n"); // hidden is active, it overrides auto hidden
+
+    __asm("mov byte ptr [_g_fake_hidden], 1\n"); // mark mode
+
+    __asm("exit_hml_hook:\n");
+    real_hide_lift_option();
+}
+
+void hook_hide_lift_option_new()
+{
+    __asm("cmp byte ptr [esp+0x20], 0\n");
+    __asm("jne exit_hml_hook_new\n"); // not first pass, already handled
+
+    __asm("mov byte ptr [_g_fake_hidden], 0\n"); // rearm
+    __asm("cmp byte ptr [eax+0x3E], 1\n");
+    __asm("jne exit_hml_hook_new\n"); // lift is not active, nothing to do
+
+    __asm("cmp byte ptr [eax+0x2D], 1\n");
+    __asm("je exit_hml_hook_new\n"); // hidden is active, it overrides auto hidden
+
+    __asm("mov byte ptr [_g_fake_hidden], 1\n"); // mark mode
+
+    __asm("exit_hml_hook_new:\n");
+    real_hide_lift_option();
+}
+
+// fake -1*(lift+90) hidden+ value when computing box size
+void (*real_hidden_coord)(void);
+void hook_hidden_coord()
+{
+    __asm("cmp byte ptr [_g_fake_hidden], 1\n");
+    __asm("jne exit_hidcoord_hook\n"); // lift is not active, nothing to do
+
+    __asm("push ebx\n");
+    __asm("movsx ebx, word ptr [esp+0x44]\n"); // lift value
+    __asm("add ebx, 90\n");
+    __asm("neg ebx\n");
+    __asm("mov ax, bx\n");
+    __asm("pop ebx\n");
+
+    __asm("exit_hidcoord_hook:\n");
+    real_hidden_coord();
+}
+void hook_hidden_coord_new()
+{
+    __asm("cmp byte ptr [_g_fake_hidden], 1\n");
+    __asm("jne exit_hidcoord_hook_new\n"); // lift is not active, nothing to do
+
+    __asm("push ebx\n");
+    __asm("movsx ebx, word ptr [esp+0x4A]\n"); // lift value
+    __asm("add ebx, 90\n");
+    __asm("neg ebx\n");
+    __asm("mov ax, bx\n");
+    __asm("pop ebx\n");
+
+    __asm("exit_hidcoord_hook_new:\n");
+    real_hidden_coord();
+}
+
+// fake hidden+ being enabled in options when checking whether to draw the black box
+void (*real_hidden_check)(void);
+void hook_hidden_check()
+{
+    __asm("jne exit_hidden_check\n"); // hidden was already active, nothing to do
+    __asm("cmp byte ptr [_g_fake_hidden], 0\n");
+    __asm("exit_hidden_check:\n");
+    real_hidden_check();
+}
+
+// fake hidden+ toggle (numpad0) being enabled when checking whether to draw the black box
+void (*real_hidden_toggle_check)(void);
+void hook_hidden_toggle_check()
+{
+    __asm("jne exit_hidden_toggle_check\n"); // hidden toggle was already active, nothing to do
+    __asm("cmp byte ptr [_g_fake_hidden], 0\n");
+    __asm("exit_hidden_toggle_check:\n");
+    real_hidden_toggle_check();
+}
+
+static bool patch_hide_lift()
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\xB9\x13\x01\x00\x00\x83\xC4\x04\x2B\xC8", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: hide_lift: cannot find blackbox coordinates function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+
+        _MH_CreateHook((LPVOID)patch_addr, (config.game_version == 27) ? (LPVOID)hook_hidden_coord : (LPVOID)hook_hidden_coord_new,
+                     (void **)&real_hidden_coord);
+    }
+
+    {
+        int64_t pattern_offset = _wildcard_search(data, dllSize, "\xE8????\x83\x7C\x24?\x00\x0F\x85?\x02\x00\x00\x8B??\x9E\x00\x00", 22, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: hide_lift: cannot find option commit function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x05;
+
+        _MH_CreateHook((LPVOID)patch_addr, (config.game_version == 27) ? (LPVOID)hook_hide_lift_option : (LPVOID)hook_hide_lift_option_new,
+                     (void **)&real_hide_lift_option);
+    }
+
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\xB9\x0F\x01\x00\x00\x66\x03\x08\x80\x7C", 10, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: hide_lift: cannot find hidden state check function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x0D;
+
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_hidden_check,
+                     (void **)&real_hidden_check);
+    }
+
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\x00\x0F\x84\xFF\x00\x00\x00\xE8", 8, 0);
+        if (pattern_offset == -1) {
+            LOG("popnhax: hide_lift: cannot find hidden toggle state check function\n");
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset + 0x01;
+
+        _MH_CreateHook((LPVOID)patch_addr, (LPVOID)hook_hidden_toggle_check,
+                     (void **)&real_hidden_toggle_check);
+    }
+
+    LOG("popnhax: hide_lift enabled (hide the area below judgement bar)\n");
+    return true;
+}
+
 static bool patch_afp_framerate(uint16_t fps)
 {
     DWORD framerate = fps;
@@ -8544,6 +8700,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                     LOG("popnhax: multiboot: auto disable tachi hooks (not supported)\n");
                     config.tachi_scorehook = false;
                     config.tachi_rivals = false;
+                }
+                if ((config.hide_lift) && ( config.game_version < 27 || strcmp(config.force_datecode,"2022061300") <= 0 ) )
+                {
+                    LOG("popnhax: multiboot: auto disable hide lift (no lift in this version)\n");
+                    config.hide_lift = false;
                 }
             }
         }
@@ -8927,6 +9088,18 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         if (config.judgement_display_offset)
         {
             patch_judgement_display_offset(config.judgement_display_offset);
+        }
+
+        if (config.hide_lift)
+        {
+            if ( config.game_version < 27 )
+            {
+                LOG("WARNING: hide_lift: patch is not compatible with your game version, disabling it.\n");
+            }
+            else
+            {
+                patch_hide_lift();
+            }
         }
 
         if (config.time_rate)
