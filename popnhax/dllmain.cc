@@ -143,6 +143,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_db,
                  "/popnhax/patch_db")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, disable_multiboot,
                  "/popnhax/disable_multiboot")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, datecode_prop_parsing,
+                 "/popnhax/datecode_prop_parsing")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_STR, struct popnhax_config, force_patch_xml,
                  "/popnhax/force_patch_xml")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, patch_xml_dump,
@@ -8706,6 +8708,70 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
                     LOG("popnhax: multiboot: auto disable hide lift (no lift in this version)\n");
                     config.hide_lift = false;
                 }
+            }
+        }
+
+        // if datecode auto but no custom filename (or disabled multiboot), look for highest datecode in prop files
+        if (config.datecode_prop_parsing && strcmp(config.force_datecode, "auto") == 0)
+        {
+            const char *files[3] = { "prop/bootstrap.xml", "prop/ea3-ident.xml", "prop/ea3-config.xml" };
+            uint8_t idx_max = 0;
+            uint8_t idx = 0;
+            uint8_t *datecode = NULL;
+            uint8_t *datecode_max = NULL;
+
+            property *config_xml = load_prop_file("prop/bootstrap.xml");
+            READ_STR_OPT(config_xml, property_search(config_xml, NULL, "/config"), "release_code", datecode)
+            free(config_xml);
+            if (datecode != NULL)
+            {
+                if (datecode_max == NULL || strcmp((char*)datecode, (char*)datecode_max)>0)
+                {
+                    free(datecode_max);
+                    datecode_max = datecode;
+                    idx_max = idx;
+                }
+                else
+                    free(datecode);
+            }
+
+            idx++;
+            config_xml = load_prop_file("prop/ea3-ident.xml");
+            READ_STR_OPT(config_xml, property_search(config_xml, NULL, "/ea3_conf/soft"), "ext", datecode)
+            free(config_xml);
+            if (datecode != NULL)
+            {
+                if (datecode_max == NULL || strcmp((char*)datecode, (char*)datecode_max)>0)
+                {
+                    free(datecode_max);
+                    datecode_max = datecode;
+                    idx_max = idx;
+                }
+                else
+                    free(datecode);
+            }
+
+            idx++;
+            config_xml = load_prop_file("prop/ea3-config.xml");
+            READ_STR_OPT(config_xml, property_search(config_xml, NULL, "/ea3/soft"), "ext", datecode)
+            free(config_xml);
+            if (datecode != NULL)
+            {
+                if (datecode_max == NULL || strcmp((char*)datecode, (char*)datecode_max)>0)
+                {
+                    free(datecode_max);
+                    datecode_max = datecode;
+                    idx_max = idx;
+                }
+                else
+                    free(datecode);
+            }
+
+            if (datecode_max != NULL)
+            {
+                LOG("popnhax: datecode: found datecode %s from file %s\n", datecode_max, files[idx_max]);
+                memcpy(config.force_datecode, datecode_max, 11);
+                free(datecode_max);
             }
         }
 

@@ -132,12 +132,14 @@
        ======================================================================================== -->
 
   <!-- Datecode and Multiboot -->
-    <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00), or use "auto" to let music limit decide for you if patch_db is on -->
+    <!-- Force a different datecode than the one found in ea3-config (yyyymmdd00), or use "auto" to let popnhax guess based on your data -->
     <force_datecode __type="str">auto</force_datecode>
     <!-- Also apply force_datecode to network packets -->
     <network_datecode __type="bool">1</network_datecode>
     <!-- Disable multiboot auto conf tuning (which takes place when using popn22_yyyymmddrr.dll format and an xml without another datecode in force_datecode) -->
     <disable_multiboot __type="bool">0</disable_multiboot>
+    <!-- Look for the most recent datecode in bootstrap.xml / ea3-config.xml / ea3-ident.xml (requires force_datecode "auto") -->
+    <datecode_prop_parsing __type="bool">1</datecode_prop_parsing>
 
   <!-- Timing and lanes -->
     <!-- Base visual offset (value will be added to the base SD (-60) and base HD (-76) values) -->

@@ -46,6 +46,7 @@ struct popnhax_config {
 
     bool patch_db;
     bool disable_multiboot;
+    bool datecode_prop_parsing;
     bool patch_xml_dump;
     bool ignore_music_limit;
     char force_patch_xml[MAX_PATH+1];
