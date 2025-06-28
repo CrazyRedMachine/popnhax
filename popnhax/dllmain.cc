@@ -133,6 +133,8 @@ PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, freeze_timer,
                  "/popnhax/freeze_timer")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, skip_tutorials,
                  "/popnhax/skip_tutorials")
+PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, auto_play,
+                 "/popnhax/auto_play")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, force_full_opt,
                  "/popnhax/force_full_opt")
 PSMAP_MEMBER_REQ(PSMAP_PROPERTY_TYPE_BOOL, struct popnhax_config, netvs_off,
@@ -2513,6 +2515,40 @@ static bool patch_skip_tutorials() {
     }
 
     LOG("popnhax: menu and long note tutorials skipped\n");
+
+    return true;
+}
+
+static bool patch_auto_play() {
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    {
+        int64_t pattern_offset = _search(data, dllSize, "\x84\xC0\x0F\x84\x08\x01\x00\x00", 8, 0);
+        if (pattern_offset == -1) {
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        patch_memory(patch_addr, (char *)"\x84\xC0\x90\x90\x90\x90\x90\x90", 8);
+    }
+
+    {
+        int64_t first_loc = _search(data, dllSize, "\x84\xC0\x90\x90\x90\x90\x90\x90", 8, 0);
+        if (first_loc == -1) {
+            return false;
+        }
+
+        int64_t pattern_offset = _search(data, 0x180, "\x74\x53", 2, first_loc);
+        if (pattern_offset == -1) {
+            return false;
+        }
+
+        uint64_t patch_addr = (int64_t)data + pattern_offset;
+        patch_memory(patch_addr, (char *)"\x90\x90", 2);
+    }
+
+    LOG("popnhax: autoplay enabled\n");
 
     return true;
 }
@@ -8968,6 +9004,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
 
         if (config.skip_tutorials) {
             patch_skip_tutorials();
+        }
+
+        if (config.auto_play) {
+            patch_auto_play();
         }
 
         if (config.patch_db) {

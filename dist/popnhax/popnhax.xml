@@ -45,6 +45,8 @@
     <freeze_timer __type="bool">0</freeze_timer>
     <!-- Force skip menu and long note tutorials without a card -->
     <skip_tutorials __type="bool">0</skip_tutorials>
+    <!-- Don't cheat on shared networks -->
+    <auto_play __type="bool">0</auto_play>
 
   <!-- Stage management -->
     <!-- Premium free (unlimited stages per credit) -->

@@ -29,6 +29,7 @@ struct popnhax_config {
     bool remove_timer;
     bool freeze_timer;
     bool skip_tutorials;
+    bool auto_play;
     bool force_full_opt;
     bool netvs_off;
     bool guidese_off;
