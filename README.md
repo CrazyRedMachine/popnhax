@@ -1,5 +1,3 @@
-[![Donate](https://img.shields.io/badge/Donate-PayPal-green.svg)](https://www.paypal.com/donate?hosted_button_id=WT735CX4UMZ9U)
-
 # popnhax
 
 Patcher for pop'n music arcade game.
@@ -15,7 +13,6 @@ popnhax uses:
 - [libcurl](https://curl.se/libcurl/) and [mbedtls](https://github.com/Mbed-TLS/mbedtls)
 - [jsmn](https://github.com/zserge/jsmn), [jsmn-find](https://github.com/lcsmuller/jsmn-find) and [chash](https://github.com/c-ware/chash)
 
-Special thanks to Nagato for the original popnhax and omnimix
 Special thanks to r2nk226 and pulse for their contributions
 
 ### Features
