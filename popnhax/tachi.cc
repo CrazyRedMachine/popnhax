@@ -627,8 +627,8 @@ bool load_conf(char *friendid)
     sprintf(g_import_url, "%s%s", base, "/ir/direct-manual/import");
     sprintf(g_status_url, "%s%s", base, "/api/v1/status");
     sprintf(g_users_url_prefix, "%s%s", base, "/api/v1/users");
-    sprintf(g_rivals_url, "%s%s", base, "/api/v1/users/me/games/popn/9B/rivals");
-    sprintf(g_pbs_url_suffix, "%s", "/games/popn/9B/pbs/all");
+    sprintf(g_rivals_url, "%s%s", base, "/api/v1/users/me/games/popn/rivals");
+    sprintf(g_pbs_url_suffix, "%s", "/games/popn/pbs/all");
 
     return true;
 }
