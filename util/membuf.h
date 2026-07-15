@@ -7,6 +7,7 @@ typedef struct membuf_s {
 	char *buffer;
 	uint32_t size;
 	uint32_t idx;
+	uint32_t capacity;
 } membuf_t;
 
 membuf_t* membuf_new(uint32_t size);
