@@ -2175,6 +2175,17 @@ static bool patch_database() {
         config.disable_expansions = true;
     }
 
+    // Flavor table growth is only safe when the generated patch set covers
+    // the flavor table manager and those patches will actually be applied.
+    if (!config.disable_expansions) {
+        for (size_t i = 0; i < other_offsets.size(); i++) {
+            if (other_offsets[i]->type == FLAVOR_TABLE_IDX && other_offsets[i]->method == 14) {
+                g_flavor_slots_expansion = true;
+                break;
+            }
+        }
+    }
+
     musichax_core_init(&config,
         target,
 
@@ -2349,6 +2360,16 @@ static bool patch_database() {
                 case 12:
                     value = 0x9090909090909090;
                     patch_size = other_offsets[i]->size;
+                    break;
+
+                // Add limit_diff * 2 (u16 per-entry arrays)
+                case 13:
+                    value = cur_value + (limit_diff * 2);
+                    break;
+
+                // Add limit_diff * 0x18 (flavor table manager)
+                case 14:
+                    value = cur_value + (limit_diff * 0x18);
                     break;
 
                 default:
@@ -2608,7 +2629,10 @@ bool force_unlock_charas() {
                 // These should *probably* always be 0 but won't be after the table ends
                 break;
             }
-
+            
+            // note: changing this from 3 to 1 can hide enemy-only characters that might appear
+            // in the chara select by accident if a leak occurs (which hasn't happened to me)
+            // since i did a clean dump of my omnimix data so... not needed i suppose
             uint32_t new_flags = entry->flags & ~3;
 
             if (new_flags != entry->flags && entry->disp_name_ptr != NULL && strlen((char*)entry->disp_name_ptr) > 0) {

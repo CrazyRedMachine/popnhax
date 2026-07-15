@@ -6,6 +6,11 @@
 
 int8_t get_chart_type_override(uint8_t *, uint32_t, uint32_t);
 
+// Set by dllmain before musichax_core_init when the generated patch set
+// covers the flavor slot manager (one inline slot vector per
+// flavor); flavor table growth is only safe with those patches applied.
+extern bool g_flavor_slots_expansion;
+
 void musichax_core_init(struct popnhax_config *config,
                         char *target_datecode, char *base_data, uint64_t music_size,
                         uint64_t *new_music_size, char *orig_music_data, uint8_t **new_music_table,
