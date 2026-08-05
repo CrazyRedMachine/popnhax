@@ -102,6 +102,32 @@ int32_t max_chara_id = -1;
 uint8_t *chara_table = NULL;
 static uint8_t chara_table_nullptr[1] = {};
 
+uint32_t *g_medley_charas = NULL;
+uint32_t g_medley_charas_count = 0;
+static uint32_t g_medley_charas_size = 0;
+
+// medley in a chardb entry
+static void register_medley_chara(uint32_t idx) {
+    for (uint32_t i = 0; i < g_medley_charas_count; i++) {
+        if (g_medley_charas[i] == idx)
+            return;
+    }
+    if (g_medley_charas_count == g_medley_charas_size) {
+        uint32_t new_size = g_medley_charas_size ? g_medley_charas_size * 2 : 8;
+        uint32_t *grown =
+            (uint32_t *)realloc(g_medley_charas, new_size * sizeof(uint32_t));
+        if (grown == NULL) {
+            printf("medley: cannot grow the movie character list to %u entries, "
+                   "dropping chara %u\n",
+                   new_size, idx);
+            return;
+        }
+        g_medley_charas = grown;
+        g_medley_charas_size = new_size;
+    }
+    g_medley_charas[g_medley_charas_count++] = idx;
+}
+
 std::map<uint32_t, bool> used_music_id;
 const uint32_t music_table_growth_size = 50;
 uint32_t music_table_size = 0;
@@ -758,6 +784,11 @@ void parse_charadb(const char *input_filename, const char *target) {
             READ_STR_OPT(config_xml, prop, "catchtext", c->catchtext_ptr)
             READ_S16_OPT(config_xml, prop, "win2_trigger", c->win2_trigger)
             READ_U32_OPT(config_xml, prop, "game_version", c->game_version)
+
+            // medley character patch
+            uint8_t medley = 0;
+            READ_U8_OPT(config_xml, prop, "medley", medley)
+            if (medley != 0) register_medley_chara(idx);
 
             property_node *prop_flavor = NULL;
             int32_t flavor_idx = -1;

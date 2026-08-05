@@ -8510,6 +8510,107 @@ static bool patch_hide_lift()
     return true;
 }
 
+// Fix for medley-type charas
+// There are 13 character ids on a table on latest j&f that match all
+// movie type characters (taisou, miracle, popn22's ending sequence, etc)
+// and returns true if the current id is one of those
+// What the heck does it do? It skips over playing the fever animation
+// when there's a highlight zone, which avoids the movie character from restarting
+// its animation from the beginning.
+static bool patch_medley_charas(void)
+{
+    DWORD dllSize = 0;
+    char *data = getDllData(g_game_dll_fn, &dllSize);
+
+    int64_t pattern_offset = _wildcard_search(data, dllSize,
+        "\x33\xC0\x3B\x88\x3F\x3F\x3F\x3F\x74\x0B\x83\xC0\x04\x83\xF8\x3F"
+        "\x72\xF0\x32\xC0\xC3\xB0\x01\xC3", 24, 0);
+    if (pattern_offset == -1) {
+        LOG("popnhax: medley: cannot find the movie-character table\n");
+        return false;
+    }
+
+    uint8_t *fn = (uint8_t *)data + pattern_offset;
+    uint32_t *stock_table = *(uint32_t **)(fn + 4);
+    uint32_t stock = fn[15] / 4;
+    if (stock == 0) {
+        LOG("popnhax: medley: unexpected movie-character table size (%u)\n", stock);
+        return false;
+    }
+
+    uint32_t *table =
+        (uint32_t *)malloc((stock + g_medley_charas_count + 1) * sizeof(uint32_t));
+    if (table == NULL) {
+        LOG("popnhax: medley: out of memory\n");
+        return false;
+    }
+    memcpy(table, stock_table, stock * sizeof(uint32_t));
+
+    uint32_t count = stock;
+    for (uint32_t i = 0; i < g_medley_charas_count; i++) {
+        uint32_t id = g_medley_charas[i];
+
+        bool dup = false;
+        for (uint32_t j = 0; j < count; j++)
+            dup |= (table[j] == id);
+        if (dup) {
+            LOG("popnhax: medley: chara %u is already a movie character\n", id);
+            continue;
+        }
+
+        table[count++] = id;
+        LOG("popnhax: medley: chara %u is a movie character\n", id);
+    }
+
+    if (count == stock) {
+        LOG("popnhax: medley: nothing to add\n");
+        free(table);
+        return true;
+    }
+    table[count] = 0xFFFFFFFF;
+
+    uint32_t table_addr = (uint32_t)(uintptr_t)table;
+    if (count * 4 <= 0x7F) {
+        uint8_t new_bound = (uint8_t)(count * 4);
+        patch_memory((uint64_t)(fn + 4), (char *)&table_addr, 4);
+        patch_memory((uint64_t)(fn + 15), (char *)&new_bound, 1);
+    } else {
+        for (uint32_t i = 24; i < 32; i++) {
+            if (fn[i] != 0xCC) {
+                LOG("popnhax: medley: %u entries need a bigger loop and there is "
+                    "no room after the function, keeping the first %u\n",
+                    count, 0x7F / 4);
+                count = 0x7F / 4;
+                uint8_t new_bound = (uint8_t)(count * 4);
+                patch_memory((uint64_t)(fn + 4), (char *)&table_addr, 4);
+                patch_memory((uint64_t)(fn + 15), (char *)&new_bound, 1);
+                LOG("popnhax: medley: %u stock + %u custom movie character(s)\n",
+                    stock, count - stock);
+                return true;
+            }
+        }
+        uint8_t code[] = {
+            0xB8, 0x00, 0x00, 0x00, 0x00,   // mov eax, table
+            0x8B, 0x10,                     // loop: mov edx, [eax]
+            0x83, 0xFA, 0xFF,               //       cmp edx, -1
+            0x74, 0x0A,                     //       je  notfound
+            0x83, 0xC0, 0x04,               //       add eax, 4
+            0x39, 0xCA,                     //       cmp edx, ecx
+            0x75, 0xF2,                     //       jne loop
+            0xB0, 0x01,                     //       mov al, 1
+            0xC3,                           //       ret
+            0x32, 0xC0,                     // notfound: xor al, al
+            0xC3,                           //       ret
+        };
+        memcpy(code + 1, &table_addr, 4);
+        patch_memory((uint64_t)fn, (char *)code, sizeof(code));
+    }
+
+    LOG("popnhax: medley: %u stock + %u custom movie character(s)\n",
+        stock, count - stock);
+    return true;
+}
+
 static bool patch_afp_framerate(uint16_t fps)
 {
     DWORD framerate = fps;
@@ -9190,6 +9291,11 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
             {
                 patch_hide_lift();
             }
+        }
+
+        if (g_medley_charas_count != 0)
+        {
+            patch_medley_charas();
         }
 
         if (config.time_rate)
