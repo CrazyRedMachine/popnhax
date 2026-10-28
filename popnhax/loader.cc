@@ -48,7 +48,7 @@ uint32_t add_flavor(int32_t cur_idx, uint8_t *phrase1, uint8_t *phrase2, uint8_t
                     uint8_t chara3_birth_month, uint8_t chara1_birth_date,
                     uint8_t chara2_birth_date, uint8_t chara3_birth_date, uint16_t style1,
                     bool style2_flag, uint16_t style3, uint32_t fontstyle_fontface,
-                    uint32_t fontstyle_color, uint32_t fontstyle_height, uint32_t fontstyle_width);
+                    uint32_t fontstyle_color, uint32_t fontstyle_height, uint32_t fontstyle_width, bool override_idx);
 
 uint32_t add_chara(int32_t cur_idx, uint8_t *chara_id_ptr, uint32_t flags, uint8_t *folder_ptr,
                    uint8_t *gg_ptr, uint8_t *cs_ptr, uint8_t *icon1_ptr, uint8_t *icon2_ptr,
@@ -74,6 +74,9 @@ void parse_musicdb(const char *input_filename, const char *target, struct popnha
 std::map<uint32_t, int8_t> chart_type_overrides;
 
 uint32_t flavor_limit = 0;
+// See loader.h: whether the binary patches for the character-select slot
+// manager were generated, making flavor table growth safe.
+bool g_flavor_slots_expansion = false;
 
 uint8_t *filler_str = add_string((uint8_t *)"\x81\x5d\x00");
 
@@ -98,6 +101,32 @@ uint32_t chara_table_size = 0;
 int32_t max_chara_id = -1;
 uint8_t *chara_table = NULL;
 static uint8_t chara_table_nullptr[1] = {};
+
+uint32_t *g_medley_charas = NULL;
+uint32_t g_medley_charas_count = 0;
+static uint32_t g_medley_charas_size = 0;
+
+// medley in a chardb entry
+static void register_medley_chara(uint32_t idx) {
+    for (uint32_t i = 0; i < g_medley_charas_count; i++) {
+        if (g_medley_charas[i] == idx)
+            return;
+    }
+    if (g_medley_charas_count == g_medley_charas_size) {
+        uint32_t new_size = g_medley_charas_size ? g_medley_charas_size * 2 : 8;
+        uint32_t *grown =
+            (uint32_t *)realloc(g_medley_charas, new_size * sizeof(uint32_t));
+        if (grown == NULL) {
+            printf("medley: cannot grow the movie character list to %u entries, "
+                   "dropping chara %u\n",
+                   new_size, idx);
+            return;
+        }
+        g_medley_charas = grown;
+        g_medley_charas_size = new_size;
+    }
+    g_medley_charas[g_medley_charas_count++] = idx;
+}
 
 std::map<uint32_t, bool> used_music_id;
 const uint32_t music_table_growth_size = 50;
@@ -362,7 +391,7 @@ uint32_t add_flavor(int32_t cur_idx, uint8_t *phrase1, uint8_t *phrase2, uint8_t
                     uint8_t chara3_birth_month, uint8_t chara1_birth_date,
                     uint8_t chara2_birth_date, uint8_t chara3_birth_date, uint16_t style1,
                     bool style2_flag, uint16_t style3, uint32_t fontstyle_fontface,
-                    uint32_t fontstyle_color, uint32_t fontstyle_height, uint32_t fontstyle_width) {
+                    uint32_t fontstyle_color, uint32_t fontstyle_height, uint32_t fontstyle_width, bool override_idx) {
     if (flavor_table == NULL || cur_idx + 1 >= (int)flavor_table_size) {
         // Realloc array to hold more flavors
         uint32_t new_flavor_table_size = cur_idx + 1 + flavor_table_growth_size;
@@ -384,6 +413,7 @@ uint32_t add_flavor(int32_t cur_idx, uint8_t *phrase1, uint8_t *phrase2, uint8_t
     }
 
     // This table is limited so keep it as small as possible
+    if (!override_idx) {
     for (int32_t i = 0; i < cur_idx; i++) {
         flavor_entry *cur = (flavor_entry *)flavor_table + i;
 
@@ -417,6 +447,7 @@ uint32_t add_flavor(int32_t cur_idx, uint8_t *phrase1, uint8_t *phrase2, uint8_t
                  fs->height == fontstyle_height && fs->width == fontstyle_width))) {
             return i;
         }
+    }
     }
 
     uint16_t style2 = add_style(fontmax_style_id + 1, fontstyle_fontface, fontstyle_color,
@@ -754,6 +785,11 @@ void parse_charadb(const char *input_filename, const char *target) {
             READ_S16_OPT(config_xml, prop, "win2_trigger", c->win2_trigger)
             READ_U32_OPT(config_xml, prop, "game_version", c->game_version)
 
+            // medley character patch
+            uint8_t medley = 0;
+            READ_U8_OPT(config_xml, prop, "medley", medley)
+            if (medley != 0) register_medley_chara(idx);
+
             property_node *prop_flavor = NULL;
             int32_t flavor_idx = -1;
             if ((prop_flavor = property_search(config_xml, prop, "/flavor"))) {
@@ -789,27 +825,38 @@ void parse_charadb(const char *input_filename, const char *target) {
                     // printf("style[%d] idx[%d]\n", style_table_ptr, style2_idx);
                 }
 
-                flavor_idx = add_flavor(
-                    max_flavor_id + 1, phrase1_ptr, phrase2_ptr, phrase3_ptr, phrase4_ptr,
-                    phrase5_ptr, phrase6_ptr, birthday_ptr, chara1_birth_month, chara2_birth_month,
-                    chara3_birth_month, chara1_birth_date, chara2_birth_date, chara3_birth_date,
-                    style1, style2_flag, style3, fontface, color, height, width);
+                // The flavor index doubles as the character select slot index: the
+                // select manager has one inline slot vector per flavor. Growing the
+                // flavor table is only safe when the generated patches cover that
+                // manager (g_flavor_slots_expansion); otherwise an index past the
+                // stock limit corrupts it instead of adding a slot.
+                // An explicit <id> lets a custom chara claim (and rewrite) a stock
+                // flavor entry; ids whose slot is empty in the stock roster give the
+                // chara its own select slot (Jam&Fizz: 390, 527, 667, 693, 717).
+                int16_t explicit_flavor_id = -1;
+                READ_S16_OPT(config_xml, prop_flavor, "id", explicit_flavor_id)
 
-                // printf("flavor[%d] idx[%d]\n", max_flavor_id, flavor_idx);
-
-                if (flavor_idx > (int32_t)flavor_limit) {
-                    // This is a hack because I don't feel like finding the proper buffers to patch
-                    // for this
-                    printf("WARNING: Overflowed flavor text table limit of %d, defaulting to index "
-                           "0 instead of %d\n",
-                           flavor_limit, flavor_idx);
+                int32_t target_flavor_idx = explicit_flavor_id >= 0 ? explicit_flavor_id
+                                                                    : max_flavor_id + 1;
+                if (target_flavor_idx >= (int32_t)flavor_limit && !g_flavor_slots_expansion) {
+                    LOG("Flavor %d exceeds the table limit of %d and the select-slot "
+                           "manager patches are unavailable, defaulting to index 1\n",
+                           target_flavor_idx, flavor_limit);
                     flavor_idx = -1;
+                } else {
+                    flavor_idx = add_flavor(
+                        target_flavor_idx, phrase1_ptr, phrase2_ptr, phrase3_ptr, phrase4_ptr,
+                        phrase5_ptr, phrase6_ptr, birthday_ptr, chara1_birth_month,
+                        chara2_birth_month, chara3_birth_month, chara1_birth_date,
+                        chara2_birth_date, chara3_birth_date, style1, style2_flag, style3,
+                        fontface, color, height, width, explicit_flavor_id >= 0);
                 }
 
-                c->flavor_idx = flavor_idx;
-            }
-
-            if ((c->flavor_idx == 0 || c->flavor_idx == -1)) {
+                c->flavor_idx = (flavor_idx == -1) ? 1 : flavor_idx;
+            } else if (is_fresh && (c->flavor_idx == 0 || c->flavor_idx == -1)) {
+                // Brand-new chara without a <flavor> block: add_chara left the
+                // default 0, which we can't tell apart from "unset", so give it
+                // a known-valid flavor. Existing charas keep their stock value.
                 c->flavor_idx = 1;
                 printf("Setting default flavor for chara id %d\n", idx);
             }
@@ -1191,7 +1238,7 @@ void musichax_core_init(struct popnhax_config *config,
             cur->chara1_birth_month, cur->chara2_birth_month, cur->chara3_birth_month,
             cur->chara1_birth_date, cur->chara2_birth_date, cur->chara3_birth_date, cur->style1,
             true, cur->style3, cur_style->fontface, cur_style->color, cur_style->height,
-            cur_style->width);
+            cur_style->width, true);
     }
 
     // Copy character database for use in the music database
@@ -1293,8 +1340,10 @@ void musichax_core_init(struct popnhax_config *config,
     }
 
     // Add one extra song as padding
+    // (>= : when the highest added id is exactly the original table size, we
+    // still grew the table by one entry and need the padding/limit bump)
     {
-        if (max_music_id > (int64_t)music_size) {
+        if (max_music_id >= (int64_t)music_size - 1) {
             static const uint8_t diffs[6] = {0};
             static const uint16_t charts[7] = {0};
             static const uint16_t unk1[32] = {0};
@@ -1307,12 +1356,22 @@ void musichax_core_init(struct popnhax_config *config,
                         (uint16_t *)&display_bpm[0], (uint8_t *)&hold_flags[0], true);
         }
 
-        if (max_chara_id > (int64_t)chara_size) {
+        if (max_chara_id >= (int64_t)chara_size - 1) {
             add_chara(max_chara_id + 1, add_string((uint8_t *)"bamb_1a"), 0x31, add_string((uint8_t *)"22"),
                         add_string((uint8_t *)"gg_bamb_1a"), add_string((uint8_t *)"cs_bamb_1a"),
                         add_string((uint8_t *)"cs_a"), add_string((uint8_t *)"cs_b"), 240, 220, 0,
                         0, 0, NULL, NULL, 53, get_lapis_shape_id((uint8_t *)"dia"),
                         get_lapis_color_id((uint8_t *)"yellow"), NULL, NULL, -1, 0);
+        }
+
+        // Flavors follow the same max-vs-count convention as music/chara
+        // above: the filler entry makes new_flavor_size come out as stock
+        // size + number of flavors added, which is the limit_diff the
+        // select-slot manager patches (method 14) are scaled by. Only
+        // reachable when g_flavor_slots_expansion allowed growth.
+        if (max_flavor_id >= (int64_t)flavor_size - 1) {
+            add_flavor(max_flavor_id + 1, NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0, 0, 0, 0,
+                       0, 0, 0, false, 0, 0, 0, 0, 0, false);
         }
     }
 
@@ -1322,6 +1381,9 @@ void musichax_core_init(struct popnhax_config *config,
         fontmax_style_id = style_size;
         max_flavor_id = flavor_size;
         max_chart_id = chart_size;
+    } else {
+        fontmax_style_id++;
+        max_chart_id++;
     }
 
     if (is_redirection_allowed) {
@@ -1373,7 +1435,11 @@ void musichax_core_init(struct popnhax_config *config,
 
         character_entry *c = (character_entry *)*new_chara_table;
         for (uint64_t i = 0; i < *new_chara_size; i++) {
-            uint32_t new_flags = c[i].flags & ~3;
+            // Only clear bit 0 (locked, unlockable by play). Bit 1 marks
+            // hidden/NPC entries (licensed-song mascots, MZD staff variants)
+            // that are never player-selectable; clearing it leaks them into
+            // the character-select roster.
+            uint32_t new_flags = c[i].flags & ~1;
 
             if (new_flags != c[i].flags && c[i].disp_name_ptr != NULL && strlen((char*)c[i].disp_name_ptr) > 0) {
                 printf("Unlocking [%04lld] %s... %08x -> %08x\n", i, c[i].disp_name_ptr, c[i].flags, new_flags);

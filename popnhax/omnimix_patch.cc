@@ -744,12 +744,21 @@ bool make_omnimix_patch(const char *dllFilename, membuf_t *membuf, char *datecod
 
     membuf_printf(membuf, "\t<other_patches>\n");
     /* create update_patches */
-    update_patches_t update_patches[23] = {
+    update_patches_t update_patches[26] = {
         { .idx = MUSIC_IDX, .patch_method = 0, .value = g_tables[MUSIC_IDX].limit - 1 },
         { .idx = MUSIC_IDX, .patch_method = 0, .value = g_tables[MUSIC_IDX].limit },
         { .idx = CHART_IDX, .patch_method = 0, .value = g_tables[CHART_IDX].limit },
         { .idx = CHART_IDX, .patch_method = 0, .value = g_tables[CHART_IDX].limit - 1 },
         { .idx = CHARA_IDX, .patch_method = 0, .value = g_tables[CHARA_IDX].limit },
+        // Chara idx clamps ("cmp ax, limit-1; ja invalid" sites) and the
+        // "Illegal Chara No" range check ("idx+7 <= limit+6", accounts for the
+        // 7 special negative chara ids). Without these, chara ids beyond the
+        // stock table fall back to the default chara, which is what prevented
+        // custom characters from working.
+        { .idx = CHARA_IDX, .patch_method = 0, .value = g_tables[CHARA_IDX].limit - 1 },
+        { .idx = CHARA_IDX, .patch_method = 0, .value = g_tables[CHARA_IDX].limit + 6 },
+        // Heap alloc of a per-chara u16 array sized (limit+6)*2 (netvs)
+        { .idx = CHARA_IDX, .patch_method = 13, .value = (g_tables[CHARA_IDX].limit + 6) * 2 },
         { .idx = FLAVOR_IDX, .patch_method = 0, .value = g_tables[FLAVOR_IDX].limit - 1 },
         { .idx = FLAVOR_IDX, .patch_method = 0, .value = g_tables[FLAVOR_IDX].limit },
 
@@ -775,7 +784,7 @@ bool make_omnimix_patch(const char *dllFilename, membuf_t *membuf, char *datecod
     };
 
     LOG("popnhax: patch_db_gen:     other_patches... ");
-    for (int i = 0; i < 23; i++)
+    for (size_t i = 0; i < sizeof(update_patches)/sizeof(update_patches[0]); i++)
     {
         uint32_t j = update_patches[i].value;
         bst_t *bst = bst_search(g_xref_bst, j);
@@ -795,6 +804,74 @@ bool make_omnimix_patch(const char *dllFilename, membuf_t *membuf, char *datecod
                 }
                 curr_elem = curr_elem->next;
             }
+        }
+    }
+
+    /* Flavor table slot manager: the select screen allocates a manager
+     * object holding one inline 0x18-byte slot vector per flavor (a chara's
+     * select slot index is its flavor_idx, while charas sharing a flavor are the
+     * variations cycled within one slot), followed by further members.
+     * Growing the flavor table therefore also requires rebasing the
+     * allocation size and every member offset located after that per-flavor
+     * array by limit_diff*0x18 (patch method 14), on top of the plain limit
+     * immediates handled above. The delta list below matches the Jam&Fizz
+     * layout and it is only emitted when the ctor bytecode matches
+     * ("push <flavor_limit>; push 0x18" and "lea ecx, [esi+<limit*0x18+4>]"),
+     * so on a game version with a different layout nothing is emitted and
+     * the loader keeps the flavor table capped.
+     * Please note that I only tested this under a recent build of J&F,
+     * and it might not work on an earlier release even. */
+    {
+        uint32_t flavor_limit = g_tables[FLAVOR_IDX].limit;
+        uint32_t slot_array_end = flavor_limit * 0x18 + 4;
+
+        char ctor_pat[7] = { '\x68', 0, 0, 0, 0, '\x6A', '\x18' };
+        memcpy(&ctor_pat[1], &flavor_limit, 4);
+        char lea_pat[6] = { '\x8D', '\x8E', 0, 0, 0, 0 };
+        memcpy(&lea_pat[2], &slot_array_end, 4);
+
+        if (find_binary(buf, dllSize, ctor_pat, 7, 0, 0) != NULL &&
+            find_binary(buf, dllSize, lea_pat, 6, 0, 0) != NULL)
+        {
+            LOG("popnhax: patch_db_gen:     select_slot_patches... ");
+            /* member offsets relative to the end of the per-flavor slot
+             * array, from the manager ctor/dtor and their SEH unwind
+             * funclets; the last entry is the manager allocation size */
+            static const uint16_t slot_mgr_deltas[] = {
+                0x000, 0x010, 0x0D8, 0x0E8, 0x108, 0x114, 0x118, 0x11C, 0x120,
+                0x12C, 0x130, 0x134, 0x138, 0x144, 0x148, 0x14C, 0x150, 0x160,
+                0x420, 0x42C, 0x430, 0x434, 0x438, 0x444, 0x448, 0x44C, 0x450,
+                0x45C, 0x460, 0x464, 0x468, 0x474, 0x478, 0x47C, 0x480, 0x48C,
+                0x490, 0x494, 0x498, 0x4A4, 0x4A8, 0x4AC, 0x4B0, 0x4BC, 0x4C0,
+                0x4C4, 0x4C8, 0x4D4, 0x4D8, 0x4DC, 0x4E0, 0x4EC, 0x4F0, 0x4F4,
+                0x4F8, 0x4FC, 0x500, 0x504, 0x508, 0x50C, 0x51C, 0x524, 0x53C,
+            };
+
+            for (size_t i = 0; i < sizeof(slot_mgr_deltas)/sizeof(slot_mgr_deltas[0]); i++)
+            {
+                uint32_t j = slot_array_end + slot_mgr_deltas[i];
+                bst_t *bst = bst_search(g_xref_bst, j);
+                if ( bst != NULL )
+                {
+                    offset_list_t *curr_elem = (offset_list_t*)(bst->extra_data);
+                    while ( curr_elem )
+                    {
+                        char line[LINE_SIZE];
+                        line[0] = '\0';
+                        int32_t addr_offset = parse_instruction(text, text_size, buf_reloc_delta, curr_elem->offset, j, line);
+
+                        if (addr_offset != -1)
+                        {
+                            membuf_printf(membuf, "\t\t<!-- %s -->\n", line);
+                            membuf_printf(membuf, "\t\t<%s __type=\"str\" method=\"14\" expected=\"0x%x\">0x%0x</%s>\n\n", g_tables[FLAVOR_IDX].name, j, (uint32_t)text_base_addr+(curr_elem->offset)+addr_offset, g_tables[FLAVOR_IDX].name);
+                        }
+                        curr_elem = curr_elem->next;
+                    }
+                }
+            }
+            LOG("done\n");
+        } else {
+            LOG("popnhax: patch_db_gen:     select_slot_patches: unknown select manager layout, flavor table growth will stay capped\n");
         }
     }
 
